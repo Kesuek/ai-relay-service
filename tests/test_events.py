@@ -19,7 +19,7 @@ os.environ["RELAY_DB_PATH"] = ""
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
 from relay_server.core.db import get_conn, init_db
-from relay_server.core.events import event_bus
+from relay_server.core.events import EventBus, event_bus
 
 
 @pytest.fixture(autouse=True)
@@ -195,11 +195,80 @@ async def test_event_bus_subscribe_and_publish():
 
 
 @pytest.mark.asyncio
+async def test_event_bus_unique_subscriber_ids_per_node():
+    """Multiple streams for the same node must not overwrite each other."""
+    received_a: list[dict] = []
+    received_b: list[dict] = []
+
+    async def consumer_a():
+        async for message in event_bus.subscribe(node_id="shared-node"):
+            data = json.loads(message.split("data: ", 1)[1].split("\n\n", 1)[0])
+            received_a.append(data)
+            if len(received_a) == 1:
+                break
+
+    async def consumer_b():
+        async for message in event_bus.subscribe(node_id="shared-node"):
+            data = json.loads(message.split("data: ", 1)[1].split("\n\n", 1)[0])
+            received_b.append(data)
+            if len(received_b) == 1:
+                break
+
+    task_a = asyncio.create_task(consumer_a())
+    task_b = asyncio.create_task(consumer_b())
+    for _ in range(100):
+        if event_bus.subscriber_count() == 2:
+            break
+        await asyncio.sleep(0.01)
+    assert event_bus.subscriber_count() == 2
+
+    await event_bus.publish("task_created", {"task_id": "t1"})
+
+    await asyncio.wait_for(task_a, timeout=2.0)
+    await asyncio.wait_for(task_b, timeout=2.0)
+
+    assert len(received_a) == 1
+    assert len(received_b) == 1
+    assert received_a[0]["type"] == "task_created"
+    assert received_b[0]["type"] == "task_created"
+
+
+@pytest.mark.asyncio
+async def test_event_bus_publish_sync_drop_counter():
+    """Drops triggered by a full queue are counted in publish_sync too."""
+    received: list[dict] = []
+
+    async def slow_consumer():
+        async for message in event_bus.subscribe():
+            data = json.loads(message.split("data: ", 1)[1].split("\n\n", 1)[0])
+            received.append(data)
+            await asyncio.sleep(0.1)
+            if len(received) == 1:
+                break
+
+    task = asyncio.create_task(slow_consumer())
+    for _ in range(100):
+        if event_bus.subscriber_count() == 1:
+            break
+        await asyncio.sleep(0.01)
+
+    # Fill and overflow the queue from a synchronous context.
+    for i in range(EventBus.DEFAULT_QUEUE_SIZE + 5):
+        event_bus.publish_sync("task_created", {"task_id": f"t{i}"})
+
+    await asyncio.wait_for(task, timeout=5.0)
+    assert len(received) == 1
+    # At least the overflowed events should be counted as dropped.
+    sub = list(event_bus._subscribers.values())[0]
+    assert sub.dropped >= 5
+
+
+@pytest.mark.asyncio
 async def test_event_bus_type_filter():
     received: list[dict] = []
 
     async def consumer():
-        async for message in event_bus.subscribe("sub-2", event_types={"stage_claimed"}):
+        async for message in event_bus.subscribe(node_id="sub-2", event_types={"stage_claimed"}):
             data = json.loads(message.split("data: ", 1)[1].split("\n\n", 1)[0])
             received.append(data)
             if len(received) == 1:
@@ -331,3 +400,19 @@ def test_sse_forbidden_for_other_node(live_server):
         headers={"Authorization": f"Bearer {worker_token}"},
     )
     assert r.status_code == 403
+
+
+def test_sse_rejects_unknown_event_types(live_server):
+    base_url, secret = live_server
+    admin_token = _http_admin_token(base_url, secret, node_id="admin-sse-types")
+    worker_token = _http_worker_token(
+        base_url, admin_token, "worker-types", [{"name": "board", "version": "1.0"}]
+    )
+
+    r = httpx.get(
+        f"{base_url}/relay/v2/events/stream",
+        params={"node": "worker-types", "types": "task_created,not_a_real_event"},
+        headers={"Authorization": f"Bearer {worker_token}"},
+    )
+    assert r.status_code == 400
+    assert "not_a_real_event" in r.text

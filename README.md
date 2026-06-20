@@ -36,10 +36,13 @@ make deploy     # systemd start
 - **SSE Event Stream** — `GET /relay/v2/events/stream?node=<id>&types=<filter>` delivers
   real-time `node_online`, `node_offline`, `task_created`, `stage_claimed`,
   `stage_completed`, `presence_changed`, and `artifact_created` events.
+  Each stream gets a unique subscriber ID, so reconnects from the same node do
+  not collide. Unknown event types in the `types` filter return `400`.
 - **External Example Nodes** — `examples/nodes/` contains standalone nodes that run as
   separate processes and talk to the core over the public v2 API:
   - `vault_node.py` — advertises the `vault` capability
   - `board_node.py` — advertises the `board` capability
+  - `node_base.py` — shared `BaseNode` / `run_node()` implementation
   - `relay_client.py` — shared HTTP/SSE client
   - `approve_nodes.py` — approves pending nodes and writes runtime tokens
 - **End-to-end demo** — start the server, launch the example nodes, approve them, and

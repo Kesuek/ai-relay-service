@@ -6,6 +6,7 @@ that each node claims and completes its matching stage.
 """
 
 import os
+import socket
 import subprocess
 import tempfile
 import time
@@ -17,8 +18,14 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 PYTHON = REPO / ".venv" / "bin" / "python3"
 NODES_DIR = REPO / "examples" / "nodes"
-PORT = 18789
-BASE_URL = f"http://127.0.0.1:{PORT}"
+
+
+def _free_port() -> int:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
 
 
 def _wait_for_server(base_url: str, timeout: float = 30.0) -> None:
@@ -117,6 +124,9 @@ def relay_environment():
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
+        port = _free_port()
+        base_url = f"http://127.0.0.1:{port}"
+
         env = os.environ.copy()
         env["RELAY_CONFIG_PATH"] = str(tmp_path / "nonexistent_config.yaml")
         env["RELAY_DB_PATH"] = str(db_path)
@@ -136,14 +146,14 @@ def relay_environment():
                     "--host",
                     "127.0.0.1",
                     "--port",
-                    str(PORT),
+                    str(port),
                 ],
                 stdout=open(log_dir / "server.stdout", "w"),
                 stderr=open(log_dir / "server.stderr", "w"),
                 env=env,
                 cwd=str(REPO),
             )
-            _wait_for_server(BASE_URL)
+            _wait_for_server(base_url)
 
             secret = _init_master_secret(env)
 
@@ -156,7 +166,7 @@ def relay_environment():
                     str(PYTHON),
                     str(NODES_DIR / "vault_node.py"),
                     "--base-url",
-                    BASE_URL,
+                    base_url,
                     "--node-id",
                     "vault-node",
                     "--token-file",
@@ -171,7 +181,7 @@ def relay_environment():
                     str(PYTHON),
                     str(NODES_DIR / "board_node.py"),
                     "--base-url",
-                    BASE_URL,
+                    base_url,
                     "--node-id",
                     "board-node",
                     "--token-file",
@@ -192,7 +202,7 @@ def relay_environment():
                     str(PYTHON),
                     str(NODES_DIR / "approve_nodes.py"),
                     "--base-url",
-                    BASE_URL,
+                    base_url,
                     "--master-secret",
                     secret,
                     "--capabilities",
@@ -206,7 +216,7 @@ def relay_environment():
             )
 
             yield {
-                "base_url": BASE_URL,
+                "base_url": base_url,
                 "secret": secret,
                 "token_dir": token_dir,
                 "log_dir": log_dir,

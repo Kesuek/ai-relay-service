@@ -154,6 +154,26 @@ class RelayClient:
         )
         return self._check(response)
 
+    def approve_node(
+        self,
+        node_id: str,
+        role: str = "service",
+        capabilities: Optional[List[Dict[str, Any]]] = None,
+        endpoint: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Approve a pending node. Requires an admin token."""
+        payload: Dict[str, Any] = {"role": role}
+        if capabilities is not None:
+            payload["capabilities"] = capabilities
+        if endpoint is not None:
+            payload["endpoint"] = endpoint
+        response = self.client.post(
+            self._url(f"/relay/v2/admin/nodes/{node_id}/approve"),
+            json=payload,
+            headers=self._headers(),
+        )
+        return self._check(response)
+
     def subscribe_events(self, node_id: str) -> Generator[Dict[str, Any], None, None]:
         """Open an SSE stream and yield parsed events."""
         if not self.token:

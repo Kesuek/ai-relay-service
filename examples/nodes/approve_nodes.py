@@ -71,18 +71,12 @@ def _register_admin(client: RelayClient, admin_node_id: str, master_secret: str)
 
 
 def _approve_node(client: RelayClient, node_id: str, capabilities: List[Dict[str, Any]]) -> str:
-    response = client.client.post(
-        f"{client.base_url}/relay/v2/admin/nodes/{node_id}/approve",
-        json={"role": "service", "capabilities": capabilities},
-        headers=client._headers(),
+    data = client.approve_node(
+        node_id=node_id,
+        role="service",
+        capabilities=capabilities,
     )
-    if response.status_code >= 400:
-        raise RelayError(
-            f"Failed to approve {node_id}: {response.status_code}",
-            status_code=response.status_code,
-            body=response.text,
-        )
-    return response.json()["token"]
+    return data["token"]
 
 
 def _capability_record(name: str) -> Dict[str, Any]:

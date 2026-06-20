@@ -1,5 +1,7 @@
 """Tests for discovery and presence."""
 
+import asyncio
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -12,19 +14,22 @@ os.environ["RELAY_DB_PATH"] = ""
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
 from relay_server.core.db import get_conn, init_db
+from relay_server.core.events import event_bus
 from relay_server.main import app
 
 
 @pytest.fixture(autouse=True)
 def fresh_db():
-    """Use a temporary database for each test."""
+    """Use a temporary database for each test and reset the event bus."""
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
         settings.db_path = db_path
         settings.heartbeat_interval_seconds = 1
         settings.heartbeat_timeout_multiplier = 1
         init_db()
+        event_bus.clear()
         yield
+        event_bus.clear()
 
 
 client = TestClient(app)
@@ -215,3 +220,95 @@ def test_presence_update_and_list():
         headers={"Authorization": f"Bearer {runtime}"},
     )
     assert len(r.json()["presence"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_node_online_emitted_on_first_heartbeat():
+    secret = _seed_admin()
+    admin_token = _register_admin(secret)
+    _register_worker("worker-online", [{"name": "board", "version": "1.0.0"}])
+    r = client.post(
+        "/relay/v2/admin/nodes/worker-online/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    runtime = r.json()["token"]
+
+    received: list[dict] = []
+
+    async def consumer():
+        async for message in event_bus.subscribe(event_types={"node_online"}):
+            data = json.loads(message.split("data: ", 1)[1].split("\n\n", 1)[0])
+            received.append(data)
+            break
+
+    task = asyncio.create_task(consumer())
+    for _ in range(100):
+        if event_bus.subscriber_count() == 1:
+            break
+        await asyncio.sleep(0.01)
+
+    r = client.post(
+        "/relay/v2/discovery/heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"available": True},
+    )
+    assert r.status_code == 200
+
+    await asyncio.wait_for(task, timeout=2.0)
+    assert len(received) == 1
+    assert received[0]["type"] == "node_online"
+    assert received[0]["payload"]["node_id"] == "worker-online"
+
+
+@pytest.mark.asyncio
+async def test_presence_no_event_on_no_op_update():
+    secret = _seed_admin()
+    admin_token = _register_admin(secret)
+    _register_worker("worker-presence-noop", [{"name": "board", "version": "1.0.0"}])
+    r = client.post(
+        "/relay/v2/admin/nodes/worker-presence-noop/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    runtime = r.json()["token"]
+
+    # Establish an initial presence value.
+    r = client.post(
+        "/relay/v2/presence/update",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"status": "busy"},
+    )
+    assert r.status_code == 200
+
+    received: list[dict] = []
+
+    async def consumer():
+        async for message in event_bus.subscribe(event_types={"presence_changed"}):
+            data = json.loads(message.split("data: ", 1)[1].split("\n\n", 1)[0])
+            received.append(data)
+            if len(received) == 1:
+                break
+
+    task = asyncio.create_task(consumer())
+    for _ in range(100):
+        if event_bus.subscriber_count() == 1:
+            break
+        await asyncio.sleep(0.01)
+
+    # Send an identical update; it should not emit presence_changed.
+    r = client.post(
+        "/relay/v2/presence/update",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"status": "busy"},
+    )
+    assert r.status_code == 200
+
+    # Give any erroneously emitted event a moment to arrive.
+    await asyncio.sleep(0.2)
+    assert len(received) == 0
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass

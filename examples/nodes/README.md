@@ -6,9 +6,10 @@ API. They do **not** import any `relay_server` internals.
 
 ## Files
 
-- `relay_client.py` — minimal shared HTTP client (register, heartbeat, claim, complete, SSE)
-- `vault_node.py` — node advertising the `vault` capability
-- `board_node.py` — node advertising the `board` capability
+- `node_base.py` — reusable `BaseNode` / `run_node()` implementation shared by the example nodes
+- `relay_client.py` — minimal shared HTTP client (register, heartbeat, claim, complete, SSE, approve)
+- `vault_node.py` — thin shell advertising the `vault` capability
+- `board_node.py` — thin shell advertising the `board` capability
 - `approve_nodes.py` — helper that approves pending nodes and writes runtime tokens
 
 ## How it works
