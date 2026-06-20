@@ -18,7 +18,7 @@ API. They do **not** import any `relay_server` internals.
 2. Initialize the master admin seed once.
 3. Start the example nodes. Each node registers as **pending** and waits.
 4. Run `approve_nodes.py` with the master seed to approve the nodes.
-   It writes each node's runtime token to `~/.relay/<node_id>.token`.
+   It writes each node's runtime token to `~/.relay/<node_id>.token`, where `<node_id>` is the ID assigned by the cluster.
 5. The nodes detect the runtime token, start heartbeating, and begin
    claiming/completing stages that match their capability.
 
@@ -46,8 +46,8 @@ Terminal 3 — start the example nodes:
 ```bash
 cd ~/projects/ai-relay-service/examples/nodes
 source ../../.venv/bin/activate
-python vault_node.py --node-id VT999999 --base-url http://127.0.0.1:8788 &
-python board_node.py --node-id BRD77778 --base-url http://127.0.0.1:8788 &
+python vault_node.py --node-name "Vault Example" --base-url http://127.0.0.1:8788 &
+python board_node.py --node-name "Board Example" --base-url http://127.0.0.1:8788 &
 ```
 
 Terminal 4 — approve the nodes:
@@ -90,11 +90,11 @@ All nodes accept the following environment variables / CLI flags:
 | Variable | Flag | Default | Description |
 |----------|------|---------|-------------|
 | `RELAY_BASE_URL` | `--base-url` | `http://127.0.0.1:8788` | Relay server URL |
-| `RELAY_NODE_ID` | `--node-id` | `VT999999` / `BRD77778` | Unique 8-char node ID |
-| `RELAY_NODE_NAME` | `--node-name` | `Vault Node` / `Board Node` | Human-readable name |
+| `RELAY_NODE_NAME` | `--node-name` | `Vault Example` / `Board Example` | Human-readable node name used during registration |
+
 | `RELAY_ENDPOINT` | `--endpoint` | none | Optional endpoint advertised for this node |
 | `RELAY_RUNTIME_TOKEN` | `--runtime-token` | none | Skip registration, use existing runtime token |
-| `RELAY_TOKEN_FILE` | `--token-file` | `~/.relay/<node_id>.token` | File to watch for runtime token |
+| `RELAY_TOKEN_FILE` | `--token-file` | `~/.relay/<assigned_id>.token` | File to watch for runtime token |
 | `RELAY_HEARTBEAT_INTERVAL` | `--heartbeat-interval` | `10` | Seconds between heartbeats |
 | `RELAY_CLAIM_INTERVAL` | `--claim-interval` | `2` | Seconds between claim attempts |
 | `RELAY_LOG_LEVEL` | `--log-level` | `INFO` | Logging level |

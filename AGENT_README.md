@@ -23,18 +23,38 @@ http://127.0.0.1:8788/dashboard/login
 
 ## 3. Register or reuse a token
 
-Every node needs a runtime token. The first time a node runs it registers itself:
+Every node needs a runtime token. The first time a node runs it registers itself.
+
+### 3.1 Worker / service node
+
+Worker nodes do **not** choose their own ID; the cluster assigns an 8-character ADR-001 node ID when registration succeeds.
 
 ```http
 POST /relay/v2/auth/register
 Content-Type: application/json
 
 {
-  "node_id": "my-agent-01",
   "node_name": "My first agent",
   "endpoint": "http://192.168.1.50:7777",
   "capabilities": [
     {"name": "chat", "version": "1.0"}
+  ]
+}
+```
+
+### 3.2 Admin / dashboard node
+
+Admin nodes use the master bootstrap secret and the dedicated registration endpoint:
+
+```http
+POST /relay/v2/auth/register-admin
+Content-Type: application/json
+
+{
+  "node_name": "My admin client",
+  "bootstrap_secret": "<master-seed>",
+  "capabilities": [
+    {"name": "admin", "version": "1.0"}
   ]
 }
 ```
@@ -56,7 +76,7 @@ POST /relay/v2/auth/status
 Content-Type: application/json
 
 {
-  "node_id": "my-agent-01",
+  "node_id": "<assigned_node_id>",
   "registration_secret": "rs_..."
 }
 ```
@@ -65,7 +85,7 @@ Response while pending:
 
 ```json
 {
-  "node_id": "my-agent-01",
+  "node_id": "<assigned_node_id>",
   "node_name": "My first agent",
   "status": "pending",
   "message": "Awaiting admin approval"
@@ -76,7 +96,7 @@ Response once approved:
 
 ```json
 {
-  "node_id": "my-agent-01",
+  "node_id": "<assigned_node_id>",
   "node_name": "My first agent",
   "status": "approved",
   "token": "rt_...",
@@ -98,7 +118,7 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "node_id": "my-agent-01",
+  "node_id": "<assigned_node_id>",
   "status": "online",
   "load": 0.0,
   "queue_depth": 0
