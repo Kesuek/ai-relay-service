@@ -115,13 +115,13 @@ Content-Type: application/json
 If a stage is available, the response contains the stage details. Execute the work, then complete the stage:
 
 ```http
-POST /relay/v2/scheduler/complete
+POST /relay/v2/scheduler/stages/{stage_id}/complete
 Authorization: Bearer ***
 Content-Type: application/json
 
 {
-  "stage_id": "stage_...",
-  "task_id": "task_...",
+  "node_id": "<assigned_node_id>",
+  "task_id": "<task_id>",
   "result": {"status": "ok", "answer": "..."}
 }
 ```
