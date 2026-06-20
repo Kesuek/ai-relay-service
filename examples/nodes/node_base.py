@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from relay_client import RelayClient, TokenSource, wait_for_approval
+from relay_client import RelayClient, RelayError, TokenSource, wait_for_approval
 
 logger = logging.getLogger("base_node")
 
@@ -51,12 +51,33 @@ def _register_or_use_token(
     runtime_token: Optional[str],
     token_file: Optional[str],
 ) -> None:
+    token_path = token_file or _default_token_file(node_id)
+
+    # If a runtime token is provided via CLI, use it directly.
     if runtime_token:
         logger.info("Using provided runtime token.")
         client.set_token(runtime_token)
         return
 
-    token_path = token_file or _default_token_file(node_id)
+    # If a token file already exists and is valid, use it without re-registering.
+    token_source = TokenSource(token_file=token_path)
+    existing_token = token_source()
+    if existing_token:
+        logger.info("Using existing runtime token from %s", token_path)
+        client.set_token(existing_token)
+        # Verify it works by fetching node list.
+        try:
+            data = client.get_nodes()
+            for node in data.get("nodes", []):
+                if node["node_id"] == node_id:
+                    logger.info(
+                        "Existing token valid for %s (status=%s).", node_id, node.get("status")
+                    )
+                    return
+        except RelayError as e:
+            logger.warning("Existing token invalid: %s", e)
+
+    # Otherwise register as a new pending node and wait for approval.
     logger.info("Registering node %s as pending (token file: %s)", node_id, token_path)
     result = client.register(
         node_id=node_id,
@@ -73,8 +94,8 @@ def _register_or_use_token(
     )
     logger.info("Waiting for admin approval; write runtime token to %s", token_path)
 
-    token_source = TokenSource(env_var="RELAY_RUNTIME_TOKEN", token_file=token_path)
-    wait_for_approval(client, node_id, poll_interval=2.0, token_source=token_source)
+    combined_source = TokenSource(env_var="RELAY_RUNTIME_TOKEN", token_file=token_path)
+    wait_for_approval(client, node_id, poll_interval=2.0, token_source=combined_source)
 
 
 def _heartbeat_loop(
@@ -206,12 +227,12 @@ class BaseNode:
         parser.add_argument(
             "--heartbeat-interval",
             type=float,
-            default=float(os.environ.get("RELAY_HEARTBEAT_INTERVAL", "10")),
+            default=float(os.environ.get("RELAY_HEARTBEAT_INTERVAL", "8")),
         )
         parser.add_argument(
             "--claim-interval",
             type=float,
-            default=float(os.environ.get("RELAY_CLAIM_INTERVAL", "2")),
+            default=float(os.environ.get("RELAY_CLAIM_INTERVAL", "5")),
         )
         parser.add_argument("--log-level", default=os.environ.get("RELAY_LOG_LEVEL", "INFO"))
         return parser.parse_args(argv)
