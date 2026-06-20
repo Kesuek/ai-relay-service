@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["RELAY_DB_PATH"] = ""
+os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-production"
 
 from relay_server.config import settings
 from relay_server.core.db import get_conn, init_db
@@ -20,6 +21,8 @@ def fresh_db():
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
         settings.db_path = db_path
+        settings.session_secret = "test-secret"
+        settings.session_cookie_secure = False
         init_db()
         yield
 
@@ -201,3 +204,162 @@ def test_refresh_token():
     # New token works.
     r = client.get("/relay/v2/admin/nodes", headers={"Authorization": f"Bearer {new_token}"})
     assert r.status_code == 200
+
+
+def test_human_admin_user_can_approve_and_issue_token():
+    """A human user in the admin group can approve nodes and issue tokens."""
+    from relay_server.core.users import create_user
+
+    init_db()
+
+    # Create a human admin user.
+    create_user(username="admin-human", password="secret123", group_names=["admin"])
+
+    # Log in to obtain session cookies.
+    r = client.post(
+        "/relay/v2/dashboard/login",
+        data={"mode": "user", "username": "admin-human", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    cookies = r.cookies
+
+    # Register a pending worker node.
+    r = client.post(
+        "/relay/v2/auth/register",
+        json={
+            "node_id": "worker-human-admin",
+            "node_name": "Worker Human Admin",
+            "endpoint": "http://localhost:9001",
+            "capabilities": [{"name": "board", "version": "1.0.0"}],
+            "role": "service",
+        },
+    )
+    assert r.status_code == 200
+
+    # Admin human can list nodes.
+    r = client.get("/relay/v2/admin/nodes", cookies=cookies)
+    assert r.status_code == 200
+    node_ids = [n["node_id"] for n in r.json()["nodes"]]
+    assert "worker-human-admin" in node_ids
+
+    # Admin human can approve the node.
+    r = client.post(
+        "/relay/v2/admin/nodes/worker-human-admin/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        cookies=cookies,
+    )
+    assert r.status_code == 200
+    worker_token = r.json()["token"]
+    assert worker_token.startswith("rt_")
+
+    # Admin human can issue a new runtime token.
+    r = client.post("/relay/v2/admin/nodes/worker-human-admin/token", cookies=cookies)
+    assert r.status_code == 200
+    assert r.json()["token"].startswith("rt_")
+
+
+def test_human_user_without_permission_gets_403():
+    """A human user without the required permissions is denied access."""
+    from relay_server.core.users import create_user
+
+    init_db()
+
+    # Create a human viewer user (dashboard:view only).
+    create_user(username="viewer-human", password="secret123", group_names=["viewer"])
+
+    # Log in to obtain session cookies.
+    r = client.post(
+        "/relay/v2/dashboard/login",
+        data={"mode": "user", "username": "viewer-human", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    cookies = r.cookies
+
+    # Register a pending worker node.
+    r = client.post(
+        "/relay/v2/auth/register",
+        json={
+            "node_id": "worker-viewer",
+            "node_name": "Worker Viewer",
+            "endpoint": "http://localhost:9001",
+            "capabilities": [{"name": "board", "version": "1.0.0"}],
+            "role": "service",
+        },
+    )
+    assert r.status_code == 200
+
+    # Viewer can list nodes (dashboard:view).
+    r = client.get("/relay/v2/admin/nodes", cookies=cookies)
+    assert r.status_code == 200
+
+    # Viewer cannot approve nodes.
+    r = client.post(
+        "/relay/v2/admin/nodes/worker-viewer/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        cookies=cookies,
+    )
+    assert r.status_code == 403
+
+    # Viewer cannot issue tokens.
+    r = client.post("/relay/v2/admin/nodes/worker-viewer/token", cookies=cookies)
+    assert r.status_code == 403
+
+
+def test_human_user_with_explicit_node_permissions():
+    """A non-admin human user with explicit nodes:approve/token permissions can use them."""
+    from relay_server.core.users import create_user, set_group_permissions
+    from relay_server.core.db import get_conn
+
+    init_db()
+
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO groups (group_id, group_name, description, created_at) VALUES (?, ?, ?, ?)",
+        ("grp_nodemgr", "nodemgr", "Node managers", "2026-01-01T00:00:00+00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+    # Assign explicit node permissions to the custom group.
+    set_group_permissions("grp_nodemgr", ["nodes:approve", "nodes:token"])
+
+    create_user(username="node-manager", password="secret123", group_names=["nodemgr"])
+
+    r = client.post(
+        "/relay/v2/dashboard/login",
+        data={"mode": "user", "username": "node-manager", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    cookies = r.cookies
+
+    # Register and approve a node.
+    r = client.post(
+        "/relay/v2/auth/register",
+        json={
+            "node_id": "worker-nodemgr",
+            "node_name": "Worker Node Manager",
+            "endpoint": "http://localhost:9001",
+            "capabilities": [{"name": "board", "version": "1.0.0"}],
+            "role": "service",
+        },
+    )
+    assert r.status_code == 200
+
+    # Node manager can approve (nodes:approve).
+    r = client.post(
+        "/relay/v2/admin/nodes/worker-nodemgr/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        cookies=cookies,
+    )
+    assert r.status_code == 200
+
+    # Node manager can issue token (nodes:token).
+    r = client.post("/relay/v2/admin/nodes/worker-nodemgr/token", cookies=cookies)
+    assert r.status_code == 200
+
+    # But cannot list nodes (missing dashboard:view).
+    r = client.get("/relay/v2/admin/nodes", cookies=cookies)
+    assert r.status_code == 403
