@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Relay Agent Poller (%AGENT_NAME%)
+After=network-online.target ai-relay-service.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%PYTHON% %SCRIPT_DIR%/ai-relay-agent-poller.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

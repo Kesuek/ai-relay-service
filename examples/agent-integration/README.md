@@ -44,3 +44,25 @@ python3 examples/agent-integration/relay-task.py \
 
 The poller will claim the stage, execute the placeholder handler, and complete it.
 Replace `execute_task()` in the poller with real capability dispatch.
+
+## Systemd service
+
+Copy the template and fill in the placeholders:
+
+```bash
+cp examples/agent-integration/ai-relay-agent-poller.service.template \
+   ~/.config/systemd/user/ai-relay-agent-poller.service
+```
+
+Edit the file and replace:
+
+- `%AGENT_NAME%` — stable name, e.g. `ai-relay-agent`
+- `%PYTHON%` — path to the Python interpreter, e.g. `/home/felix/projects/ai-relay-service/.venv/bin/python3`
+- `%SCRIPT_DIR%` — path to `examples/agent-integration`
+
+Then enable and start:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now ai-relay-agent-poller.service
+```
