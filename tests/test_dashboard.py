@@ -56,13 +56,11 @@ def _admin_node_token():
     conn.close()
 
     r = client.post(
-        "/relay/v2/auth/register",
+        "/relay/v2/auth/register-admin",
         json={
-            "node_id": "admin-node",
             "node_name": "Admin Node",
             "bootstrap_secret": secret,
             "capabilities": [{"name": "admin", "version": "1.0.0"}],
-            "role": "admin",
         },
     )
     assert r.status_code == 200

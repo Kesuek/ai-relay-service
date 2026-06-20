@@ -45,8 +45,9 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Directory where runtime token files are written.",
     )
     parser.add_argument(
-        "--admin-node-id",
-        default=os.environ.get("RELAY_ADMIN_NODE_ID", "approve-helper"),
+        "--admin-node-name",
+        default=os.environ.get("RELAY_ADMIN_NODE_NAME", "Approve Helper"),
+        help="Name for the temporary admin helper node.",
     )
     parser.add_argument("--log-level", default=os.environ.get("RELAY_LOG_LEVEL", "INFO"))
     return parser.parse_args(argv)
@@ -59,15 +60,14 @@ def _setup_logging(level: str) -> None:
     )
 
 
-def _register_admin(client: RelayClient, admin_node_id: str, master_secret: str) -> str:
+def _register_admin(client: RelayClient, master_secret: str) -> tuple[str, str]:
     response = client.register(
-        node_id=admin_node_id,
         node_name="Approve Helper",
         capabilities=[{"name": "admin", "version": "1.0.0"}],
         bootstrap_secret=master_secret,
         role="admin",
     )
-    return response["token"]
+    return response["node_id"], response["token"]
 
 
 def _approve_node(client: RelayClient, node_id: str, capabilities: List[Dict[str, Any]]) -> str:
@@ -102,10 +102,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     client = RelayClient(base_url=args.base_url)
     try:
-        logger.info("Registering admin helper %s ...", args.admin_node_id)
-        admin_token = _register_admin(client, args.admin_node_id, args.master_secret)
+        logger.info("Registering admin helper %s ...", args.admin_node_name)
+        admin_id, admin_token = _register_admin(client, args.master_secret)
         client.set_token(admin_token)
-        logger.info("Admin helper registered.")
+        logger.info("Admin helper registered as %s.", admin_id)
 
         logger.info("Listing pending nodes ...")
         data = client.get_nodes(status="pending")

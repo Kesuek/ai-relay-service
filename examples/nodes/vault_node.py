@@ -14,8 +14,8 @@ from typing import Any, Dict
 from node_base import run_node
 
 CAPABILITY = "vault"
-DEFAULT_NODE_ID = "vault-node"
-DEFAULT_NODE_NAME = "Vault Node"
+DEFAULT_NODE_ID = "VT999999"
+DEFAULT_NODE_NAME = "Vault Example"
 
 
 def _do_vault_work(capability: str, node_id: str, stage: Dict[str, Any]) -> Dict[str, Any]:

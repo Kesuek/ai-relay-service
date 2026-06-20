@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import secrets
 import socket
 import subprocess
 import tempfile
@@ -116,40 +117,45 @@ def live_server() -> Generator[tuple[str, str], None, None]:
             proc.wait(timeout=5.0)
 
 
-def _http_admin_token(base_url: str, secret: str, node_id: str = "admin-test") -> str:
+def _http_admin_token(base_url: str, secret: str) -> tuple[str, str]:
+    # Use a unique name because the live_server fixture is module-scoped and the
+    # node registry enforces unique node names.
+    suffix = secrets.token_hex(4)
+    node_name = f"Admin Test {suffix}"
     r = httpx.post(
-        f"{base_url}/relay/v2/auth/register",
+        f"{base_url}/relay/v2/auth/register-admin",
         json={
-            "node_id": node_id,
-            "node_name": node_id,
+            "node_name": node_name,
             "bootstrap_secret": secret,
             "capabilities": [{"name": "admin", "version": "1.0.0"}],
-            "role": "admin",
         },
     )
     assert r.status_code == 200, r.text
-    return r.json()["token"]
+    body = r.json()
+    return body["node_id"], body["token"]
 
 
-def _http_worker_token(base_url: str, admin_token: str, node_id: str, capabilities: list) -> str:
+def _http_worker_token(base_url: str, admin_token: str, capabilities: list) -> tuple[str, str]:
+    suffix = secrets.token_hex(4)
+    node_name = f"Worker SSE {suffix}"
     r = httpx.post(
         f"{base_url}/relay/v2/auth/register",
         json={
-            "node_id": node_id,
-            "node_name": node_id,
+            "node_name": node_name,
             "endpoint": "http://localhost:9001",
             "capabilities": capabilities,
             "role": "service",
         },
     )
     assert r.status_code == 200, r.text
+    worker_id = r.json()["node_id"]
     r2 = httpx.post(
-        f"{base_url}/relay/v2/admin/nodes/{node_id}/approve",
+        f"{base_url}/relay/v2/admin/nodes/{worker_id}/approve",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"role": "service", "capabilities": capabilities},
     )
     assert r2.status_code == 200, r2.text
-    return r2.json()["token"]
+    return worker_id, r2.json()["token"]
 
 
 def _wait_for_subscribers(base_url: str, count: int, timeout: float = 3.0) -> None:
@@ -292,9 +298,9 @@ async def test_event_bus_type_filter():
 
 def test_sse_stream_receives_event(live_server):
     base_url, secret = live_server
-    admin_token = _http_admin_token(base_url, secret, node_id="admin-sse-receive")
-    worker_token = _http_worker_token(
-        base_url, admin_token, "worker-sse", [{"name": "board", "version": "1.0"}]
+    admin_id, admin_token = _http_admin_token(base_url, secret)
+    worker_id, worker_token = _http_worker_token(
+        base_url, admin_token, [{"name": "board", "version": "1.0"}]
     )
 
     received: list[str] = []
@@ -304,7 +310,7 @@ def test_sse_stream_receives_event(live_server):
             with client.stream(
                 "GET",
                 f"{base_url}/relay/v2/events/stream",
-                params={"node": "worker-sse", "types": "presence_changed"},
+                params={"node": worker_id, "types": "presence_changed"},
                 headers={"Authorization": f"Bearer {worker_token}"},
             ) as response:
                 response.raise_for_status()
@@ -333,9 +339,9 @@ def test_sse_stream_receives_event(live_server):
 
 def test_sse_stream_filters_by_type(live_server):
     base_url, secret = live_server
-    admin_token = _http_admin_token(base_url, secret, node_id="admin-sse-filter")
-    worker_token = _http_worker_token(
-        base_url, admin_token, "worker-filter", [{"name": "board", "version": "1.0"}]
+    admin_id, admin_token = _http_admin_token(base_url, secret)
+    worker_id, worker_token = _http_worker_token(
+        base_url, admin_token, [{"name": "board", "version": "1.0"}]
     )
 
     received: list[str] = []
@@ -345,7 +351,7 @@ def test_sse_stream_filters_by_type(live_server):
             with client.stream(
                 "GET",
                 f"{base_url}/relay/v2/events/stream",
-                params={"node": "worker-filter", "types": "task_created"},
+                params={"node": worker_id, "types": "task_created"},
                 headers={"Authorization": f"Bearer {worker_token}"},
             ) as response:
                 response.raise_for_status()
@@ -389,9 +395,9 @@ def test_sse_stream_filters_by_type(live_server):
 
 def test_sse_forbidden_for_other_node(live_server):
     base_url, secret = live_server
-    admin_token = _http_admin_token(base_url, secret, node_id="admin-sse-forbidden")
-    worker_token = _http_worker_token(
-        base_url, admin_token, "worker-other", [{"name": "board", "version": "1.0"}]
+    admin_id, admin_token = _http_admin_token(base_url, secret)
+    worker_id, worker_token = _http_worker_token(
+        base_url, admin_token, [{"name": "board", "version": "1.0"}]
     )
 
     r = httpx.get(
@@ -404,14 +410,14 @@ def test_sse_forbidden_for_other_node(live_server):
 
 def test_sse_rejects_unknown_event_types(live_server):
     base_url, secret = live_server
-    admin_token = _http_admin_token(base_url, secret, node_id="admin-sse-types")
-    worker_token = _http_worker_token(
-        base_url, admin_token, "worker-types", [{"name": "board", "version": "1.0"}]
+    admin_id, admin_token = _http_admin_token(base_url, secret)
+    worker_id, worker_token = _http_worker_token(
+        base_url, admin_token, [{"name": "board", "version": "1.0"}]
     )
 
     r = httpx.get(
         f"{base_url}/relay/v2/events/stream",
-        params={"node": "worker-types", "types": "task_created,not_a_real_event"},
+        params={"node": worker_id, "types": "task_created,not_a_real_event"},
         headers={"Authorization": f"Bearer {worker_token}"},
     )
     assert r.status_code == 400

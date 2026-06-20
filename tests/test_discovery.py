@@ -47,43 +47,42 @@ def _seed_admin() -> str:
     return secret
 
 
-def _register_admin(secret: str) -> str:
+def _register_admin(secret: str) -> tuple[str, str]:
     r = client.post(
-        "/relay/v2/auth/register",
+        "/relay/v2/auth/register-admin",
         json={
-            "node_id": "admin-test",
             "node_name": "Admin Test",
             "bootstrap_secret": secret,
             "capabilities": [{"name": "admin", "version": "1.0.0"}],
-            "role": "admin",
         },
     )
     assert r.status_code == 200
-    return r.json()["token"]
+    body = r.json()
+    return body["node_id"], body["token"]
 
 
-def _register_worker(node_id: str, capabilities: list) -> str:
+def _register_worker(name: str, capabilities: list) -> tuple[str, str]:
     r = client.post(
         "/relay/v2/auth/register",
         json={
-            "node_id": node_id,
-            "node_name": node_id.replace("-", " ").title(),
+            "node_name": name,
             "endpoint": "http://localhost:9001",
             "capabilities": capabilities,
             "role": "service",
         },
     )
     assert r.status_code == 200
-    return r.json()["token"]
+    body = r.json()
+    return body["node_id"], body["token"]
 
 
 def test_heartbeat_updates_node():
     secret = _seed_admin()
-    admin_token = _register_admin(secret)
-    _register_worker("worker-hb", [{"name": "board", "version": "1.0.0"}])
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Hb", [{"name": "board", "version": "1.0.0"}])
     # Approve worker
     r = client.post(
-        "/relay/v2/admin/nodes/worker-hb/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -103,18 +102,18 @@ def test_heartbeat_updates_node():
         headers={"Authorization": f"Bearer {runtime}"},
     )
     nodes = {n["node_id"]: n for n in r.json()["nodes"]}
-    assert "worker-hb" in nodes
-    assert nodes["worker-hb"]["load"] == 0.5
-    assert nodes["worker-hb"]["queue_depth"] == 2
-    assert nodes["worker-hb"]["available"] is True
+    assert worker_id in nodes
+    assert nodes[worker_id]["load"] == 0.5
+    assert nodes[worker_id]["queue_depth"] == 2
+    assert nodes[worker_id]["available"] is True
 
 
 def test_capability_query():
     secret = _seed_admin()
-    admin_token = _register_admin(secret)
-    _register_worker("worker-caps", [{"name": "vault", "version": "1.0.0"}])
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Caps", [{"name": "vault", "version": "1.0.0"}])
     r = client.post(
-        "/relay/v2/admin/nodes/worker-caps/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "vault", "version": "1.0.0"}]},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -133,7 +132,7 @@ def test_capability_query():
     )
     assert r.status_code == 200
     assert len(r.json()["nodes"]) == 1
-    assert r.json()["nodes"][0]["node_id"] == "worker-caps"
+    assert r.json()["nodes"][0]["node_id"] == worker_id
 
     r = client.get(
         "/relay/v2/discovery/query?capability=board",
@@ -146,10 +145,10 @@ def test_heartbeat_timeout_marks_offline():
     import time
 
     secret = _seed_admin()
-    admin_token = _register_admin(secret)
-    _register_worker("worker-timeout", [{"name": "vault", "version": "1.0.0"}])
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Timeout", [{"name": "vault", "version": "1.0.0"}])
     r = client.post(
-        "/relay/v2/admin/nodes/worker-timeout/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "vault", "version": "1.0.0"}]},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -169,22 +168,22 @@ def test_heartbeat_timeout_marks_offline():
     from relay_server.core.discovery import mark_offline_nodes
 
     offline = mark_offline_nodes()
-    assert "worker-timeout" in offline
+    assert worker_id in offline
 
     r = client.get(
         "/relay/v2/discovery/nodes",
         headers={"Authorization": f"Bearer {runtime}"},
     )
     nodes = {n["node_id"]: n for n in r.json()["nodes"]}
-    assert nodes["worker-timeout"]["status"] == "offline"
+    assert nodes[worker_id]["status"] == "offline"
 
 
 def test_presence_update_and_list():
     secret = _seed_admin()
-    admin_token = _register_admin(secret)
-    _register_worker("worker-presence", [{"name": "board", "version": "1.0.0"}])
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Presence", [{"name": "board", "version": "1.0.0"}])
     r = client.post(
-        "/relay/v2/admin/nodes/worker-presence/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -204,7 +203,7 @@ def test_presence_update_and_list():
     assert r.status_code == 200
 
     r = client.get(
-        "/relay/v2/presence/worker-presence",
+        f"/relay/v2/presence/{worker_id}",
         headers={"Authorization": f"Bearer {runtime}"},
     )
     assert r.status_code == 200
@@ -225,10 +224,10 @@ def test_presence_update_and_list():
 @pytest.mark.asyncio
 async def test_node_online_emitted_on_first_heartbeat():
     secret = _seed_admin()
-    admin_token = _register_admin(secret)
-    _register_worker("worker-online", [{"name": "board", "version": "1.0.0"}])
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Online", [{"name": "board", "version": "1.0.0"}])
     r = client.post(
-        "/relay/v2/admin/nodes/worker-online/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -258,16 +257,16 @@ async def test_node_online_emitted_on_first_heartbeat():
     await asyncio.wait_for(task, timeout=2.0)
     assert len(received) == 1
     assert received[0]["type"] == "node_online"
-    assert received[0]["payload"]["node_id"] == "worker-online"
+    assert received[0]["payload"]["node_id"] == worker_id
 
 
 @pytest.mark.asyncio
 async def test_presence_no_event_on_no_op_update():
     secret = _seed_admin()
-    admin_token = _register_admin(secret)
-    _register_worker("worker-presence-noop", [{"name": "board", "version": "1.0.0"}])
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Presence Noop", [{"name": "board", "version": "1.0.0"}])
     r = client.post(
-        "/relay/v2/admin/nodes/worker-presence-noop/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
         headers={"Authorization": f"Bearer {admin_token}"},
     )

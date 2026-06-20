@@ -1,18 +1,23 @@
 """Manual end-to-end test for example nodes."""
 
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
-import json
 from pathlib import Path
+
+VAULT_TOKEN_FILE = "vault.token"
+BOARD_TOKEN_FILE = "board.token"
 
 PORT = 18788
 BASE_URL = f"http://127.0.0.1:{PORT}"
 REPO = Path("/home/felix/projects/ai-relay-service")
 PYTHON = REPO / ".venv" / "bin" / "python3"
 NODES_DIR = REPO / "examples" / "nodes"
+VAULT_NAME = "Vault Example"
+BOARD_NAME = "Board Example"
 
 
 def run(*args, **kwargs):
@@ -106,12 +111,10 @@ def main():
                 str(NODES_DIR / "vault_node.py"),
                 "--base-url",
                 BASE_URL,
-                "--node-id",
-                "vault-node",
                 "--node-name",
-                "Vault Node",
+                VAULT_NAME,
                 "--token-file",
-                str(token_dir / "vault-node.token"),
+                str(token_dir / VAULT_TOKEN_FILE),
                 env=vault_env,
             )
 
@@ -124,12 +127,10 @@ def main():
                 str(NODES_DIR / "board_node.py"),
                 "--base-url",
                 BASE_URL,
-                "--node-id",
-                "board-node",
                 "--node-name",
-                "Board Node",
+                BOARD_NAME,
                 "--token-file",
-                str(token_dir / "board-node.token"),
+                str(token_dir / BOARD_TOKEN_FILE),
                 env=board_env,
             )
 
@@ -171,8 +172,8 @@ def main():
             approve_result.check_returncode()
 
             for i in range(20):
-                if (token_dir / "vault-node.token").exists() and (
-                    token_dir / "board-node.token"
+                if (token_dir / VAULT_TOKEN_FILE).exists() and (
+                    token_dir / BOARD_TOKEN_FILE
                 ).exists():
                     print("Runtime tokens written.")
                     break
@@ -186,13 +187,11 @@ def main():
             import httpx
 
             r = httpx.post(
-                f"{BASE_URL}/relay/v2/auth/register",
+                f"{BASE_URL}/relay/v2/auth/register-admin",
                 json={
-                    "node_id": "demo-admin",
                     "node_name": "Demo Admin",
                     "bootstrap_secret": secret,
                     "capabilities": [{"name": "admin", "version": "1.0.0"}],
-                    "role": "admin",
                 },
             )
             print(f"Admin register: {r.status_code} {r.json()}")

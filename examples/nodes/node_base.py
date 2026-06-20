@@ -44,20 +44,29 @@ def _setup_logging(level: str) -> None:
 
 def _register_or_use_token(
     client: RelayClient,
-    node_id: str,
     node_name: str,
     capability: str,
     endpoint: Optional[str],
     runtime_token: Optional[str],
     token_file: Optional[str],
-) -> None:
-    token_path = token_file or _default_token_file(node_id)
+    preferred_node_id: Optional[str] = None,
+) -> tuple[str, str]:
+    """Return the cluster-assigned node_id and the token file path used."""
+    token_path = token_file or _default_token_file(node_name)
 
     # If a runtime token is provided via CLI, use it directly.
     if runtime_token:
         logger.info("Using provided runtime token.")
         client.set_token(runtime_token)
-        return
+        # Try to identify the node_id by querying the cluster.
+        try:
+            data = client.get_nodes()
+            for node in data.get("nodes", []):
+                if node.get("node_name") == node_name:
+                    return node["node_id"], token_path
+        except RelayError:
+            pass
+        return node_name, token_path
 
     # If a token file already exists and is valid, use it without re-registering.
     token_source = TokenSource(token_file=token_path)
@@ -69,25 +78,30 @@ def _register_or_use_token(
         try:
             data = client.get_nodes()
             for node in data.get("nodes", []):
-                if node["node_id"] == node_id:
+                if node.get("node_name") == node_name:
                     logger.info(
-                        "Existing token valid for %s (status=%s).", node_id, node.get("status")
+                        "Existing token valid for %s/%s (status=%s).",
+                        node_name,
+                        node["node_id"],
+                        node.get("status"),
                     )
-                    return
+                    return node["node_id"], token_path
         except RelayError as e:
             logger.warning("Existing token invalid: %s", e)
 
     # Otherwise register as a new pending node and wait for approval.
-    logger.info("Registering node %s as pending (token file: %s)", node_id, token_path)
+    logger.info("Registering node '%s' as pending (token file: %s)", node_name, token_path)
     result = client.register(
-        node_id=node_id,
         node_name=node_name,
         capabilities=[_capability_record(capability)],
         endpoint=endpoint,
         role="service",
+        preferred_node_id=preferred_node_id,
     )
+    assigned_id = result["node_id"]
     logger.info(
-        "Registered. status=%s token_type=%s temporary_token=%s...",
+        "Registered as %s. status=%s token_type=%s temporary_token=%s...",
+        assigned_id,
         result.get("status"),
         result.get("token_type"),
         result.get("token", "")[:12],
@@ -95,7 +109,8 @@ def _register_or_use_token(
     logger.info("Waiting for admin approval; write runtime token to %s", token_path)
 
     combined_source = TokenSource(env_var="RELAY_RUNTIME_TOKEN", token_file=token_path)
-    wait_for_approval(client, node_id, poll_interval=2.0, token_source=combined_source)
+    wait_for_approval(client, assigned_id, poll_interval=2.0, token_source=combined_source)
+    return assigned_id, token_path
 
 
 def _heartbeat_loop(
@@ -252,28 +267,28 @@ class BaseNode:
 
         client = RelayClient(base_url=args.base_url)
         try:
-            _register_or_use_token(
+            assigned_id = _register_or_use_token(
                 client,
-                args.node_id,
                 args.node_name,
                 self.capability,
                 args.endpoint,
                 args.runtime_token,
                 args.token_file,
+                args.node_id,
             )
             runtime_token = client.token
             if not runtime_token:
                 logger.error("No runtime token available; exiting.")
                 return 1
 
-            logger.info("Starting %s node %s work loops", self.capability, args.node_id)
+            logger.info("Starting %s node %s work loops", self.capability, assigned_id)
 
             heartbeat_thread = threading.Thread(
                 target=_heartbeat_loop,
                 args=(
                     args.base_url,
                     runtime_token,
-                    args.node_id,
+                    assigned_id,
                     shutdown,
                     args.heartbeat_interval,
                 ),
@@ -282,7 +297,7 @@ class BaseNode:
             )
             sse_thread = threading.Thread(
                 target=_sse_listener,
-                args=(args.base_url, runtime_token, args.node_id, shutdown),
+                args=(args.base_url, runtime_token, assigned_id, shutdown),
                 name="sse-listener",
                 daemon=True,
             )
@@ -292,7 +307,7 @@ class BaseNode:
             _claim_and_complete_loop(
                 base_url=args.base_url,
                 token=runtime_token,
-                node_id=args.node_id,
+                node_id=assigned_id,
                 capability=self.capability,
                 work_fn=self.work_fn,
                 shutdown=shutdown,

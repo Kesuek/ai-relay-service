@@ -44,63 +44,66 @@ def _seed_admin() -> str:
     return secret
 
 
-def _register(
-    secret: str, node_id: str, caps: list, role: str = "service", admin_token: Optional[str] = None
-) -> str:
-    if role == "admin":
-        r = client.post(
-            "/relay/v2/auth/register",
-            json={
-                "node_id": node_id,
-                "node_name": node_id,
-                "bootstrap_secret": secret,
-                "capabilities": caps,
-                "role": role,
-            },
-        )
-        assert r.status_code == 200, r.json()
-        return r.json()["token"]
-
-    r = client.post(
-        "/relay/v2/auth/register",
-        json={
-            "node_id": node_id,
-            "node_name": node_id,
-            "endpoint": "http://localhost:9001",
-            "capabilities": caps,
-            "role": role,
-        },
-    )
-    assert r.status_code == 200, r.json()
-
-    approval_token = admin_token or _admin_token(secret)
-    r2 = client.post(
-        f"/relay/v2/admin/nodes/{node_id}/approve",
-        headers={"Authorization": f"Bearer {approval_token}"},
-        json={"role": role, "capabilities": caps},
-    )
-    assert r2.status_code == 200, r2.json()
-    return r2.json()["token"]
-
-
 def _admin_token(secret: str) -> str:
     r = client.post(
-        "/relay/v2/auth/register",
+        "/relay/v2/auth/register-admin",
         json={
-            "node_id": "admin-test",
-            "node_name": "admin-test",
+            "node_name": "Admin Test",
             "bootstrap_secret": secret,
             "capabilities": [{"name": "admin", "version": "1.0.0"}],
-            "role": "admin",
         },
     )
     assert r.status_code == 200
     return r.json()["token"]
 
 
+def _register(
+    secret: str,
+    node_name: str,
+    caps: list,
+    role: str = "service",
+    admin_token: Optional[str] = None,
+) -> tuple[str, str]:
+    if role == "admin":
+        r = client.post(
+            "/relay/v2/auth/register-admin",
+            json={
+                "node_name": node_name,
+                "bootstrap_secret": secret,
+                "capabilities": caps,
+            },
+        )
+        assert r.status_code == 200, r.json()
+        body = r.json()
+        return body["node_id"], body["token"]
+
+    r = client.post(
+        "/relay/v2/auth/register",
+        json={
+            "node_name": node_name,
+            "endpoint": "http://localhost:9001",
+            "capabilities": caps,
+            "role": role,
+        },
+    )
+    assert r.status_code == 200, r.json()
+    worker_id = r.json()["node_id"]
+
+    approval_token = admin_token or _admin_token(secret)
+    r2 = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        headers={"Authorization": f"Bearer {approval_token}"},
+        json={"role": role, "capabilities": caps},
+    )
+    assert r2.status_code == 200, r2.json()
+    return worker_id, r2.json()["token"]
+
+
 def test_create_task_and_view():
     secret = _seed_admin()
-    admin_token = _register(secret, "admin", [{"name": "admin", "version": "1.0"}], "admin")
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
 
     r = client.post(
         "/relay/v2/scheduler/tasks",
@@ -144,12 +147,14 @@ def test_create_task_and_view():
 
 def test_claim_and_complete_linear_stage():
     secret = _seed_admin()
-    admin_token = _register(secret, "admin", [{"name": "admin", "version": "1.0"}], "admin")
-    web_token = _register(
-        secret, "web-node", [{"name": "web_fetch", "version": "1.0"}], admin_token=admin_token
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
     )
-    llm_token = _register(
-        secret, "llm-node", [{"name": "llm", "version": "1.0"}], admin_token=admin_token
+    web_id, web_token = _register(
+        secret, "Web Node", [{"name": "web_fetch", "version": "1.0"}], admin_token=admin_token
+    )
+    llm_id, llm_token = _register(
+        secret, "LLM Node", [{"name": "llm", "version": "1.0"}], admin_token=admin_token
     )
 
     r = client.post(
@@ -180,7 +185,7 @@ def test_claim_and_complete_linear_stage():
     assert r.status_code == 200
     assert r.json()["claimed"] is True
     assert r.json()["stage"]["stage_id"] == stage_fetch
-    assert r.json()["stage"]["claimed_by"] == "web-node"
+    assert r.json()["stage"]["claimed_by"] == web_id
 
     # Complete fetch stage.
     r = client.post(
@@ -216,12 +221,14 @@ def test_claim_and_complete_linear_stage():
 
 def test_wrong_node_cannot_complete_stage():
     secret = _seed_admin()
-    admin_token = _register(secret, "admin", [{"name": "admin", "version": "1.0"}], "admin")
-    web_token = _register(
-        secret, "web-node", [{"name": "web_fetch", "version": "1.0"}], admin_token=admin_token
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
     )
-    other_token = _register(
-        secret, "other-node", [{"name": "web_fetch", "version": "1.0"}], admin_token=admin_token
+    web_id, web_token = _register(
+        secret, "Web Node", [{"name": "web_fetch", "version": "1.0"}], admin_token=admin_token
+    )
+    other_id, other_token = _register(
+        secret, "Other Node", [{"name": "web_fetch", "version": "1.0"}], admin_token=admin_token
     )
 
     r = client.post(
@@ -245,7 +252,9 @@ def test_wrong_node_cannot_complete_stage():
 
 def test_artifact_upload_and_list():
     secret = _seed_admin()
-    admin_token = _register(secret, "admin", [{"name": "admin", "version": "1.0"}], "admin")
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
 
     r = client.post(
         "/relay/v2/scheduler/tasks",
@@ -263,7 +272,7 @@ def test_artifact_upload_and_list():
     body = r.json()
     assert body["name"] == "test.txt"
     assert body["size_bytes"] == 11
-    assert body["created_by"] == "admin"
+    assert body["created_by"] == admin_id
 
     r = client.get(
         f"/relay/v2/scheduler/artifacts/{task_id}",
