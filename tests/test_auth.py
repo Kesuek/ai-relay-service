@@ -299,8 +299,8 @@ def test_human_user_without_permission_gets_403():
 
 def test_human_user_with_explicit_node_permissions():
     """A non-admin human user with explicit nodes:approve/token permissions can use them."""
-    from relay_server.core.users import create_user, set_group_permissions
     from relay_server.core.db import get_conn
+    from relay_server.core.users import create_user, set_group_permissions
 
     init_db()
 
