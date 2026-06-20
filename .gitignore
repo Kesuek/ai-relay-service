@@ -1,38 +1,16 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-.venv/
-venv/
-env/
-build/
-dist/
-*.egg-info/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# DB
-*.db
-*.db-shm
-*.db-wal
-
-# Logs
-*.log
-logs/
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Coverage
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+.env
+*.db
+*.db-wal
+*.db-shm
+.pytest_cache/
 .coverage
 htmlcov/
-
-# Relay-Specific
-.relay/
+dist/
+build/
+.venv/

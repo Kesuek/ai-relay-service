@@ -1,0 +1,11 @@
+# AI-Relay-Service v2
+
+host: 0.0.0.0
+port: 8788
+db_path: ~/.relay/server.db
+artifacts_dir: ~/.relay/artifacts
+capabilities_config_path: ~/.relay/capabilities.yaml
+log_level: info
+heartbeat_interval_seconds: 30
+heartbeat_timeout_multiplier: 2
+claim_ttl_seconds: 60

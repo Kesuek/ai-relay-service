@@ -1,36 +1,46 @@
-.PHONY: dev test deploy migrate lint fmt clean
+.PHONY: dev test lint format install deploy migrate clean
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python3
 PIP := $(VENV)/bin/pip
+RUFF := $(VENV)/bin/ruff
+PYTEST := $(VENV)/bin/pytest
 UVICORN := $(VENV)/bin/uvicorn
+SERVICE := ai-relay-service
 
-$(VENV):
+install:
 	python3 -m venv $(VENV)
+	$(PIP) install --upgrade pip
 	$(PIP) install -e ".[dev]"
 
-dev: $(VENV)
-	$(UVICORN) relay_server.main:app --reload --port 8788 --host 0.0.0.0
+dev:
+	$(UVICORN) relay_server.main:app --host 0.0.0.0 --port 8788 --reload --log-level info
 
-test: $(VENV)
-	$(PYTHON) -m pytest tests/ -v
+test:
+	$(PYTEST) -q
 
-migrate: $(VENV)
-	$(PYTHON) scripts/init_db.py
+lint:
+	$(RUFF) check src tests
+
+format:
+	$(RUFF) format src tests
+
+migrate:
+	$(PYTHON) -m relay_server.main --help >/dev/null
 
 deploy:
+	mkdir -p ~/.config/systemd/user
+	cp systemd/ai-relay-service.service ~/.config/systemd/user/
 	systemctl --user daemon-reload
-	systemctl --user enable ai-relay-service
-	systemctl --user restart ai-relay-service
+	systemctl --user enable $(SERVICE)
+	systemctl --user restart $(SERVICE)
+	@echo "Status:"
+	systemctl --user status $(SERVICE) --no-pager
 
-lint: $(VENV)
-	$(VENV)/bin/ruff check src/ tests/
-
-fmt: $(VENV)
-	$(VENV)/bin/ruff format src/ tests/
+logs:
+	journalctl --user -u $(SERVICE) -f
 
 clean:
-	rm -rf $(VENV) build/ dist/ *.egg-info
+	find src -type d -name __pycache__ -exec rm -rf {} +
+	find src -type f -name "*.pyc" -delete
 	rm -f .coverage
-	find . -type d -name __pycache__ -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete

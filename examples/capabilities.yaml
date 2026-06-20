@@ -1,0 +1,31 @@
+# Capabilities for Scheduler matching
+# External nodes declare capabilities at registration; this file is optional.
+
+capabilities:
+  board:
+    endpoint_template: "http://localhost:9001"
+    consumes: []
+    produces:
+      - type: post
+        mime: application/json
+  vault:
+    endpoint_template: "http://localhost:9002"
+    consumes:
+      - mime: text/markdown
+    produces:
+      - type: page
+        mime: text/markdown
+  image_gen:
+    endpoint_template: "http://localhost:9003"
+    consumes:
+      - mime: text/plain
+    produces:
+      - type: image
+        mime: image/png
+  coding_linux:
+    endpoint_template: "http://localhost:9004"
+    consumes:
+      - mime: image/png
+    produces:
+      - type: patch
+        mime: text/x-diff
