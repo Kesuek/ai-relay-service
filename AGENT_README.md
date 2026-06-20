@@ -26,7 +26,7 @@ http://127.0.0.1:8788/dashboard/login
 Every node needs a runtime token. The first time a node runs it registers itself:
 
 ```http
-POST /relay/v2/discovery/register
+POST /relay/v2/auth/register
 Content-Type: application/json
 
 {
@@ -39,11 +39,56 @@ Content-Type: application/json
 }
 ```
 
-The server returns a `pending` token. An admin must approve the node in the dashboard before it can claim work.
+The server returns:
 
-> **Tip:** Save the returned token to a file (e.g. `~/.relay/my-agent-01.token`). On restart, reuse it instead of registering again.
+- a temporary token (`tp_...`),
+- a `registration_secret` (`rs_...`),
+- status `pending`.
 
-## 4. Send heartbeats
+Save both. The registration secret is used to poll for approval; the temporary token lets you send heartbeats while pending.
+
+## 4. Poll approval status
+
+While pending, call:
+
+```http
+POST /relay/v2/auth/status
+Content-Type: application/json
+
+{
+  "node_id": "my-agent-01",
+  "registration_secret": "rs_..."
+}
+```
+
+Response while pending:
+
+```json
+{
+  "node_id": "my-agent-01",
+  "node_name": "My first agent",
+  "status": "pending",
+  "message": "Awaiting admin approval"
+}
+```
+
+Response once approved:
+
+```json
+{
+  "node_id": "my-agent-01",
+  "node_name": "My first agent",
+  "status": "approved",
+  "token": "rt_...",
+  "token_type": "runtime",
+  "expires_at": "2026-06-21T...",
+  "message": "Node approved — use this runtime token"
+}
+```
+
+Save the `rt_...` runtime token and use it for all further API calls. Poll `/relay/v2/auth/status` every few seconds until approved.
+
+## 5. Send heartbeats
 
 A node must prove it is alive. Send a heartbeat every few seconds:
 
@@ -62,7 +107,7 @@ Content-Type: application/json
 
 Recommended interval: **8 seconds**. Server timeout is 5 × heartbeat interval.
 
-## 5. Claim tasks
+## 6. Claim tasks
 
 Once approved and online, claim available work:
 
@@ -90,7 +135,7 @@ Content-Type: application/json
 }
 ```
 
-## 6. Capabilities
+## 7. Capabilities
 
 Common capability names you can register:
 
@@ -101,11 +146,11 @@ Common capability names you can register:
 
 You can invent your own capability names; tasks must then reference exactly those names.
 
-## 7. Example node code
+## 8. Example node code
 
 Look at `examples/nodes/node_base.py` in this repository for a ready-to-use base class that handles registration, heartbeat, claim and complete loops.
 
-## 8. HTML guide
+## 9. HTML guide
 
 A browser-readable version of this guide is available at:
 
