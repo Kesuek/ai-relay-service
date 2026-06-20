@@ -52,7 +52,6 @@ def test_register_worker_goes_pending():
     r = client.post(
         "/relay/v2/auth/register",
         json={
-            "node_id": "worker-1",
             "node_name": "Worker One",
             "endpoint": "http://localhost:9001",
             "capabilities": [{"name": "board", "version": "1.0.0"}],
@@ -61,6 +60,7 @@ def test_register_worker_goes_pending():
     )
     assert r.status_code == 200
     body = r.json()
+    assert len(body["node_id"]) == 8
     assert body["status"] == "pending"
     assert body["token_type"] == "temporary"
     assert body["token"].startswith("tp_")
@@ -70,7 +70,6 @@ def test_pending_cannot_access_approved_endpoints():
     r = client.post(
         "/relay/v2/auth/register",
         json={
-            "node_id": "worker-2",
             "node_name": "Worker Two",
             "endpoint": "http://localhost:9001",
             "capabilities": [{"name": "board", "version": "1.0.0"}],
@@ -84,6 +83,35 @@ def test_pending_cannot_access_approved_endpoints():
 
     r = client.post("/relay/v2/scheduler/claim", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
+
+
+def _register_admin(secret: str) -> tuple[str, str]:
+    r = client.post(
+        "/relay/v2/auth/register-admin",
+        json={
+            "node_name": "Admin Test",
+            "bootstrap_secret": secret,
+            "capabilities": [{"name": "admin", "version": "1.0.0"}],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    return body["node_id"], body["token"]
+
+
+def _register_worker(name: str, caps: list) -> tuple[str, str, str]:
+    r = client.post(
+        "/relay/v2/auth/register",
+        json={
+            "node_name": name,
+            "endpoint": "http://localhost:9001",
+            "capabilities": caps,
+            "role": "service",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    return body["node_id"], body["token"], body["registration_secret"]
 
 
 def test_admin_approval_flow():
@@ -118,32 +146,12 @@ def test_admin_approval_flow():
     conn.close()
 
     # Register admin node with known secret.
-    r = client.post(
-        "/relay/v2/auth/register",
-        json={
-            "node_id": "admin-dashboard",
-            "node_name": "Admin Dashboard",
-            "bootstrap_secret": secret,
-            "capabilities": [{"name": "admin", "version": "1.0.0"}],
-            "role": "admin",
-        },
-    )
-    assert r.status_code == 200
-    admin_token = r.json()["token"]
+    admin_id, admin_token = _register_admin(secret)
 
     # Register worker node pending.
-    r = client.post(
-        "/relay/v2/auth/register",
-        json={
-            "node_id": "worker-3",
-            "node_name": "Worker Three",
-            "endpoint": "http://localhost:9001",
-            "capabilities": [{"name": "board", "version": "1.0.0"}],
-            "role": "service",
-        },
+    worker_id, worker_pending_token, _ = _register_worker(
+        "Worker Three", [{"name": "board", "version": "1.0.0"}]
     )
-    assert r.status_code == 200
-    worker_pending_token = r.json()["token"]
 
     # Pending worker cannot list admin nodes.
     r = client.get(
@@ -153,7 +161,7 @@ def test_admin_approval_flow():
 
     # Admin approves worker.
     r = client.post(
-        "/relay/v2/admin/nodes/worker-3/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -181,13 +189,11 @@ def test_refresh_token():
     conn.close()
 
     r = client.post(
-        "/relay/v2/auth/register",
+        "/relay/v2/auth/register-admin",
         json={
-            "node_id": "admin-refresh",
             "node_name": "Admin Refresh",
             "bootstrap_secret": secret,
             "capabilities": [{"name": "admin", "version": "1.0.0"}],
-            "role": "admin",
         },
     )
     token = r.json()["token"]
@@ -225,27 +231,19 @@ def test_human_admin_user_can_approve_and_issue_token():
     cookies = r.cookies
 
     # Register a pending worker node.
-    r = client.post(
-        "/relay/v2/auth/register",
-        json={
-            "node_id": "worker-human-admin",
-            "node_name": "Worker Human Admin",
-            "endpoint": "http://localhost:9001",
-            "capabilities": [{"name": "board", "version": "1.0.0"}],
-            "role": "service",
-        },
+    worker_id, _, _ = _register_worker(
+        "Worker Human Admin", [{"name": "board", "version": "1.0.0"}]
     )
-    assert r.status_code == 200
 
     # Admin human can list nodes.
     r = client.get("/relay/v2/admin/nodes", cookies=cookies)
     assert r.status_code == 200
     node_ids = [n["node_id"] for n in r.json()["nodes"]]
-    assert "worker-human-admin" in node_ids
+    assert worker_id in node_ids
 
     # Admin human can approve the node.
     r = client.post(
-        "/relay/v2/admin/nodes/worker-human-admin/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
         cookies=cookies,
     )
@@ -254,7 +252,7 @@ def test_human_admin_user_can_approve_and_issue_token():
     assert worker_token.startswith("rt_")
 
     # Admin human can issue a new runtime token.
-    r = client.post("/relay/v2/admin/nodes/worker-human-admin/token", cookies=cookies)
+    r = client.post(f"/relay/v2/admin/nodes/{worker_id}/token", cookies=cookies)
     assert r.status_code == 200
     assert r.json()["token"].startswith("rt_")
 
@@ -278,17 +276,9 @@ def test_human_user_without_permission_gets_403():
     cookies = r.cookies
 
     # Register a pending worker node.
-    r = client.post(
-        "/relay/v2/auth/register",
-        json={
-            "node_id": "worker-viewer",
-            "node_name": "Worker Viewer",
-            "endpoint": "http://localhost:9001",
-            "capabilities": [{"name": "board", "version": "1.0.0"}],
-            "role": "service",
-        },
+    worker_id, _, _ = _register_worker(
+        "Worker Viewer", [{"name": "board", "version": "1.0.0"}]
     )
-    assert r.status_code == 200
 
     # Viewer can list nodes (dashboard:view).
     r = client.get("/relay/v2/admin/nodes", cookies=cookies)
@@ -296,14 +286,14 @@ def test_human_user_without_permission_gets_403():
 
     # Viewer cannot approve nodes.
     r = client.post(
-        "/relay/v2/admin/nodes/worker-viewer/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
         cookies=cookies,
     )
     assert r.status_code == 403
 
     # Viewer cannot issue tokens.
-    r = client.post("/relay/v2/admin/nodes/worker-viewer/token", cookies=cookies)
+    r = client.post(f"/relay/v2/admin/nodes/{worker_id}/token", cookies=cookies)
     assert r.status_code == 403
 
 
@@ -336,28 +326,20 @@ def test_human_user_with_explicit_node_permissions():
     cookies = r.cookies
 
     # Register and approve a node.
-    r = client.post(
-        "/relay/v2/auth/register",
-        json={
-            "node_id": "worker-nodemgr",
-            "node_name": "Worker Node Manager",
-            "endpoint": "http://localhost:9001",
-            "capabilities": [{"name": "board", "version": "1.0.0"}],
-            "role": "service",
-        },
+    worker_id, _, _ = _register_worker(
+        "Worker Node Manager", [{"name": "board", "version": "1.0.0"}]
     )
-    assert r.status_code == 200
 
     # Node manager can approve (nodes:approve).
     r = client.post(
-        "/relay/v2/admin/nodes/worker-nodemgr/approve",
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
         cookies=cookies,
     )
     assert r.status_code == 200
 
     # Node manager can issue token (nodes:token).
-    r = client.post("/relay/v2/admin/nodes/worker-nodemgr/token", cookies=cookies)
+    r = client.post(f"/relay/v2/admin/nodes/{worker_id}/token", cookies=cookies)
     assert r.status_code == 200
 
     # But cannot list nodes (missing dashboard:view).
