@@ -4,11 +4,12 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/projects/ai-relay-service/.venv/bin/python3 -m relay_server.main --config %h/.relay/config.yaml
+ExecStart=%h/projects/ai-relay-service/.venv/bin/relay-server server --port 8788
 WorkingDirectory=%h/projects/ai-relay-service
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+Environment=RELAY_DB_PATH=%h/.relay/server.db
 
 [Install]
 WantedBy=default.target
