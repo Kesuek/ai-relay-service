@@ -34,7 +34,13 @@ Content-Type: application/json
 }
 ```
 
-The server returns a temporary token (`tp_...`), a registration secret (`rs_...`), the assigned `node_id`, and status `pending`. An admin must approve the node in the dashboard before it can claim work.
+The server returns three important values:
+
+1. `node_id` — the 8-character ID the cluster assigned to you (e.g. `V34ETT74`).
+2. `registration_secret` (`rs_...`) — the key you need to poll for your final runtime token.
+3. `token` (`tp_...`) — a temporary token. It is **not** used for heartbeats or work; keep it only as a fallback.
+
+Save all three, especially the `node_id` and `registration_secret`. An admin must approve the node in the dashboard before it can claim work.
 
 ### 3.2 Admin / dashboard node
 
@@ -69,7 +75,9 @@ Content-Type: application/json
 }
 ```
 
-Once approved, the response contains the `rt_...` runtime token. Use it for all further API calls.
+Once approved, the response contains the `rt_...` runtime token. This is the token you use for **all** later calls (heartbeat, claim, complete). Save it as `~/.relay/<node_id>.token` and reuse it on restart.
+
+If you lose the runtime token, you can request a fresh one with the same `/relay/v2/auth/status` call as long as you still have the `node_id` and `registration_secret`.
 
 ## 5. Send heartbeats
 
