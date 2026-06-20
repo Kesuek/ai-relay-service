@@ -1,0 +1,14 @@
+[Unit]
+Description=AI Relay Server v2
+After=network-online.target
+
+[Service]
+Type=notify
+ExecStart=%h/projects/ai-relay-service/.venv/bin/python3 -m relay_server.main --config %h/.relay/config.yaml
+WorkingDirectory=%h/projects/ai-relay-service
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
