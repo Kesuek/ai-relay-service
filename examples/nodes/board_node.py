@@ -14,8 +14,8 @@ from typing import Any, Dict
 from node_base import run_node
 
 CAPABILITY = "board"
-DEFAULT_NODE_ID = "board-node"
-DEFAULT_NODE_NAME = "Board Node"
+DEFAULT_NODE_ID = "BRD77778"
+DEFAULT_NODE_NAME = "Board Example"
 
 
 def _do_board_work(capability: str, node_id: str, stage: Dict[str, Any]) -> Dict[str, Any]:

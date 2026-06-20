@@ -19,6 +19,9 @@ REPO = Path(__file__).resolve().parent.parent
 PYTHON = REPO / ".venv" / "bin" / "python3"
 NODES_DIR = REPO / "examples" / "nodes"
 
+VAULT_NAME = "Vault Example"
+BOARD_NAME = "Board Example"
+
 
 def _free_port() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -58,17 +61,53 @@ def _init_master_secret(env: dict) -> str:
 
 def _register_admin(base_url: str, secret: str) -> str:
     r = httpx.post(
-        f"{base_url}/relay/v2/auth/register",
+        f"{base_url}/relay/v2/auth/register-admin",
         json={
-            "node_id": "test-admin",
             "node_name": "Test Admin",
             "bootstrap_secret": secret,
             "capabilities": [{"name": "admin", "version": "1.0.0"}],
-            "role": "admin",
         },
     )
     r.raise_for_status()
     return r.json()["token"]
+
+
+def _approve_nodes(base_url: str, admin_token: str, token_dir: Path) -> dict[str, str]:
+    """Find pending example nodes by name, approve them, write tokens, return assigned IDs."""
+    ids = {}
+    deadline = time.time() + 15.0
+    while time.time() < deadline:
+        r = httpx.get(
+            f"{base_url}/relay/v2/admin/nodes",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        r.raise_for_status()
+        pending = [n for n in r.json()["nodes"] if n["status"] == "pending"]
+        for node in pending:
+            name = node["node_name"]
+            caps = []
+            if name == VAULT_NAME:
+                caps = [{"name": "vault", "version": "1.0.0"}]
+            elif name == BOARD_NAME:
+                caps = [{"name": "board", "version": "1.0.0"}]
+            else:
+                continue
+            approve = httpx.post(
+                f"{base_url}/relay/v2/admin/nodes/{node['node_id']}/approve",
+                headers={"Authorization": f"Bearer {admin_token}"},
+                json={"role": "service", "capabilities": caps},
+            )
+            approve.raise_for_status()
+            token = approve.json()["token"]
+            ids[name] = node["node_id"]
+            if name == VAULT_NAME:
+                (token_dir / "vault.token").write_text(token, encoding="utf-8")
+            elif name == BOARD_NAME:
+                (token_dir / "board.token").write_text(token, encoding="utf-8")
+        if VAULT_NAME in ids and BOARD_NAME in ids:
+            return ids
+        time.sleep(0.5)
+    raise RuntimeError(f"Could not approve example nodes; found: {list(ids.keys())}")
 
 
 def _submit_task(base_url: str, admin_token: str) -> str:
@@ -167,10 +206,10 @@ def relay_environment():
                     str(NODES_DIR / "vault_node.py"),
                     "--base-url",
                     base_url,
-                    "--node-id",
-                    "vault-node",
+                    "--node-name",
+                    VAULT_NAME,
                     "--token-file",
-                    str(token_dir / "vault-node.token"),
+                    str(token_dir / "vault.token"),
                 ],
                 stdout=open(log_dir / "vault.stdout", "w"),
                 stderr=open(log_dir / "vault.stderr", "w"),
@@ -182,44 +221,32 @@ def relay_environment():
                     str(NODES_DIR / "board_node.py"),
                     "--base-url",
                     base_url,
-                    "--node-id",
-                    "board-node",
+                    "--node-name",
+                    BOARD_NAME,
                     "--token-file",
-                    str(token_dir / "board-node.token"),
+                    str(token_dir / "board.token"),
                 ],
                 stdout=open(log_dir / "board.stdout", "w"),
                 stderr=open(log_dir / "board.stderr", "w"),
                 env=node_env,
             )
 
-            time.sleep(0.5)
+            # Wait long enough for the nodes to register as pending.
+            time.sleep(1.0)
 
-            approve_env = env.copy()
-            approve_env["RELAY_MASTER_SECRET"] = secret
-            approve_env["RELAY_TOKEN_DIR"] = str(token_dir)
-            subprocess.run(
-                [
-                    str(PYTHON),
-                    str(NODES_DIR / "approve_nodes.py"),
-                    "--base-url",
-                    base_url,
-                    "--master-secret",
-                    secret,
-                    "--capabilities",
-                    "vault,board",
-                    "--token-dir",
-                    str(token_dir),
-                ],
-                check=True,
-                env=approve_env,
-                cwd=str(REPO),
-            )
+            admin_token = _register_admin(base_url, secret)
+            assigned_ids = _approve_nodes(base_url, admin_token, token_dir)
+            # Give the nodes a moment to pick up the runtime tokens.
+            time.sleep(1.0)
 
             yield {
                 "base_url": base_url,
                 "secret": secret,
+                "admin_token": admin_token,
                 "token_dir": token_dir,
                 "log_dir": log_dir,
+                "vault_id": assigned_ids[VAULT_NAME],
+                "board_id": assigned_ids[BOARD_NAME],
             }
         finally:
             for proc in (vault, board, server):
@@ -233,9 +260,10 @@ def relay_environment():
 
 def test_example_nodes_claim_and_complete(relay_environment):
     base_url = relay_environment["base_url"]
-    secret = relay_environment["secret"]
+    admin_token = relay_environment["admin_token"]
+    vault_id = relay_environment["vault_id"]
+    board_id = relay_environment["board_id"]
 
-    admin_token = _register_admin(base_url, secret)
     task_id = _submit_task(base_url, admin_token)
     task = _wait_for_task_completion(base_url, admin_token, task_id)
 
@@ -246,9 +274,9 @@ def test_example_nodes_claim_and_complete(relay_environment):
     board_stage = next(s for s in task["stages"] if s["capability"] == "board")
 
     assert vault_stage["status"] == "completed"
-    assert vault_stage["claimed_by"] == "vault-node"
+    assert vault_stage["claimed_by"] == vault_id
     assert vault_stage["result"]["status"] == "stored"
 
     assert board_stage["status"] == "completed"
-    assert board_stage["claimed_by"] == "board-node"
+    assert board_stage["claimed_by"] == board_id
     assert board_stage["result"]["status"] == "published"

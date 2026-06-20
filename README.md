@@ -66,8 +66,8 @@ Terminal 2 — start the example nodes:
 ```bash
 cd ~/projects/ai-relay-service/examples/nodes
 source ../../.venv/bin/activate
-python vault_node.py --node-id vault-node --base-url http://127.0.0.1:8788 &
-python board_node.py --node-id board-node --base-url http://127.0.0.1:8788 &
+python vault_node.py --node-id VT999999 --base-url http://127.0.0.1:8788 &
+python board_node.py --node-id BRD77778 --base-url http://127.0.0.1:8788 &
 ```
 
 Terminal 3 — approve the nodes with the master secret:

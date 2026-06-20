@@ -46,8 +46,8 @@ Terminal 3 — start the example nodes:
 ```bash
 cd ~/projects/ai-relay-service/examples/nodes
 source ../../.venv/bin/activate
-python vault_node.py --node-id vault-node --base-url http://127.0.0.1:8788 &
-python board_node.py --node-id board-node --base-url http://127.0.0.1:8788 &
+python vault_node.py --node-id VT999999 --base-url http://127.0.0.1:8788 &
+python board_node.py --node-id BRD77778 --base-url http://127.0.0.1:8788 &
 ```
 
 Terminal 4 — approve the nodes:
@@ -90,7 +90,7 @@ All nodes accept the following environment variables / CLI flags:
 | Variable | Flag | Default | Description |
 |----------|------|---------|-------------|
 | `RELAY_BASE_URL` | `--base-url` | `http://127.0.0.1:8788` | Relay server URL |
-| `RELAY_NODE_ID` | `--node-id` | `vault-node` / `board-node` | Unique node ID |
+| `RELAY_NODE_ID` | `--node-id` | `VT999999` / `BRD77778` | Unique 8-char node ID |
 | `RELAY_NODE_NAME` | `--node-name` | `Vault Node` / `Board Node` | Human-readable name |
 | `RELAY_ENDPOINT` | `--endpoint` | none | Optional endpoint advertised for this node |
 | `RELAY_RUNTIME_TOKEN` | `--runtime-token` | none | Skip registration, use existing runtime token |

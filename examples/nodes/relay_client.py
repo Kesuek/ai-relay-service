@@ -74,26 +74,51 @@ class RelayClient:
 
     def register(
         self,
-        node_id: str,
         node_name: str,
         capabilities: List[Dict[str, Any]],
         endpoint: Optional[str] = None,
         role: str = "service",
         bootstrap_secret: Optional[str] = None,
+        preferred_node_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Register a new node. Returns pending temporary token unless bootstrap secret is used."""
         payload: Dict[str, Any] = {
-            "node_id": node_id,
             "node_name": node_name,
             "capabilities": capabilities,
             "role": role,
         }
         if endpoint:
             payload["endpoint"] = endpoint
+        if preferred_node_id:
+            payload["preferred_node_id"] = preferred_node_id
         if bootstrap_secret:
             payload["bootstrap_secret"] = bootstrap_secret
         response = self.client.post(
             self._url("/relay/v2/auth/register"),
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        data = self._check(response)
+        self.token = data.get("token")
+        return data
+
+    def register_admin(
+        self,
+        node_name: str,
+        bootstrap_secret: str,
+        capabilities: Optional[List[Dict[str, Any]]] = None,
+        endpoint: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Register an admin node with a bootstrap secret."""
+        payload: Dict[str, Any] = {
+            "node_name": node_name,
+            "bootstrap_secret": bootstrap_secret,
+            "capabilities": capabilities or [],
+        }
+        if endpoint:
+            payload["endpoint"] = endpoint
+        response = self.client.post(
+            self._url("/relay/v2/auth/register-admin"),
             json=payload,
             headers={"Content-Type": "application/json"},
         )

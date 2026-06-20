@@ -35,6 +35,10 @@ build-backend = "hatchling.build"
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+select = ["F", "I"]
+per-file-ignores = { "tests/test_node_registry.py" = ["F401"] }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
