@@ -31,6 +31,56 @@ make deploy     # systemd start
 | Presence | `/relay/v2/presence/*` |
 | Events | `/relay/v2/events/stream?node=<id>` |
 
+## Phase 4 Features
+
+- **SSE Event Stream** — `GET /relay/v2/events/stream?node=<id>&types=<filter>` delivers
+  real-time `node_online`, `node_offline`, `task_created`, `stage_claimed`,
+  `stage_completed`, `presence_changed`, and `artifact_created` events.
+- **External Example Nodes** — `examples/nodes/` contains standalone nodes that run as
+  separate processes and talk to the core over the public v2 API:
+  - `vault_node.py` — advertises the `vault` capability
+  - `board_node.py` — advertises the `board` capability
+  - `relay_client.py` — shared HTTP/SSE client
+  - `approve_nodes.py` — approves pending nodes and writes runtime tokens
+- **End-to-end demo** — start the server, launch the example nodes, approve them, and
+  submit a two-stage `vault` → `board` task. The nodes claim and complete their
+  respective stages automatically.
+
+## Running the Example Nodes
+
+Terminal 1 — start the server and create the master seed once:
+
+```bash
+cd ~/projects/ai-relay-service
+source .venv/bin/activate
+python -m relay_server.main server --port 8788
+# In another shell:
+python -m relay_server.main admin init-master   # save the SECRET value
+```
+
+Terminal 2 — start the example nodes:
+
+```bash
+cd ~/projects/ai-relay-service/examples/nodes
+source ../../.venv/bin/activate
+python vault_node.py --node-id vault-node --base-url http://127.0.0.1:8788 &
+python board_node.py --node-id board-node --base-url http://127.0.0.1:8788 &
+```
+
+Terminal 3 — approve the nodes with the master secret:
+
+```bash
+cd ~/projects/ai-relay-service/examples/nodes
+RELAY_MASTER_SECRET="adm_xxxxxxxxxxxx" \
+  python approve_nodes.py \
+  --base-url http://127.0.0.1:8788 \
+  --capabilities vault,board
+```
+
+The nodes now receive runtime tokens and begin claiming matching stages.
+Submit a task via the scheduler API or use `scripts/manual_node_test.py` for a
+fully automated end-to-end test.
+
 ## Architektur
 
 ```
