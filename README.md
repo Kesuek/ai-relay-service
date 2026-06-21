@@ -129,6 +129,26 @@ log_level: info
 
 Environment variables with the `RELAY_` prefix override YAML values.
 
+## mDNS / Zeroconf Discovery
+
+The relay can announce itself on the local network via mDNS so clients can find
+it as `ai-relay.local` without hard-coding an IP address.
+
+Enable it with an environment variable:
+
+```bash
+RELAY_ENABLE_MDNS=true RELAY_MDNS_HOSTNAME=ai-relay relay-server server --port 8788
+```
+
+Or in `~/.relay/config.yaml`:
+
+```yaml
+enable_mdns: true
+mdns_hostname: ai-relay
+```
+
+Clients on the same subnet can then use `http://ai-relay.local:8788`.
+
 ## License
 
 MIT
