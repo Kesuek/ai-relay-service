@@ -1,12 +1,15 @@
 # AI-Relay-Service v2
 
-Eigenständiger Agent-Cluster-Server für verteilte KI-Agenten. Der Core beschränkt sich auf **Connection, Auth, Task-Verteilung und Availability-Monitoring**. Domain-Services wie Board, Vault oder Activity laufen als externe Nodes mit eigenen Capabilities.
+Standalone agent cluster server for distributed AI agents. The core focuses on
+**connection, authentication, task distribution, and availability monitoring**.
+Domain services like Board, Vault, or Activity run as external nodes with their
+own capabilities.
 
-- **Port:** 8788 (v1 läuft parallel auf 8787)
+- **Port:** 8788 (v1 still runs in parallel on 8787)
 - **Framework:** FastAPI + uvicorn
 - **DB:** SQLite + WAL (`~/.relay/server.db`)
-- **Auth:** Bootstrap Seeds + Bearer Tokens
-- **Artifacts:** Dateien unter `~/.relay/artifacts/`, Metadaten in DB
+- **Auth:** Bootstrap seeds + Bearer tokens
+- **Artifacts:** Files under `~/.relay/artifacts/`, metadata in the database
 
 ## Quick Start
 
@@ -15,42 +18,43 @@ cd ~/projects/ai-relay-service
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-make dev        # Server mit reload
-make test       # Tests
-make deploy     # systemd start
+make dev        # server with reload
+make test       # run tests
+make deploy     # start systemd service
 ```
 
 ## Core API
 
-| Service | Pfad |
-|---------|------|
-| Health | `/health` |
-| Auth | `/relay/v2/auth/*` |
-| Discovery | `/relay/v2/discovery/*` |
-| Scheduler | `/relay/v2/scheduler/*` |
-| Presence | `/relay/v2/presence/*` |
-| Events | `/relay/v2/events/stream?node=<id>` |
+| Service   | Path                            |
+|-----------|---------------------------------|
+| Health    | `/health`                       |
+| Auth      | `/relay/v2/auth/*`              |
+| Discovery | `/relay/v2/discovery/*`         |
+| Scheduler | `/relay/v2/scheduler/*`         |
+| Presence  | `/relay/v2/presence/*`          |
+| Events    | `/relay/v2/events/stream?node=<id>` |
 
 ## Phase 4 Features
 
-- **SSE Event Stream** — `GET /relay/v2/events/stream?node=<id>&types=<filter>` delivers
-  real-time `node_online`, `node_offline`, `task_created`, `stage_claimed`,
-  `stage_completed`, `presence_changed`, and `artifact_created` events.
-  Each stream gets a unique subscriber ID, so reconnects from the same node do
-  not collide. Unknown event types in the `types` filter return `400`.
-- **External Example Nodes** — `examples/nodes/` contains standalone nodes that run as
-  separate processes and talk to the core over the public v2 API.
+- **SSE Event Stream** — `GET /relay/v2/events/stream?node=<id>&types=<filter>`
+  delivers real-time `node_online`, `node_offline`, `task_created`,
+  `stage_claimed`, `stage_completed`, `presence_changed`, and
+  `artifact_created` events. Each stream gets a unique subscriber ID, so
+  reconnects from the same node do not collide. Unknown event types in the
+  `types` filter return `400`.
+- **External Example Nodes** — `examples/nodes/` contains standalone nodes that
+  run as separate processes and talk to the core over the public v2 API.
 
 ## Storage Node
 
 A KI-less storage service node is available in `nodes/storage-node/`. It
-registers with capabilities `storage.archive`, `storage.list`, `storage.delete`,
-and `storage.quota`. It runs as a Docker container on your NAS, downloads files
-from the relay, writes them to a NAS mount, and can post cleanup decision tasks
-back to the relay for KI nodes to handle.
+registers with the capabilities `storage.archive`, `storage.list`,
+`storage.delete`, and `storage.quota`. It runs as a Docker container on your
+NAS, downloads files from the relay, writes them to a NAS mount, and can post
+cleanup decision tasks back to the relay for AI-capable nodes to handle.
 
-See `nodes/storage-node/README.md` for setup and `nodes/storage-node/docker-compose.yml`
-for the Docker Compose deployment.
+See `nodes/storage-node/README.md` for setup and
+`nodes/storage-node/docker-compose.yml` for the Docker Compose deployment.
 
 ## Running the Example Nodes
 
@@ -83,11 +87,11 @@ RELAY_MASTER_SECRET="adm_xxxxxxxxxxxx" \
   --capabilities vault,board
 ```
 
-The nodes now receive runtime tokens and begin claiming matching stages.
-Submit a task via the scheduler API or use `scripts/manual_node_test.py` for a
-fully automated end-to-end test.
+The nodes now receive runtime tokens and begin claiming matching stages. Submit
+a task via the scheduler API or use `scripts/manual_node_test.py` for a fully
+automated end-to-end test.
 
-## Architektur
+## Architecture
 
 ```
                    ┌─────────────────────┐
@@ -123,7 +127,7 @@ artifacts_dir: ~/.relay/artifacts
 log_level: info
 ```
 
-Umgebungsvariablen mit `RELAY_`-Prefix überschreiben YAML-Werte.
+Environment variables with the `RELAY_` prefix override YAML values.
 
 ## License
 
