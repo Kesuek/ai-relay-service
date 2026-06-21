@@ -27,7 +27,7 @@ docker run -d \
   --name ai-relay-storage \
   -v /volume1/ai-relay-storage:/storage \
   -v ai-relay-agent-config:/root/.relay \
-  -e RELAY_BASE_URL=http://192.168.2.100:8788 \
+  -e RELAY_BASE_URL=http://ai-relay.local:8788 \
   -e RELAY_NODE_NAME=nas-storage-01 \
   -e RELAY_STORAGE_PATH=/storage \
   -e RELAY_POLL_INTERVAL=8 \
@@ -49,11 +49,15 @@ docker exec ai-relay-storage python /app/register.py
 If the node is still pending, approve it via the relay dashboard or the admin API:
 
 ```bash
-curl -H "Authorization: Bearer ${RELAY_ADMIN_TOKEN}" \
+curl -H "Authorization: Bearer ${REL...N}" \
   -X POST \
-  http://192.168.2.100:8788/relay/v2/admin/nodes/${NODE_ID}/approve \
+  http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}/approve \
   -d '{"role":"service","capabilities":[{"name":"storage.archive","version":"1.0.0"}]}'
 ```
+
+The node can discover the relay via mDNS (`ai-relay.local`) if your relay has
+mDNS enabled (`RELAY_ENABLE_MDNS=true`). If mDNS is not available on your
+network, override `RELAY_BASE_URL` with the relay's IP address.
 
 ## Flow
 

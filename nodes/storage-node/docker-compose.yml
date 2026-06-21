@@ -2,25 +2,21 @@ version: "3.8"
 
 services:
   ai-relay-storage:
-    # Build from the public GitHub repository. Clone must be available.
-    # For private repos: use an image or clone manually first.
     build:
-      context: https://github.com/Kesuek/ai-relay-service.git#main
-      dockerfile: nodes/storage-node/Dockerfile
+      context: .
+      dockerfile: Dockerfile
+    image: ai-relay-storage-node:latest
     container_name: ai-relay-storage
     restart: unless-stopped
     volumes:
-      - /volume1/ai-relay-storage:/storage
+      - ${RELAY_STORAGE_PATH:-/volume1/ai-relay-storage}:/storage
       - ai-relay-agent-config:/root/.relay
     environment:
-      - RELAY_BASE_URL=http://192.168.2.100:8788
-      - RELAY_NODE_NAME=nas-storage-01
+      - RELAY_BASE_URL=${RELAY_BASE_URL:-http://ai-relay.local:8788}
+      - RELAY_NODE_NAME=${RELAY_NODE_NAME:-nas-storage-01}
       - RELAY_STORAGE_PATH=/storage
-      - RELAY_POLL_INTERVAL=8
-      - RELAY_QUOTA_THRESHOLD=0.85
-    # Before first run:
-    #   docker compose run --rm ai-relay-storage python /app/register.py
-    # Then approve the node via the relay dashboard or admin API.
+      - RELAY_POLL_INTERVAL=${RELAY_POLL_INTERVAL:-8}
+      - RELAY_QUOTA_THRESHOLD=${RELAY_QUOTA_THRESHOLD:-0.85}
 
 volumes:
   ai-relay-agent-config:

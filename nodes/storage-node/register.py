@@ -12,7 +12,7 @@ BASE_DIR = Path.home() / ".relay"
 META_PATH = BASE_DIR / "ai-relay-agent.json"
 TOKEN_PATH = BASE_DIR / "ai-relay-agent.token"
 
-BASE_URL = os.environ.get("RELAY_BASE_URL", "").rstrip("/")
+BASE_URL = os.environ.get("RELAY_BASE_URL", "http://ai-relay.local:8788").rstrip("/")
 NODE_NAME = os.environ.get("RELAY_NODE_NAME", "storage-node")
 
 CAPABILITIES = [
