@@ -39,15 +39,18 @@ make deploy     # systemd start
   Each stream gets a unique subscriber ID, so reconnects from the same node do
   not collide. Unknown event types in the `types` filter return `400`.
 - **External Example Nodes** — `examples/nodes/` contains standalone nodes that run as
-  separate processes and talk to the core over the public v2 API:
-  - `vault_node.py` — advertises the `vault` capability
-  - `board_node.py` — advertises the `board` capability
-  - `node_base.py` — shared `BaseNode` / `run_node()` implementation
-  - `relay_client.py` — shared HTTP/SSE client
-  - `approve_nodes.py` — approves pending nodes and writes runtime tokens
-- **End-to-end demo** — start the server, launch the example nodes, approve them, and
-  submit a two-stage `vault` → `board` task. The nodes claim and complete their
-  respective stages automatically.
+  separate processes and talk to the core over the public v2 API.
+
+## Storage Node
+
+A KI-less storage service node is available in `nodes/storage-node/`. It
+registers with capabilities `storage.archive`, `storage.list`, `storage.delete`,
+and `storage.quota`. It runs as a Docker container on your NAS, downloads files
+from the relay, writes them to a NAS mount, and can post cleanup decision tasks
+back to the relay for KI nodes to handle.
+
+See `nodes/storage-node/README.md` for setup and `nodes/storage-node/docker-compose.yml`
+for the Docker Compose deployment.
 
 ## Running the Example Nodes
 
