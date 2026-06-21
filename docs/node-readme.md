@@ -1,104 +1,66 @@
-# AI Relay — Node README
+# AI Relay — Node Connection Guide
 
 This document is written from the perspective of a node that wants to join an AI
-Relay cluster. It explains what a node must do: discover or be told the relay
-address, register, wait for approval, and keep itself alive.
+Relay cluster. It explains what a node must do to connect, register, wait for
+activation, and keep working.
 
-## 1. What is a node?
+## 1. What you need before starting
 
-A node is any program that connects to the AI Relay and performs work. Nodes can
-be:
+A node needs one piece of information: the relay URL.
 
-- **KI nodes** — agents that reason, plan, generate content, or talk to users
-- **Service nodes** — dumb workers that execute raw actions like storing files,
-  toggling switches, running backups, or printing documents
+Examples:
 
-Every node registers with the relay, advertises one or more **capabilities**,
-and claims matching tasks.
+- `http://192.168.1.50:8788`
+- `http://ai-relay.local:8788` (if your network supports mDNS)
 
-## 2. Configure the relay URL
+If you do not know the URL, ask the person who installed the relay. The relay
+administrator can find it on the relay host or in the dashboard.
 
-Every node needs a relay URL. How the URL is determined depends on the
-deployment:
+## 2. Register once
 
-- In a static network the relay host has a fixed IP such as
-  `http://192.168.1.50:8788`.
-- In a home or office network the relay may be advertised via mDNS as
-  `http://ai-relay.local:8788`.
-- Over a VPN such as Tailscale the address may look like `http://100.64.0.5:8788`.
-- In cloud or container environments a DNS name or load balancer may be used.
-
-Set the URL before starting the node:
-
-```bash
-export RELAY_BASE_URL=http://192.168.1.50:8788
-```
-
-If the node does not know the URL, it must ask the user or read it from its
-configuration file. It should not assume mDNS is available.
-
-Examples in this document use `http://${RELAY_HOST}:8788` as a placeholder.
-Replace `${RELAY_HOST}` with the actual IP, hostname, or mDNS name of the relay.
-
-## 3. Register the node
-
-A node registers by calling `/relay/v2/auth/register`. It does not choose its
-own ID; the relay assigns an 8-character node ID.
+Send a registration request for each capability you provide:
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/register" \
   -H "Content-Type: application/json" \
   -d '{
     "node_name": "my-node",
-    "endpoint": null,
+    "endpoint": "http://192.168.1.60:9000",
+    "role": "service",
     "capabilities": [
       {"name": "chat", "version": "1.0.0"}
-    ],
-    "role": "worker"
+    ]
   }'
 ```
 
-The relay returns:
-
-```json
-{
-  "node_id": "V34ETT74",
-  "status": "pending",
-  "token_type": "temporary",
-  "token": "tp_...",
-  "expires_at": "2026-06-22T14:00:00+00:00",
-  "registration_secret": "rs_..."
-}
-```
-
-Save these values to a persistent file, for example:
+Save the response:
 
 ```json
 {
   "node_id": "V34ETT74",
   "node_name": "my-node",
-  "registration_secret": "rs_...",
-  "relay_url": "http://192.168.1.50:8788",
-  "capabilities": [
-    {"name": "chat", "version": "1.0.0"}
-  ]
+  "status": "pending",
+  "token_type": "temporary",
+  "token": "tp_...",
+  "expires_at": "2026-06-28T14:00:00+00:00",
+  "registration_secret": "rs_..."
 }
 ```
 
-### Important files
+Store these values persistently:
 
-| File | Purpose |
-|------|---------|
-| `~/.relay/ai-relay-agent.json` | Long-lived node identity: `node_id`, `registration_secret`, capabilities |
-| `~/.relay/ai-relay-agent.token` | Current runtime token (`rt_...`) |
+- `node_id` — your unique ID in the cluster
+- `registration_secret` — used to poll for approval and refresh tokens
+- `~/.relay/ai-relay-agent.json` — common location
 
-Do not lose the `registration_secret`. It is the only way to get fresh runtime
-tokens without re-registering.
+The temporary token is only valid for 24 hours, but the registration secret
+stays valid until the node is approved.
 
-## 4. Wait for approval
+## 3. Wait for activation
 
-A newly registered node is in `pending` state. It cannot claim work yet. The node
-should poll `/relay/v2/auth/status` until an admin approves it.
+A newly registered node is in `pending` state. It cannot claim work yet. The
+node should poll `/relay/v2/auth/status` until the relay administrator
+activates it.
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/status" \
@@ -109,17 +71,17 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/status" \
   }'
 ```
 
-While pending:
+While waiting:
 
 ```json
 {
   "node_id": "V34ETT74",
   "status": "pending",
-  "message": "Awaiting admin approval"
+  "message": "Awaiting admin activation"
 }
 ```
 
-After approval:
+After activation:
 
 ```json
 {
@@ -132,14 +94,14 @@ After approval:
 }
 ```
 
-Save the runtime token and start the main loop.
+Save the runtime token to `~/.relay/ai-relay-agent.token`.
 
-If the node restarts, use the registration secret to request a fresh runtime
-token via `/relay/v2/auth/status`.
+> The relay administrator activates nodes in the dashboard or with an admin
+> script. A node cannot approve itself.
 
-## 5. Keep the node alive
+## 4. Keep the node alive
 
-Once approved, send a heartbeat every few seconds. The recommended interval is
+Once activated, send a heartbeat every few seconds. The recommended interval is
 **8 seconds**.
 
 ```bash
@@ -157,15 +119,18 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/discovery/heartbeat" \
 A node that misses too many heartbeats is considered offline and will not
 receive tasks.
 
-## 6. Claim and execute work
+## 5. Claim work
 
-Ask the relay for work matching a capability:
+With a valid runtime token, a node can claim a stage that matches one of its
+capabilities:
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/claim" \
   -H "Authorization: Bearer ${RUNTIME_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d '{"capability": "chat"}'
+  -d '{
+    "capability": "chat"
+  }'
 ```
 
 If work is available, the relay returns a stage:
@@ -182,113 +147,113 @@ If work is available, the relay returns a stage:
 }
 ```
 
-Execute the work and report the result:
+If nothing matches, the response is empty. The node should poll again after a
+short delay (1–3 seconds).
+
+## 6. Complete or fail a stage
+
+After finishing the work, report the result:
 
 ```bash
-curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/stages/${STAGE_ID}/complete" \
-  -H "Authorization: Bearer ${RUNT...N}" \
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/complete" \
+  -H "Authorization: Bearer ${RUNTIME_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
-    "node_id": "V34ETT74",
-    "task_id": "tsk_...",
-    "result": {
-      "status": "ok",
-      "answer": "The current time in Tokyo is 14:30 JST."
-    }
+    "stage_id": "stg_...",
+    "status": "completed",
+    "result": {"answer": "It is 21:45 in Tokyo."}
+  }'
+```
+
+If the work fails:
+
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/complete" \
+  -H "Authorization: Bearer ${RUNTIME_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stage_id": "stg_...",
+    "status": "failed",
+    "result": {"error": "Model not available"}
   }'
 ```
 
 ## 7. Refresh the runtime token
 
-Runtime tokens expire. Refresh them before they expire:
+Runtime tokens expire after the configured TTL (default 7 days). Before expiry,
+refresh the token:
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
   -H "Authorization: Bearer ${RUNTIME_TOKEN}"
 ```
 
-Response:
+Save the new token immediately. The old token becomes invalid.
 
-```json
-{
-  "node_id": "V34ETT74",
-  "token_type": "runtime",
-  "token": "rt_...",
-  "expires_at": "2026-06-28T14:00:00+00:00"
-}
-```
+If the token already expired, use the registration secret to request a new
+runtime token through `/relay/v2/auth/status`.
 
-Save the new token. If the token expires, request a fresh one with the
-registration secret via `/relay/v2/auth/status`.
+## 8. Service nodes and self-care
 
-## 8. Helper scripts
+KI-less service nodes are not allowed to make AI decisions. When they encounter
+something ambiguous, they post a decision task back to the relay instead of
+guessing.
 
-This repository contains helper scripts and examples for nodes.
+Example: a storage node receives a stage to archive a file, but the target path
+is missing. It posts a decision task with capability `chat` or `decision` so a
+KI-capable node can answer. After the decision is resolved, the service node
+continues.
 
-| Path | Use case |
-|------|----------|
+See `nodes-design.md` for the full self-care pattern.
+
+## 9. Helper scripts and examples
+
+| Path | Purpose |
+|------|---------|
 | `examples/nodes/node_base.py` | Base class that handles registration, heartbeat, claim, and complete loops |
 | `examples/nodes/relay_client.py` | HTTP client for the relay API |
-| `examples/nodes/approve_nodes.py` | Admin script to approve pending nodes |
 | `nodes/storage-node/poller.py` | Generic poller for KI-less service nodes |
 | `nodes/storage-node/register.py` | One-time registration for the storage node |
 | `scripts/manual_node_test.py` | Manual end-to-end node test |
 
-Use `examples/nodes/node_base.py` as a starting point for new nodes. It handles
-the lifecycle automatically.
-
-## 9. Minimal node checklist
-
-Before a node can work, it must:
+## 10. Checklist for a new node
 
 - [ ] Know the relay URL from configuration or the user
 - [ ] Register via `/relay/v2/auth/register`
 - [ ] Save `node_id` and `registration_secret` to `~/.relay/ai-relay-agent.json`
-- [ ] Wait for an admin to approve the node
+- [ ] Wait until the relay administrator activates the node
 - [ ] Poll `/relay/v2/auth/status` to receive the `rt_...` runtime token
 - [ ] Save the runtime token to `~/.relay/ai-relay-agent.token`
 - [ ] Start sending heartbeats every 8 seconds
-- [ ] Start claiming tasks for advertised capabilities
+- [ ] Start the claim → work → complete loop
 - [ ] Refresh the runtime token before it expires
-
-## 10. Service nodes: ask for help
-
-Service nodes are intentionally dumb. They execute only what the stage says.
-
-If a service node detects a situation that requires a decision, it must **not**
-decide on its own. Instead, it posts a decision task back to the relay:
-
-```json
-{
-  "task_name": "storage.decide_cleanup",
-  "stages": [
-    {
-      "stage_name": "decide",
-      "capability": "llm.decide_cleanup",
-      "payload": {
-        "usage_ratio": 0.91,
-        "candidates": ["2026/01/old_image.png"]
-      }
-    }
-  ]
-}
-```
-
-A KI node will claim the decision stage and return instructions.
 
 ## 11. Common mistakes
 
-| Mistake | Result | Fix |
-|---------|--------|-----|
-| Using the temporary token for heartbeats | `401 Unauthorized` | Wait for approval and use the runtime token |
+| Mistake | Consequence | Fix |
+|---------|-------------|-----|
 | Forgetting heartbeats | Node marked offline | Send heartbeats every 8 seconds |
 | Losing the registration secret | Cannot refresh tokens | Keep `ai-relay-agent.json` safe |
 | Claiming with the wrong capability | No tasks received | Use one of the registered capabilities |
-| Node stays pending forever | No admin approved it | Ask an admin to approve the node |
+| Node stays pending forever | Nobody activated it | Ask the relay administrator to activate it |
+| Runtime token expired | All authenticated requests fail | Use `/relay/v2/auth/status` with the registration secret to get a new one |
 
-## 12. Further reading
+## 12. Relay administrator tasks
 
-- For a deeper explanation of node types, capabilities, and the self-care
-  pattern, see `nodes-design.md`.
-- For the full authentication and token model, see `token-concept.md`.
-- For installing the relay server and a storage node, see `setup.md`.
+The following actions are **not** performed by a node. They are done by the
+human or KI agent that operates the relay:
+
+- Install and start the relay server
+- Create the master admin seed
+- Activate pending nodes in the dashboard
+- Issue new runtime tokens when needed
+- Delete nodes from the cluster
+
+For these tasks, the administrator should read `setup.md` and `dashboard.md`.
+
+## 13. Next steps
+
+- For understanding tokens, see `token-concept.md`.
+- For node design patterns, see `nodes-design.md`.
+- For installing and configuring the relay, see `setup.md`.
+- For managing users and approving nodes, see `dashboard.md`.

@@ -114,17 +114,39 @@ docker compose run --rm ai-relay-storage python /app/register.py
 This writes `~/.relay/ai-relay-agent.json` and `~/.relay/ai-relay-agent.token`
 inside the persistent Docker volume.
 
-### Approve the node
+## 4. Approve or activate nodes
 
-Open the relay dashboard at `http://ai-relay.local:8788/relay/v2/dashboard/`,
-log in with the master seed, and approve the pending storage node.
+Every new node starts in `pending` state. An administrator must activate it
+before it can claim work.
 
-Or use the API:
+### With the dashboard
+
+1. Open `http://ai-relay.local:8788/relay/v2/dashboard/`
+2. Log in with the master seed or a human admin account
+3. Go to **Nodes**
+4. Find the pending node
+5. Click **Approve**
+6. Review the role and capabilities
+7. Click **Confirm**
+
+### With the API
+
+First register an admin node with the master seed:
 
 ```bash
-curl -H "Authorization: Bearer ${RELAY_MASTER_SECRET}" \
+ADMIN_TOKEN=$(curl -s -X POST "http://ai-relay.local:8788/relay/v2/auth/register-admin" \
+  -H "Content-Type: application/json" \
+  -d "{\"node_name\":\"admin-cli\",\"bootstrap_secret\":\"${ADM_SECRET}\",\"endpoint\":null,\"capabilities\":[{\"name\":\"admin\",\"version\":\"1.0.0\"}]}" \
+  | jq -r .token)
+```
+
+Then approve the pending node:
+
+```bash
+curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -X POST \
-  http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}/approve \
+  "http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}/approve" \
+  -H "Content-Type: application/json" \
   -d '{"role":"service","capabilities":[{"name":"storage.archive","version":"1.0.0"}]}'
 ```
 
@@ -134,7 +156,32 @@ You can find `${NODE_ID}` in the agent JSON file inside the container:
 docker exec ai-relay-storage cat /root/.relay/ai-relay-agent.json
 ```
 
-## 5. Verify the setup
+## 5. Manage tokens
+
+### Issue a new runtime token
+
+If a node lost its token or the token expired before it could refresh, issue a
+new runtime token:
+
+```bash
+curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -X POST \
+  "http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}/token"
+```
+
+This invalidates the previous runtime token for that node.
+
+### Delete a node
+
+Removing a node deletes its records, tokens, presence data, and task claims:
+
+```bash
+curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -X DELETE \
+  "http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}"
+```
+
+## 6. Verify the setup
 
 ### Health endpoint
 
@@ -159,9 +206,10 @@ Response:
 ### Create an archive task
 
 ```bash
-curl -H "Authorization: Bearer ${RELAY_MASTER_SECRET}" \
+curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -X POST \
   http://ai-relay.local:8788/relay/v2/scheduler/tasks \
+  -H "Content-Type: application/json" \
   -d '{
     "task_name": "archive_test",
     "stages": [
@@ -180,7 +228,7 @@ curl -H "Authorization: Bearer ${RELAY_MASTER_SECRET}" \
 After a few seconds the storage node claims the task and writes the file to
 `/volume1/ai-relay-storage/test.txt`.
 
-## 6. Systemd service for the relay
+## 7. Systemd service for the relay
 
 Create `/etc/systemd/system/ai-relay.service`:
 
@@ -210,7 +258,7 @@ sudo systemctl enable ai-relay.service
 sudo systemctl start ai-relay.service
 ```
 
-## 7. Updating
+## 8. Updating
 
 Pull the latest code, reinstall, and restart:
 
