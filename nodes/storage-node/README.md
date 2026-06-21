@@ -1,24 +1,26 @@
 # AI Relay Storage Node
 
-KI-loser Storage-Service als Relay-Node. Registriert sich am Relay mit Storage-Capabilities, schreibt Dateien auf ein NAS-Mount und kann Service-Tasks an das Relay posten.
+A KI-less storage service node for the AI Relay. It registers with the relay
+using storage capabilities, writes files to a NAS mount, and can post service
+tasks back to the relay for AI-capable nodes to decide on.
 
 ## Capabilities
 
-- `storage.archive` — verschiebt Artefakte vom Relay in das NAS-Storage
-- `storage.list` — listet archivierte Dateien auf dem NAS
-- `storage.delete` — löscht archivierte Dateien
-- `storage.quota` — meldet Speicherplatz-Status
+- `storage.archive` — move artifacts from the relay to NAS storage
+- `storage.list` — list archived files on NAS
+- `storage.delete` — delete archived files
+- `storage.quota` — report disk space status
 
-## Schnelle Startanleitung
+## Quick Start
 
-### 1. Image bauen
+### 1. Build the image
 
 ```bash
 cd nodes/storage-node
 docker build -t ai-relay-storage-node:latest .
 ```
 
-### 2. Auf der NAS ausführen
+### 2. Run on the NAS
 
 ```bash
 docker run -d \
@@ -34,104 +36,41 @@ docker run -d \
   ai-relay-storage-node:latest
 ```
 
-### 3. Erstmalige Registrierung
+### 3. Register the node
 
-Falls die Node noch nicht registriert ist:
+If the node is not registered yet, run:
 
 ```bash
 docker exec ai-relay-storage python /app/register.py
 ```
 
-### 4. Node am Relay approven
+### 4. Approve the node in the relay
 
-Falls die Node mit pending-Status registriert, musst du sie im Dashboard oder via Admin-API approven:
+If the node is still pending, approve it via the relay dashboard or the admin API:
 
 ```bash
-curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+curl -H "Authorization: Bearer ${RELAY_ADMIN_TOKEN}" \
   -X POST \
-  http://192.168.2.100:8788/relay/v2/admin/nodes/<node_id>/approve \
+  http://192.168.2.100:8788/relay/v2/admin/nodes/${NODE_ID}/approve \
   -d '{"role":"service","capabilities":[{"name":"storage.archive","version":"1.0.0"}]}'
 ```
 
-## Worker-Integration: Upload → artifact_id → Task
+## Flow
 
-### Schritt 1: Datei an Relay hochladen
+1. A worker (for example the Mac worker) generates an image.
+2. The worker uploads the image to `POST /relay/v2/storage/upload` and receives
+   an `artifact_id`.
+3. The worker posts a task with a `storage.archive` stage and a
+   `target_path` payload.
+4. The storage node claims the stage automatically.
+5. The storage node downloads the file from the relay and writes it to
+   `/storage/<target_path>` on the NAS.
+6. The storage node marks the stage as complete.
 
-Ein Worker (z.B. Mac-Worker mit `mflux`) postet das generierte Bild an den Relay-Storage-Upload:
+## Service Tasks from the Storage Node
 
-```bash
-curl -H "Authorization: Bearer $WORKER_TOKEN" \
-  -F "file=@generated_image.png" \
-  http://192.168.2.100:8788/relay/v2/storage/upload
-```
-
-Antwort:
-
-```json
-{
-  "artifact_id": "art_abc123",
-  "name": "generated_image.png",
-  "path": "/tmp/...",
-  "size_bytes": 123456,
-  "mime_type": "image/png",
-  "created_by": "C9CGDMHK"
-}
-```
-
-### Schritt 2: Task mit storage.archive Stage posten
-
-```bash
-curl -H "Authorization: Bearer $WORKER_TOKEN" \
-  -X POST \
-  http://192.168.2.100:8788/relay/v2/scheduler/tasks \
-  -d '{
-    "task_name": "archive_mflux_image",
-    "stages": [
-      {
-        "stage_name": "archive",
-        "capability": "storage.archive",
-        "payload": {
-          "artifact_id": "art_abc123",
-          "target_path": "mac-worker/2026/06/21/sunset_768x768.png",
-          "tags": ["mflux", "image_gen"]
-        }
-      }
-    ]
-  }'
-```
-
-### Schritt 3: Storage-Node übernimmt
-
-Die Storage-Node claimt die Stage automatisch:
-
-1. Lädt `art_abc123` von `GET /relay/v2/storage/files/{artifact_id}` herunter
-2. Schreibt sie nach `/storage/mac-worker/2026/06/21/sunset_768x768.png`
-3. Meldet die Stage als complete
-
-### Schritt 4: Resultat nutzen
-
-Der Worker bekommt über den Task-Status die `nas_path` zurück. Andere Nodes können die Datei später über die Storage-Node-Capabilities `storage.read` oder `storage.list` wieder finden (sofern das Relay eine passende Task dafür routed).
-
-## Download über das Relay
-
-Jeder berechtigte Node kann das Artifact über das Relay herunterladen:
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  http://192.168.2.100:8788/relay/v2/storage/files/art_abc123 \
-  -o downloaded_image.png
-```
-
-Metadaten:
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  http://192.168.2.100:8788/relay/v2/storage/files/art_abc123/meta
-```
-
-## Service-Tasks von der Storage-Node
-
-Die Node postet selbst Tasks ans Relay, wenn eine KI-Entscheidung nötig ist. Beispiel: Speicherplatz zu knapp.
+The storage node can post tasks back to the relay when an AI decision is needed.
+For example, when disk usage crosses the configured threshold:
 
 ```json
 {
@@ -150,22 +89,14 @@ Die Node postet selbst Tasks ans Relay, wenn eine KI-Entscheidung nötig ist. Be
 }
 ```
 
-Eine KI-Node (z.B. dein Haupt-Hermes) kann den Task claimen und zurückgeben:
-
-```json
-{
-  "files_to_delete": [
-    "mac-worker/2026/05/old_run_001.png"
-  ]
-}
-```
-
-Das Relay kann dann eine Folge-Stage `storage.delete` routen, die die Storage-Node ausführt.
+An AI-capable node can claim this task and return a list of files to delete. The
+relay can then route a follow-up `storage.delete` stage for the storage node to
+execute.
 
 ## Docker Compose
 
-Siehe [`docker-compose.yml`](docker-compose.yml).
+See [`docker-compose.yml`](docker-compose.yml).
 
 ## systemd
 
-Siehe [`ai-relay-storage.service`](ai-relay-storage.service).
+See [`ai-relay-storage.service`](ai-relay-storage.service).
