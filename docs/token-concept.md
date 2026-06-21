@@ -31,22 +31,27 @@ easy to distinguish.
 ## 3. Bootstrap: creating the master admin seed
 
 Before any node can authenticate, the cluster needs a master admin seed. This is
-done once.
+done once, **on the relay host itself**, using the CLI command:
 
 ```bash
 relay-server admin init-master
 ```
 
-Response:
+Response (printed once):
 
 ```text
-Master admin seed created:
 adm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 Store it securely. It will not be shown again.
 ```
 
 The server stores only a SHA-256 hash of this seed. The plain seed is never kept
 on disk. If you lose it, you must reset the database.
+
+> **Security note:** The master seed is created only through the command line.
+> The HTTP API intentionally has no endpoint to initialize it. This prevents an
+> network attacker from claiming the cluster root key before the legitimate
+> administrator.
+
 
 ## 4. Registering a node
 
@@ -354,18 +359,17 @@ Admin / human
 |---------|-------|-----|
 | `401 Unauthorized` | Token expired or invalid | Refresh the token via `/relay/v2/auth/refresh` or request a new one with the registration secret |
 | `403 Forbidden` | Node is still pending | Approve the node in the dashboard or via admin API |
-| `409 Conflict` on `/auth/init-master` | Master seed already exists | Use the existing seed or reset the database |
 | Lost `rs_...` | Cannot refresh runtime tokens | Delete the node entry and re-register |
-| Lost `adm_...` | Cannot create admin nodes | Reset the relay database and re-initialize |
+| Lost `adm_...` | Cannot create admin nodes | Reset the relay database and re-bootstrap via `relay-server admin init-master` |
 
-## 13. Quick command reference
+## 12. Quick command reference
 
 ```bash
-# Initialize master seed
+# Initialize master seed (must be run on the relay host)
 relay-server admin init-master
 
 # Register a service node
-curl -X POST http://ai-relay.local:8788/relay/v2/auth/register \
+curl -X POST http://${RELAY_HOST}:8788/relay/v2/auth/register \
   -H "Content-Type: application/json" \
   -d '{"node_name":"nas-storage-01","capabilities":[{"name":"storage.archive","version":"1.0.0"}]}'
 

@@ -12,9 +12,12 @@ Replace `${RELAY_HOST}` with the relay IP, hostname, or mDNS name.
 ## 1. First login
 
 Before any human user exists, the cluster must be bootstrapped with a master
-admin seed. The master seed is the emergency root credential.
+admin seed. The master seed is the emergency root credential. It can only be
+created from the command line on the relay host, never through the HTTP API.
 
 ### 1.1 Initialize the master seed (command line)
+
+Log in to the relay host and run:
 
 ```bash
 relay-server admin init-master

@@ -37,15 +37,32 @@ def test_health_unauthenticated():
 
 
 def test_auth_init_master_and_register_admin():
-    # The endpoint also initializes the master seed implicitly on register.
-    # First call to /auth/init-master should succeed.
-    r = client.post("/relay/v2/auth/init-master")
-    assert r.status_code == 200
-    assert r.json()["status"] == "created"
+    # Master seed must be initialized via CLI. API endpoint was removed for
+    # security, so we bootstrap directly from the core function in tests.
+    from relay_server.core.auth import init_master_seed
 
-    # Second call should fail.
-    r = client.post("/relay/v2/auth/init-master")
-    assert r.status_code == 409
+    seed = init_master_seed()
+    assert seed is not None
+    assert seed.startswith("adm_")
+
+    # Admin node registration uses the master seed.
+    r = client.post(
+        "/relay/v2/auth/register-admin",
+        json={
+            "node_name": "Admin Bot",
+            "bootstrap_secret": seed,
+            "endpoint": None,
+            "capabilities": [{"name": "admin", "version": "1.0.0"}],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "approved"
+    assert body["token_type"] == "runtime"
+    assert body["token"].startswith("rt_")
+
+    # init_master_seed is idempotent and returns None after the first call.
+    assert init_master_seed() is None
 
 
 def test_register_worker_goes_pending():
@@ -115,34 +132,26 @@ def _register_worker(name: str, caps: list) -> tuple[str, str, str]:
 
 
 def test_admin_approval_flow():
-    # Create master seed via CLI endpoint.
-    r = client.post("/relay/v2/auth/init-master")
-    assert r.status_code == 200
-
-    # We need the secret to register admin node. Because the endpoint only
-    # creates it once, we can't get the secret from the HTTP response.
-    # Use core function to fetch and verify the stored hash exists.
+    # Create master seed via CLI/bootstrap function (API endpoint removed).
     from relay_server.core.auth import hash_secret
 
     conn = get_conn()
     row = conn.execute("SELECT seed_hash FROM admin_seeds WHERE seed_id='master'").fetchone()
-    assert row is not None
-    # We cannot reverse the hash, so we need to call the CLI to get the secret.
-    # For tests, we re-initialize the seed with a known value via the core helper
-    # after deleting the row. This is acceptable because we control the fixture.
-    conn.execute("DELETE FROM admin_seeds")
-    conn.commit()
-    conn.close()
-
-    from relay_server.core.auth import generate_secret
-
-    secret = generate_secret("adm_")
-    conn = get_conn()
-    conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
-    )
-    conn.commit()
+    if row is None:
+        from relay_server.core.auth import init_master_seed
+        secret = init_master_seed()
+        assert secret is not None
+    else:
+        # For tests, re-initialize with a known secret.
+        conn.execute("DELETE FROM admin_seeds")
+        conn.commit()
+        from relay_server.core.auth import generate_secret
+        secret = generate_secret("adm_")
+        conn.execute(
+            "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        )
+        conn.commit()
     conn.close()
 
     # Register admin node with known secret.
