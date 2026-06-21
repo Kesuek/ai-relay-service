@@ -1,13 +1,13 @@
 # AI Relay — Node README
 
 This document is written from the perspective of a node that wants to join an AI
-Relay cluster. It explains what a node must do: find the relay, register, wait
-for approval, and keep itself alive.
+Relay cluster. It explains what a node must do: discover or be told the relay
+address, register, wait for approval, and keep itself alive.
 
 ## 1. What is a node?
 
-A node is any program that connects to the AI Relay and performs work. Nodes
-can be:
+A node is any program that connects to the AI Relay and performs work. Nodes can
+be:
 
 - **KI nodes** — agents that reason, plan, generate content, or talk to users
 - **Service nodes** — dumb workers that execute raw actions like storing files,
@@ -16,49 +16,46 @@ can be:
 Every node registers with the relay, advertises one or more **capabilities**,
 and claims matching tasks.
 
-## 2. Find the relay server
+## 2. Configure the relay URL
 
-The relay is usually available as `http://ai-relay.local:8788` if mDNS is
-enabled on the relay host. If mDNS does not work in your network, use the relay
-host's static IP.
+Every node needs a relay URL. How the URL is determined depends on the
+deployment:
 
-### Try mDNS first
+- In a static network the relay host has a fixed IP such as
+  `http://192.168.1.50:8788`.
+- In a home or office network the relay may be advertised via mDNS as
+  `http://ai-relay.local:8788`.
+- Over a VPN such as Tailscale the address may look like `http://100.64.0.5:8788`.
+- In cloud or container environments a DNS name or load balancer may be used.
 
-```bash
-ping -c 1 ai-relay.local
-```
-
-If it resolves, use `http://ai-relay.local:8788`.
-
-### Fallback to IP
-
-Ask the user or scan the local network. Common relay IPs in this environment:
-
-- `http://192.168.2.170:8788`
-
-Update the node configuration or environment variable:
+Set the URL before starting the node:
 
 ```bash
-export RELAY_BASE_URL=http://192.168.2.170:8788
+export RELAY_BASE_URL=http://192.168.1.50:8788
 ```
+
+If the node does not know the URL, it must ask the user or read it from its
+configuration file. It should not assume mDNS is available.
+
+Examples in this document use `http://${RELAY_HOST}:8788` as a placeholder.
+Replace `${RELAY_HOST}` with the actual IP, hostname, or mDNS name of the relay.
 
 ## 3. Register the node
 
 A node registers by calling `/relay/v2/auth/register`. It does not choose its
 own ID; the relay assigns an 8-character node ID.
 
-```http
-POST /relay/v2/auth/register
-Content-Type: application/json
-
-{
-  "node_name": "my-node",
-  "endpoint": null,
-  "capabilities": [
-    {"name": "chat", "version": "1.0.0"}
-  ],
-  "role": "worker"
-}
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "my-node",
+    "endpoint": null,
+    "capabilities": [
+      {"name": "chat", "version": "1.0.0"}
+    ],
+    "role": "worker"
+  }'
 ```
 
 The relay returns:
@@ -81,7 +78,7 @@ Save these values to a persistent file, for example:
   "node_id": "V34ETT74",
   "node_name": "my-node",
   "registration_secret": "rs_...",
-  "relay_url": "http://ai-relay.local:8788",
+  "relay_url": "http://192.168.1.50:8788",
   "capabilities": [
     {"name": "chat", "version": "1.0.0"}
   ]
@@ -103,14 +100,13 @@ tokens without re-registering.
 A newly registered node is in `pending` state. It cannot claim work yet. The node
 should poll `/relay/v2/auth/status` until an admin approves it.
 
-```http
-POST /relay/v2/auth/status
-Content-Type: application/json
-
-{
-  "node_id": "V34ETT74",
-  "registration_secret": "rs_..."
-}
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/status" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_id": "V34ETT74",
+    "registration_secret": "rs_..."
+  }'
 ```
 
 While pending:
@@ -146,16 +142,16 @@ token via `/relay/v2/auth/status`.
 Once approved, send a heartbeat every few seconds. The recommended interval is
 **8 seconds**.
 
-```http
-POST /relay/v2/discovery/heartbeat
-Authorization: Bearer rt_......ype: application/json
-
-{
-  "node_id": "V34ETT74",
-  "status": "online",
-  "load": 0.0,
-  "queue_depth": 0
-}
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/discovery/heartbeat" \
+  -H "Authorization: Bearer ${RUNTIME_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_id": "V34ETT74",
+    "status": "online",
+    "load": 0.0,
+    "queue_depth": 0
+  }'
 ```
 
 A node that misses too many heartbeats is considered offline and will not
@@ -165,13 +161,11 @@ receive tasks.
 
 Ask the relay for work matching a capability:
 
-```http
-POST /relay/v2/scheduler/claim
-Authorization: Bearer rt_......ype: application/json
-
-{
-  "capability": "chat"
-}
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/claim" \
+  -H "Authorization: Bearer ${RUNTIME_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"capability": "chat"}'
 ```
 
 If work is available, the relay returns a stage:
@@ -190,27 +184,27 @@ If work is available, the relay returns a stage:
 
 Execute the work and report the result:
 
-```http
-POST /relay/v2/scheduler/stages/stg_.../complete
-Authorization: Bearer rt_......ype: application/json
-
-{
-  "node_id": "V34ETT74",
-  "task_id": "tsk_...",
-  "result": {
-    "status": "ok",
-    "answer": "22°C and sunny in Leipzig."
-  }
-}
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/stages/${STAGE_ID}/complete" \
+  -H "Authorization: Bearer ${RUNTIME_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_id": "V34ETT74",
+    "task_id": "tsk_...",
+    "result": {
+      "status": "ok",
+      "answer": "22°C and sunny in Leipzig."
+    }
+  }'
 ```
 
 ## 7. Refresh the runtime token
 
 Runtime tokens expire. Refresh them before they expire:
 
-```http
-POST /relay/v2/auth/refresh
-Authorization: Bearer rt_...
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
+  -H "Authorization: Bearer ${RUNTIME_TOKEN}"
 ```
 
 Response:
@@ -247,7 +241,7 @@ the lifecycle automatically.
 
 Before a node can work, it must:
 
-- [ ] Know the relay URL (`http://ai-relay.local:8788` or IP)
+- [ ] Know the relay URL from configuration or the user
 - [ ] Register via `/relay/v2/auth/register`
 - [ ] Save `node_id` and `registration_secret` to `~/.relay/ai-relay-agent.json`
 - [ ] Wait for an admin to approve the node
@@ -292,32 +286,9 @@ A KI node will claim the decision stage and return instructions.
 | Claiming with the wrong capability | No tasks received | Use one of the registered capabilities |
 | Node stays pending forever | No admin approved it | Ask an admin to approve the node |
 
-## 12. Quick command reference
+## 12. Further reading
 
-```bash
-# Register node
-curl -X POST http://ai-relay.local:8788/relay/v2/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"node_name":"my-node","capabilities":[{"name":"chat","version":"1.0.0"}]}'
-
-# Check approval status
-curl -X POST http://ai-relay.local:8788/relay/v2/auth/status \
-  -H "Content-Type: application/json" \
-  -d '{"node_id":"V34ETT74","registration_secret":"rs_..."}'
-
-# Send heartbeat
-curl -X POST http://ai-relay.local:8788/relay/v2/discovery/heartbeat \
-  -H "Authorization: Bearer rt_... \
-  -H "Content-Type: application/json" \
-  -d '{"node_id":"V34ETT74","status":"online","load":0.0}'
-
-# Claim task
-curl -X POST http://ai-relay.local:8788/relay/v2/scheduler/claim \
-  -H "Authorization: Bearer rt_... \
-  -H "Content-Type: application/json" \
-  -d '{"capability":"chat"}'
-
-# Refresh token
-curl -X POST http://ai-relay.local:8788/relay/v2/auth/refresh \
-  -H "Authorization: Bearer rt_...
-```
+- For a deeper explanation of node types, capabilities, and the self-care
+  pattern, see `nodes-design.md`.
+- For the full authentication and token model, see `token-concept.md`.
+- For installing the relay server and a storage node, see `setup.md`.
