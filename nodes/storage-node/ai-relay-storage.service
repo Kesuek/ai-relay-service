@@ -1,0 +1,25 @@
+[Unit]
+Description=AI Relay Storage Node
+After=docker.service
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=10
+ExecStartPre=-/usr/bin/docker stop ai-relay-storage
+ExecStartPre=-/usr/bin/docker rm ai-relay-storage
+ExecStart=/usr/bin/docker run \
+  --name ai-relay-storage \
+  -v /volume1/ai-relay-storage:/storage \
+  -v /volume1/ai-relay-agent-config:/root/.relay \
+  -e RELAY_BASE_URL=http://192.168.2.100:8788 \
+  -e RELAY_NODE_NAME=nas-storage-01 \
+  -e RELAY_STORAGE_PATH=/storage \
+  -e RELAY_POLL_INTERVAL=8 \
+  -e RELAY_QUOTA_THRESHOLD=0.85 \
+  ai-relay-storage-node:latest
+ExecStop=/usr/bin/docker stop -t 30 ai-relay-storage
+ExecStopPost=-/usr/bin/docker rm ai-relay-storage
+
+[Install]
+WantedBy=multi-user.target
