@@ -177,7 +177,7 @@ If work is available, the relay returns a stage:
   "stage_name": "answer",
   "capability": "chat",
   "payload": {
-    "question": "What is the weather in Leipzig?"
+    "question": "What is the current time in Tokyo?"
   }
 }
 ```
@@ -186,14 +186,14 @@ Execute the work and report the result:
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/stages/${STAGE_ID}/complete" \
-  -H "Authorization: Bearer ${RUNTIME_TOKEN}" \
+  -H "Authorization: Bearer ${RUNT...N}" \
   -H "Content-Type: application/json" \
   -d '{
     "node_id": "V34ETT74",
     "task_id": "tsk_...",
     "result": {
       "status": "ok",
-      "answer": "22°C and sunny in Leipzig."
+      "answer": "The current time in Tokyo is 14:30 JST."
     }
   }'
 ```
