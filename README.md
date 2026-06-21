@@ -5,7 +5,7 @@ Standalone agent cluster server for distributed AI agents. The core focuses on
 Domain services like Board, Vault, or Activity run as external nodes with their
 own capabilities.
 
-- **Port:** 8788 (v1 still runs in parallel on 8787)
+- **Port:** 8788
 - **Framework:** FastAPI + uvicorn
 - **DB:** SQLite + WAL (`~/.relay/server.db`)
 - **Auth:** Bootstrap seeds + Bearer tokens
