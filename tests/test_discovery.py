@@ -14,6 +14,7 @@ os.environ["RELAY_DB_PATH"] = ""
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
 from relay_server.core.db import get_conn, init_db
+from relay_server.core.discovery import mark_offline_nodes
 from relay_server.core.events import event_bus
 from relay_server.main import app
 
@@ -370,3 +371,54 @@ async def test_presence_no_event_on_no_op_update():
         await task
     except asyncio.CancelledError:
         pass
+
+
+def test_stale_nodes_marked_offline():
+    """Nodes with no recent heartbeat are marked offline."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Stale Worker", [{"name": "board", "version": "1.0.0"}])
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    runtime = r.json()["token"]
+
+    # First heartbeat makes the node online.
+    r = client.post(
+        "/relay/v2/discovery/heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"available": True},
+    )
+    assert r.status_code == 200
+
+    r = client.get(
+        "/relay/v2/admin/nodes",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    worker = next(n for n in r.json()["nodes"] if n["node_id"] == worker_id)
+    assert worker["status"] in ("online", "approved")
+
+    # Simulate old heartbeat by moving last_seen back in time.
+    from datetime import datetime, timedelta, timezone
+    from relay_server.core.db import get_conn
+    old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
+    conn = get_conn()
+    conn.execute("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, worker_id))
+    conn.commit()
+    conn.close()
+
+    
+    updated = mark_offline_nodes()
+    assert worker_id in updated
+
+    r = client.get(
+        "/relay/v2/admin/nodes",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    worker = next(n for n in r.json()["nodes"] if n["node_id"] == worker_id)
+    assert worker["status"] == "offline"
+    assert worker["status"] == "offline"
