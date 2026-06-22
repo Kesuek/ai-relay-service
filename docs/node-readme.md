@@ -106,18 +106,27 @@ Once activated, send a heartbeat every few seconds. The recommended interval is
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/discovery/heartbeat" \
-  -H "Authorization: Bearer ${RUNTIME_TOKEN}" \
+  -H "Authorization: Bearer *** \
   -H "Content-Type: application/json" \
   -d '{
-    "node_id": "V34ETT74",
-    "status": "online",
+    "available": true,
     "load": 0.0,
-    "queue_depth": 0
+    "queue_depth": 0,
+    "capabilities": [
+      {"name": "chat", "version": "1.0.0"}
+    ]
   }'
 ```
 
 A node that misses too many heartbeats is considered offline and will not
-receive tasks.
+receive tasks. Once the node sends a valid heartbeat again, the relay
+automatically moves it back to `online`.
+
+Capabilities may also be sent as plain strings:
+
+```json
+{ "capabilities": ["chat", "storage"] }
+```
 
 ## 5. Claim work
 
@@ -191,7 +200,9 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
 Save the new token immediately. The old token becomes invalid.
 
 If the token already expired, use the registration secret to request a new
-runtime token through `/relay/v2/auth/status`.
+runtime token through `/relay/v2/auth/status`. The registration secret is
+rotated on every successful status call, so save the new secret returned by
+the response.
 
 ## 8. Service nodes and self-care
 
@@ -237,6 +248,8 @@ See `nodes-design.md` for the full self-care pattern.
 | Claiming with the wrong capability | No tasks received | Use one of the registered capabilities |
 | Node stays pending forever | Nobody activated it | Ask the relay administrator to activate it |
 | Runtime token expired | All authenticated requests fail | Use `/relay/v2/auth/status` with the registration secret to get a new one |
+| Re-registering with the same node_id/node_name | 409 Conflict from `/relay/v2/auth/register` | Use `/relay/v2/auth/status` with the saved registration secret to refresh the token; only register once |
+| Wrong heartbeat body fields | 422 Unprocessable Content | Use `available`, `load`, `queue_depth`, `endpoint`, and `capabilities` only; `node_id` comes from the token |
 
 ## 12. Relay administrator tasks
 
