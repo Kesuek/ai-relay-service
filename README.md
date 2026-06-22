@@ -58,15 +58,19 @@ See `nodes/storage-node/README.md` for setup and
 
 ## Running the Example Nodes
 
-Terminal 1 — start the server and create the master seed once:
+Terminal 1 — create the master seed once and start the server:
 
 ```bash
 cd ~/projects/ai-relay-service
 source .venv/bin/activate
-python -m relay_server.main server --port 8788
-# In another shell:
 python -m relay_server.main admin init-master   # save the SECRET value
+python -m relay_server.main server --port 8788
 ```
+
+The server is now ready for bootstrap. On first install, open
+`/relay/v2/dashboard/` and log in with the master seed to create the first
+human admin. After that, the master seed login is disabled until recovery
+mode is explicitly enabled.
 
 Terminal 2 — start the example nodes:
 

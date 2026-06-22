@@ -9,7 +9,7 @@ http://${RELAY_HOST}:8788/relay/v2/dashboard/
 
 Replace `${RELAY_HOST}` with the relay IP, hostname, or mDNS name.
 
-## 1. First login
+## 1. First login and bootstrap
 
 Before any human user exists, the cluster must be bootstrapped with a master
 admin seed. The master seed is the emergency root credential. It can only be
@@ -31,13 +31,38 @@ adm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 Store it in a password manager. It cannot be shown again.
 
-### 1.2 Log in with the master seed
+### 1.2 Log in with the master seed and create the first admin
 
-Open the dashboard login page and choose **Master seed**. Paste the seed and
-sign in.
+1. Open the dashboard login page
+2. Choose **Master seed** and paste the seed
+3. You are redirected to the **Create First Admin** page
+4. Enter a username (and optional email)
+5. The dashboard shows a generated temporary password — store it securely
+6. Log out and log in again with the new admin username
+7. The system forces you to change the password before you can continue
 
-The master seed creates a special session that has all permissions. Use it only
-for recovery or initial setup.
+After the first human admin is created, master-seed login is automatically
+disabled until recovery mode is explicitly enabled.
+
+### 1.3 Recovery mode
+
+If all human admins are locked out:
+
+1. On the relay host, deactivate all admin accounts:
+
+   ```bash
+   relay-recovery enable-recovery --all
+   ```
+
+2. Restart the server with recovery mode enabled:
+
+   ```bash
+   RELAY_ENABLE_MASTER_SEED_LOGIN=true relay-server server --port 8788
+   ```
+
+3. Log in with the master seed and bootstrap a new admin
+4. After the new admin changed the temporary password, restart the server
+   without `RELAY_ENABLE_MASTER_SEED_LOGIN=true`
 
 ## 2. Human users
 
@@ -49,9 +74,14 @@ safer than always using the master seed.
 In the dashboard, go to **Users → New user** and enter:
 
 - Username (unique, no spaces)
-- Password (stored as a bcrypt hash)
+- Password (stored as a bcrypt hash) — must be at least 12 characters and not
+  a common password
 - Email (optional)
 - Groups (default: `user`)
+
+All new users created by an admin are required to change their password on the
+next login. The generated password is displayed once and must be shared with the
+user through a secure channel.
 
 A user must be assigned to at least one group. Common groups:
 
@@ -81,10 +111,12 @@ permissions for its members.
 
 - **Deactivate**: The user can no longer log in, but their history remains.
 - **Delete**: Removes the user permanently.
-- **Reset password**: Generates a new password for the user.
+- **Reset password**: Generates a new temporary password. The user must change
+  it on the next login.
 
-> You cannot delete the last active admin user. The master seed can always log
-> in as a fallback.
+> You cannot delete the last active admin user unless recovery mode is enabled.
+> The master seed can log in only when no human admin exists or when recovery
+> mode is explicitly enabled.
 
 ## 3. Node management
 
@@ -103,6 +135,10 @@ cannot claim work.
 5. Click **Confirm**
 
 The node receives a runtime token (`rt_...`) and can start claiming tasks.
+
+> If you are using the dashboard for the first time, make sure you have
+> already created a human admin via the bootstrap page. The bootstrap page is
+> only shown while no human admin exists.
 
 ### 3.2 Issue a new runtime token
 
@@ -172,11 +208,12 @@ Click on a node, task, or artifact to see details.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Cannot log in | Wrong username/password or expired master seed | Use the master seed to log in and reset the password |
+| Cannot log in | Wrong username/password or no active admin | Reset the password or enable recovery mode |
 | Pending node never becomes approved | No admin clicked Approve | Check **Nodes** and approve it manually |
 | Node shows as offline | Heartbeats are missing | Restart the node and check its runtime token |
 | User cannot approve nodes | Missing `nodes:approve` permission | Add the user to a group with that permission |
-| Lost master seed | Not recoverable | Stop relay, delete the database file, and bootstrap again |
+| Lost master seed | Not recoverable | Stop relay, delete the database file, create a new seed, and bootstrap again |
+| Master seed login is missing | At least one human admin exists and recovery mode is off | Use a human admin account or enable recovery mode |
 
 ## 7. API endpoints used by the dashboard
 
@@ -187,8 +224,11 @@ You can also use them from scripts or from KI nodes:
 |--------|------|---------|
 | GET | `/relay/v2/dashboard/login` | Login page |
 | POST | `/relay/v2/dashboard/login` | Authenticate and set session cookie |
+| GET | `/relay/v2/dashboard/bootstrap` | First-admin creation page (master seed only) |
+| POST | `/relay/v2/dashboard/api/bootstrap` | Create the first human admin (master seed only) |
 | POST | `/relay/v2/dashboard/logout` | Clear session |
 | GET | `/relay/v2/dashboard/api/me` | Current user info |
+| POST | `/relay/v2/dashboard/api/me/password` | Change own password |
 | GET | `/relay/v2/dashboard/api/overview` | Cluster overview JSON |
 | GET | `/relay/v2/dashboard/api/users` | List users |
 | POST | `/relay/v2/dashboard/api/users` | Create user |

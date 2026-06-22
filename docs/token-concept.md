@@ -8,7 +8,8 @@ tokens exist, and how the registration/approval flow works.
 | Actor | What it is | Needs a token? |
 |-------|------------|----------------|
 | **Relay server** | Central task router | No (it validates tokens) |
-| **Master admin** | First human/AI that bootstraps the cluster | Uses `adm_...` seed |
+| **Master admin** | Emergency bootstrap/recovery credential | Uses `adm_...` seed |
+| **Human admin** | Day-to-day dashboard user | Uses signed session cookie |
 | **Admin node** | Dashboard, CLI admin tools, or orchestrator | Uses `rt_...` runtime token |
 | **Worker node** | General AI agent | Uses `rt_...` runtime token |
 | **Service node** | KI-less worker (storage, printer, etc.) | Uses `rt_...` runtime token |
@@ -20,15 +21,17 @@ easy to distinguish.
 
 | Prefix | Name | Purpose | Lifetime |
 |--------|------|---------|----------|
-| `adm_...` | **Master admin seed** | Bootstrap the cluster, create other admin tokens | Until rotated |
+| `adm_...` | **Master admin seed** | Bootstrap the cluster and recover admin access | Until rotated |
+| `hu_...`  | **Human user password** | Dashboard login for human users | Until changed |
 | `rs_...` | **Registration secret** | Long-lived secret used to poll for approval and refresh runtime tokens | Unlimited |
 | `tp_...` | **Temporary token** | Short-lived token returned immediately after registration; used only until approval | 24 hours by default |
 | `rt_...` | **Runtime token** | Bearer token for all node operations: heartbeat, claim, complete | 7 days by default |
 
-> **Important:** The master admin seed is equivalent to root access. Store it in
-> a password manager. Never commit it.
+> **Important:** The master admin seed is equivalent to root access, but it is
+> only usable when no human admin exists or when recovery mode is explicitly
+> enabled. Store it in a password manager. Never commit it.
 
-## 3. Bootstrap: creating the master admin seed
+## 3. Bootstrap: creating the master admin seed and first human admin
 
 Before any node can authenticate, the cluster needs a master admin seed. This is
 done once, **on the relay host itself**, using the CLI command:
@@ -44,13 +47,22 @@ adm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 Store it securely. It will not be shown again.
 ```
 
-The server stores only a SHA-256 hash of this seed. The plain seed is never kept
+The server stores only a bcrypt hash of this seed. The plain seed is never kept
 on disk. If you lose it, you must reset the database.
 
 > **Security note:** The master seed is created only through the command line.
 > The HTTP API intentionally has no endpoint to initialize it. This prevents an
 > network attacker from claiming the cluster root key before the legitimate
 > administrator.
+
+### 3.1 First human admin
+
+After the master seed is created, start the server and open the dashboard.
+Because no human admin exists yet, the login form shows the **Master seed**
+option. Log in with the seed and use the bootstrap page to create the first
+human admin. The dashboard generates a temporary password that must be changed
+on first login. Once that is done, master-seed login is automatically disabled
+until recovery mode is enabled.
 
 
 ## 4. Registering a node
@@ -133,9 +145,13 @@ A worker or service node must be approved by an admin before it can work.
 ### Using the dashboard
 
 1. Open `http://ai-relay.local:8788/relay/v2/dashboard/`
-2. Log in with the master admin seed
+2. Log in with a human admin account
 3. Find the pending node and click **Approve**
 4. Confirm the role and capabilities
+
+> The master seed can only be used for dashboard login while no human admin
+> exists or when recovery mode is enabled. For normal operation, create a
+> human admin during bootstrap and use that account.
 
 ### Using the API
 
@@ -240,6 +256,7 @@ Content-Type: application/json
 | Token | Default lifetime | Refreshable? |
 |-------|------------------|--------------|
 | `adm_...` | Until rotated | No (it is a seed, not a token) |
+| `hu_...` | Until changed | No (human dashboard password) |
 | `rs_...` | Unlimited | No (used to refresh `rt_...`) |
 | `tp_...` | 24 hours | No |
 | `rt_...` | 7 days | Yes |

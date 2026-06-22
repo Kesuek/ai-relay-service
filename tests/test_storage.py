@@ -83,6 +83,38 @@ def test_storage_upload_and_download():
     assert download.headers["content-type"].startswith("text/plain")
 
 
+def test_storage_upload_rejects_oversized_file():
+    headers = _admin_headers()
+    original_limit = settings.max_upload_bytes
+    settings.max_upload_bytes = 10
+    try:
+        upload = client.post(
+            "/relay/v2/storage/upload",
+            headers=headers,
+            files={"file": ("big.bin", b"x" * 11, "application/octet-stream")},
+        )
+        assert upload.status_code == 413
+        assert "exceeds maximum size" in upload.json()["detail"]
+    finally:
+        settings.max_upload_bytes = original_limit
+
+
+def test_storage_upload_accepts_file_under_limit():
+    headers = _admin_headers()
+    original_limit = settings.max_upload_bytes
+    settings.max_upload_bytes = 1024
+    try:
+        upload = client.post(
+            "/relay/v2/storage/upload",
+            headers=headers,
+            files={"file": ("small.bin", b"x" * 1024, "application/octet-stream")},
+        )
+        assert upload.status_code == 200
+        assert upload.json()["size_bytes"] == 1024
+    finally:
+        settings.max_upload_bytes = original_limit
+
+
 def test_storage_list_and_delete():
     headers = _admin_headers()
 

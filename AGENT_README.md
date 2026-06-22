@@ -59,6 +59,10 @@ Content-Type: application/json
 }
 ```
 
+The master seed is intended for bootstrap and recovery only. During normal
+operation a human administrator should use a regular dashboard account, or an
+admin node should use its runtime token.
+
 > **Tip:** Save the returned runtime token to a file (e.g. `~/.relay/<assigned_node_id>.token`). On restart, reuse it instead of registering again.
 
 ## 4. Poll approval status

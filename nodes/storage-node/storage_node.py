@@ -46,6 +46,21 @@ def _meta_url(artifact_id: str, base_url: str) -> str:
     return f"{base_url}/relay/v2/storage/files/{artifact_id}/meta"
 
 
+def _safe_path(target_path: str | None, base: Path = STORAGE_PATH) -> Path:
+    """Resolve a path relative to base and reject path traversal attempts.
+
+    The target may contain subdirectories (e.g. "projects/2026/file.png") but
+    must stay inside ``base`` after resolving symlinks and ``..`` segments.
+    """
+    resolved_base = base.resolve()
+    candidate = (resolved_base / (target_path or "")).resolve()
+    try:
+        candidate.relative_to(resolved_base)
+    except ValueError as exc:
+        raise ValueError("path traversal attempt") from exc
+    return candidate
+
+
 def handle_archive(stage: dict, meta: dict, token: str) -> dict:
     """Lade Artifact vom Relay herunter und schreibe es aufs NAS."""
     payload = stage.get("payload", {})
@@ -66,7 +81,7 @@ def handle_archive(stage: dict, meta: dict, token: str) -> dict:
     r = httpx.get(_artifact_url(artifact_id, base_url), headers={"Authorization": f"Bearer {token}"}, timeout=120)
     r.raise_for_status()
 
-    dest = STORAGE_PATH / target_path
+    dest = _safe_path(target_path)
     _ensure_dir(dest)
     dest.write_bytes(r.content)
 
@@ -86,7 +101,7 @@ def handle_delete(stage: dict) -> dict:
     if not target_path:
         return {"error": "missing target_path"}
 
-    path = STORAGE_PATH / target_path
+    path = _safe_path(target_path)
     if path.exists():
         path.unlink()
         return {"status": "deleted", "target_path": str(path)}
@@ -96,7 +111,7 @@ def handle_delete(stage: dict) -> dict:
 def handle_list(stage: dict) -> dict:
     """Liste Dateien im NAS-Storage auf."""
     prefix = stage.get("payload", {}).get("prefix", "")
-    base = STORAGE_PATH / prefix if prefix else STORAGE_PATH
+    base = _safe_path(prefix)
 
     files = []
     if base.exists():

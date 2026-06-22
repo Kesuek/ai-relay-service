@@ -39,11 +39,24 @@ def test_health_unauthenticated():
 def test_auth_init_master_and_register_admin():
     # Master seed must be initialized via CLI. API endpoint was removed for
     # security, so we bootstrap directly from the core function in tests.
-    from relay_server.core.auth import init_master_seed
+    from relay_server.core.auth import init_master_seed, secret_entropy_bits
 
     seed = init_master_seed()
     assert seed is not None
     assert seed.startswith("adm_")
+
+    # The seed should have high entropy (256 bits generated, minus prefix overhead).
+    assert secret_entropy_bits(seed) >= 200
+
+    # Verify the stored hash is NOT the plaintext seed and uses salted format.
+    from relay_server.core.db import get_conn
+
+    conn = get_conn()
+    row = conn.execute("SELECT seed_hash FROM admin_seeds WHERE seed_id = ?", ("master",)).fetchone()
+    conn.close()
+    assert row is not None
+    assert row["seed_hash"] != seed
+    assert row["seed_hash"].startswith(("$2a$", "$2b$", "$2y$"))
 
     # Admin node registration uses the master seed.
     r = client.post(
@@ -228,12 +241,12 @@ def test_human_admin_user_can_approve_and_issue_token():
     init_db()
 
     # Create a human admin user.
-    create_user(username="admin-human", password="secret123", group_names=["admin"])
+    create_user(username="admin-human", password="very-secret-password-99", group_names=["admin"], force_password_change=False)
 
     # Log in to obtain session cookies.
     r = client.post(
         "/relay/v2/dashboard/login",
-        data={"mode": "user", "username": "admin-human", "password": "secret123"},
+        data={"mode": "user", "username": "admin-human", "password": "very-secret-password-99"},
         follow_redirects=False,
     )
     assert r.status_code == 303
@@ -273,12 +286,12 @@ def test_human_user_without_permission_gets_403():
     init_db()
 
     # Create a human viewer user (dashboard:view only).
-    create_user(username="viewer-human", password="secret123", group_names=["viewer"])
+    create_user(username="viewer-human", password="very-secret-password-99", group_names=["viewer"], force_password_change=False)
 
     # Log in to obtain session cookies.
     r = client.post(
         "/relay/v2/dashboard/login",
-        data={"mode": "user", "username": "viewer-human", "password": "secret123"},
+        data={"mode": "user", "username": "viewer-human", "password": "very-secret-password-99"},
         follow_redirects=False,
     )
     assert r.status_code == 303
@@ -324,11 +337,11 @@ def test_human_user_with_explicit_node_permissions():
     # Assign explicit node permissions to the custom group.
     set_group_permissions("grp_nodemgr", ["nodes:approve", "nodes:token"])
 
-    create_user(username="node-manager", password="secret123", group_names=["nodemgr"])
+    create_user(username="node-manager", password="very-secret-password-99", group_names=["nodemgr"], force_password_change=False)
 
     r = client.post(
         "/relay/v2/dashboard/login",
-        data={"mode": "user", "username": "node-manager", "password": "secret123"},
+        data={"mode": "user", "username": "node-manager", "password": "very-secret-password-99"},
         follow_redirects=False,
     )
     assert r.status_code == 303
@@ -354,3 +367,50 @@ def test_human_user_with_explicit_node_permissions():
     # But cannot list nodes (missing dashboard:view).
     r = client.get("/relay/v2/admin/nodes", cookies=cookies)
     assert r.status_code == 403
+
+
+def test_registration_secret_rotates_on_status():
+    """Every successful /auth/status call must issue a new runtime token and rotate the registration secret."""
+    from relay_server.core.auth import approve_node, hash_secret, register_pending_node
+    from relay_server.core.db import get_conn
+
+    init_db()
+
+    node_id, _, reg_secret = register_pending_node(
+        node_name="Rotator",
+        endpoint="http://rotator.local",
+        capabilities=[{"name": "board", "version": "1.0.0"}],
+        role="service",
+    )
+
+    runtime_token = approve_node(node_id, role="service")
+    assert runtime_token is not None
+
+    # First /auth/status call uses the original registration secret.
+    r = client.post(
+        "/relay/v2/auth/status",
+        json={"node_id": node_id, "registration_secret": reg_secret},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["token_type"] == "runtime"
+    assert body["token"].startswith("rt_")
+    assert body["registration_secret"].startswith("rs_")
+    assert body["registration_secret"] != reg_secret
+
+    new_secret = body["registration_secret"]
+
+    # The old registration secret must no longer work.
+    r = client.post(
+        "/relay/v2/auth/status",
+        json={"node_id": node_id, "registration_secret": reg_secret},
+    )
+    assert r.status_code == 401
+
+    # The new registration secret works.
+    r = client.post(
+        "/relay/v2/auth/status",
+        json={"node_id": node_id, "registration_secret": new_secret},
+    )
+    assert r.status_code == 200
+    assert r.json()["registration_secret"] != new_secret

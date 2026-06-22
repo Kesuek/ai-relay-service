@@ -221,6 +221,65 @@ def test_presence_update_and_list():
     assert len(r.json()["presence"]) == 1
 
 
+def test_heartbeat_rejects_invalid_payload():
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Invalid Hb", [{"name": "board", "version": "1.0.0"}])
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    runtime = r.json()["token"]
+
+    r = client.post(
+        "/relay/v2/discovery/heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"load": 2.0, "queue_depth": -1},
+    )
+    assert r.status_code == 422
+
+    r = client.post(
+        "/relay/v2/discovery/heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"endpoint": "x" * 3000},
+    )
+    assert r.status_code == 422
+
+
+def test_presence_update_rejects_invalid_payload():
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Invalid Presence", [{"name": "board", "version": "1.0.0"}])
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    runtime = r.json()["token"]
+
+    r = client.post(
+        "/relay/v2/presence/update",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"progress": 150, "eta_seconds": -10},
+    )
+    assert r.status_code == 422
+
+    r = client.post(
+        "/relay/v2/presence/update",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"status": "x" * 100},
+    )
+    assert r.status_code == 422
+
+    r = client.post(
+        "/relay/v2/presence/update",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"mood": "x" * 100},
+    )
+    assert r.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_node_online_emitted_on_first_heartbeat():
     secret = _seed_admin()

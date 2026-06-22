@@ -17,7 +17,7 @@ KI-less Storage Node on your local network.
 - Python 3.11+ if you want to run the relay from source
 - Local network access or Tailscale
 
-## 1. Install the relay server
+## 1. 1. Install the relay server
 
 ### Option A: Install from source
 
@@ -40,9 +40,10 @@ docker build -t ai-relay-server:latest -f Dockerfile.relay .
 > The repository currently does not include a relay-server Dockerfile. Create one
 > yourself or use Option A for now.
 
-## 2. Create the master admin seed
+## 2. 2. Create the master admin seed
 
-The master seed is required to approve nodes and create other admin tokens.
+The master seed is required for initial bootstrap and recovery. Create it once
+on the relay host:
 
 ```bash
 source .venv/bin/activate
@@ -51,7 +52,11 @@ relay-server admin init-master
 
 Copy the printed `adm_...` secret and store it in a password manager.
 
-## 3. Start the relay server
+> The master seed is **not** used for day-to-day work. After the first human
+> admin is created through the dashboard, master-seed login is disabled until
+> recovery mode is explicitly enabled.
+
+## 3. 3. Start the relay server
 
 ### With mDNS enabled (recommended)
 
@@ -70,7 +75,41 @@ The relay is now reachable as:
 relay-server server --port 8788
 ```
 
-## 4. Storage node on the NAS
+## 4. 4. Bootstrap the first human admin
+
+When the server starts for the first time, no human admin exists. The dashboard
+login form therefore shows the **Master seed** option.
+
+1. Open `http://ai-relay.local:8788/relay/v2/dashboard/`
+2. Choose **Master seed** and paste the seed from step 2
+3. You are redirected to the bootstrap page
+4. Enter a username (and optional email) for the first admin
+5. Store the generated temporary password securely
+6. Log out and log in again as the new admin
+7. You are forced to change the password before you can use the dashboard
+
+After that, master-seed login is automatically disabled. For day-to-day work,
+always use human admin accounts.
+
+## 5. 5. Recovery mode
+
+If all human admin accounts are locked out, enable recovery from the relay host:
+
+```bash
+relay-recovery enable-recovery --all
+```
+
+Then restart the server with recovery mode enabled:
+
+```bash
+RELAY_ENABLE_MASTER_SEED_LOGIN=true relay-server server --port 8788
+```
+
+Now the master seed can log in again and bootstrap a new admin. Once a new
+admin exists and has changed the temporary password, recovery mode is no longer
+needed and should be turned off.
+
+## 6. 9. Storage node on the NAS
 
 The storage node is a KI-less Docker service that stores files on your NAS.
 
@@ -114,7 +153,7 @@ docker compose run --rm ai-relay-storage python /app/register.py
 This writes `~/.relay/ai-relay-agent.json` and `~/.relay/ai-relay-agent.token`
 inside the persistent Docker volume.
 
-## 4. Approve or activate nodes
+## 7. 4. Approve or activate nodes
 
 Every new node starts in `pending` state. An administrator must activate it
 before it can claim work.
@@ -122,7 +161,7 @@ before it can claim work.
 ### With the dashboard
 
 1. Open `http://ai-relay.local:8788/relay/v2/dashboard/`
-2. Log in with the master seed or a human admin account
+2. Log in with a human admin account (master-seed login is only available during bootstrap or recovery)
 3. Go to **Nodes**
 4. Find the pending node
 5. Click **Approve**
@@ -156,7 +195,7 @@ You can find `${NODE_ID}` in the agent JSON file inside the container:
 docker exec ai-relay-storage cat /root/.relay/ai-relay-agent.json
 ```
 
-## 5. Manage tokens
+## 8. 5. Manage tokens
 
 ### Issue a new runtime token
 
@@ -181,7 +220,7 @@ curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   "http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}"
 ```
 
-## 6. Verify the setup
+## 9. 9. Verify the setup
 
 ### Health endpoint
 
@@ -228,7 +267,7 @@ curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
 After a few seconds the storage node claims the task and writes the file to
 `/volume1/ai-relay-storage/test.txt`.
 
-## 7. Systemd service for the relay
+## 10. 9. Systemd service for the relay
 
 Create `/etc/systemd/system/ai-relay.service`:
 
@@ -258,7 +297,7 @@ sudo systemctl enable ai-relay.service
 sudo systemctl start ai-relay.service
 ```
 
-## 8. Updating
+## 11. 9. Updating
 
 Pull the latest code, reinstall, and restart:
 

@@ -245,11 +245,16 @@ human or KI agent that operates the relay:
 
 - Install and start the relay server
 - Create the master admin seed
+- Bootstrap the first human admin in the dashboard
 - Activate pending nodes in the dashboard
 - Issue new runtime tokens when needed
 - Delete nodes from the cluster
 
 For these tasks, the administrator should read `setup.md` and `dashboard.md`.
+
+> Master-seed login is intentionally unavailable during normal operation. If
+> every human admin is locked out, the administrator must enable recovery
+> mode first (`RELAY_ENABLE_MASTER_SEED_LOGIN=true`).
 
 ## 13. Next steps
 
