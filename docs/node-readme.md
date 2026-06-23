@@ -399,10 +399,10 @@ def execute_stage(stage):
     payload = stage["payload"]
     capability = stage["capability"]
 
+    if capability == "image.generate":
+        return {"image_path": str(generate_image(payload["prompt"]))}
     if capability == "chat":
         return {"answer": local_llm_chat(payload["question"])}
-    if capability == "mflux":
-        return {"image_path": str(generate_image(payload["prompt"]))}
     return {"error": f"Unknown capability: {capability}"}
 ```
 

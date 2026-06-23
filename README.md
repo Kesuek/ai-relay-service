@@ -113,7 +113,7 @@ or domain logic itself.
                                                                                  ▼
                                                                         ┌─────────────────┐
                                                                         │  Tool / Service │
-                                                                        │  (mflux, etc.)  │
+                                                                        │ (image gen etc) │
                                                                         └─────────────────┘
 ```
 

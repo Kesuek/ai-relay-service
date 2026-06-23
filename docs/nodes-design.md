@@ -56,21 +56,21 @@ talking to.
 
 | Mode | Suffix | Meaning | Example |
 |------|--------|---------|---------|
-| **Native** | `.native` | The node executes the tool directly. No local AI is invoked. | `mflux.native` |
-| **AI** | `.ai` | The node asks its local AI to decide and execute. | `mflux.ai` |
+| **Native** | `.native` | The node executes the tool directly. No local AI is invoked. | `image.generate.native` |
+| **AI** | `.ai` | The node asks its local AI to decide and execute. | `image.generate.ai` |
 | **Relay** | `.relay` | The node forwards the request to another specialised node. | `image.generate.relay` |
 
-The Mac node demonstrated the `.native` pattern for `mflux`: the node claimed
-`mflux` stages and ran `mflux` directly. The local Hermes instance was not
-consulted for every image generation request. This is correct when the request
-payload already contains all required parameters.
+A worker node demonstrated the `.native` pattern for image generation: the node
+claimed `image.generate` stages and ran the local image-generation tool directly.
+The local AI instance was not consulted for every request. This is correct when
+the request payload already contains all required parameters.
 
 A node may register both variants:
 
 ```json
 {
   "capabilities": [
-    {"name": "mflux.native", "version": "1.0.0"},
+    {"name": "image.generate.native", "version": "1.0.0"},
     {"name": "chat.ai", "version": "1.0.0"}
   ]
 }
@@ -79,8 +79,8 @@ A node may register both variants:
 A node should ask the user how a service should be exposed when the choice is
 not obvious. For example, during setup the installer can ask:
 
-- "Should mflux run natively on this node, or should the local AI decide each
-  invocation?"
+- "Should image generation run natively on this node, or should the local AI
+  decide each invocation?"
 - "Should terminal commands be executed directly, or confirmed by the local AI?"
 
 The answer determines the registered capability name.
@@ -311,7 +311,7 @@ Use lowercase, dot-separated namespaces:
 
 Use descriptive, unique names. Include a timestamp or ID if needed:
 
-- `archive_mflux_image_20260621_143000`
+- `archive_user_image_20260621_143000`
 - `storage.cleanup_request.20260621`
 
 ### Node names
