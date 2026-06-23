@@ -152,24 +152,56 @@ Response:
        ↓
 [Lost runtime token] → POST /auth/refresh with registration_secret
                        → new runtime token + new registration secret
-       ↓
-[Both credentials expired] → re-register
 ```
-
-Only `/relay/v2/auth/refresh` creates or rotates credentials. `/auth/status`
-only reports lifetimes. A recovery via registration secret rotates the
-registration secret; persist the new one immediately.
 
 ---
 
-## 6. Keep the node alive
+## 6. Node status lifecycle
+
+The `nodes.status` column is a free `TEXT` field with a default of `pending`.
+The relay itself only sets the following values:
+
+| Status | Meaning | Who sets it |
+|---|---|---|
+| `pending` | Registered but not yet approved by an administrator. The node cannot claim work. | Relay on registration |
+| `approved` | Approved by an administrator and a runtime token was issued, but the node has not sent its first heartbeat yet. | Relay on approval |
+| `online` | The node has sent at least one heartbeat. It is eligible to claim work. | Relay on first heartbeat or when returning from `offline` |
+| `offline` | The node missed too many heartbeats. It will not receive new claims until it heartbeats again. | Relay heartbeat watchdog |
+
+A node that is `online` can still be busy: the `available` boolean, `load`,
+and `queue_depth` fields in the `nodes` table express whether the node currently
+wants more work. A status of `online` with `available = 0` means "alive but do
+not send more tasks right now".
+
+The `presence` table stores richer runtime presence (mood, progress, ETA, etc.)
+and has its own `status` column. Its default is `online`. Nodes and dashboards
+may write custom presence status values such as `busy`, `away`, or `idle` to
+communicate finer-grained state to human observers.
+
+`presence.status` is **informational only** — the scheduler does not use it for
+routing. To tell the scheduler that a node should not receive new work, set
+`available` to `false` in the heartbeat body. A common pattern is:
+
+| Presence status | Meaning | Recommended heartbeat fields |
+|---|---|---|
+| `online` | Node is ready for work | `available: true`, `load: 0.0`, `queue_depth: 0` |
+| `busy` | Node is alive but occupied with non-relay work or too many relay tasks | `available: false`, `load: >0.8`, `queue_depth: >0` |
+| `away` | Node is temporarily not accepting work by policy | `available: false` |
+| `idle` | Node is online and waiting for tasks | `available: true`, `load: 0.0`, `queue_depth: 0` |
+
+The relay only changes `nodes.status` between `approved`, `online`, and
+`offline`. Richer states belong in `presence.status`.
+
+---
+
+## 7. Heartbeat and capabilities
 
 Once activated, send a heartbeat every few seconds. The recommended interval is
 **8 seconds**.
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/discovery/heartbeat" \
-  -H "Authorization: Bearer rt_..." \
+  -H "Authorization: Bearer <rt_...>" \
   -H "Content-Type: application/json" \
   -d '{
     "available": true,
@@ -203,7 +235,7 @@ will only be claimed by a node whose latest heartbeat advertised `chat.ai`.
 
 ---
 
-## 7. Refresh and recover credentials
+## 8. Refresh and recover credentials
 
 ### Refresh the runtime token
 
@@ -255,16 +287,20 @@ STATE_FILE.write_text(json.dumps(state, indent=2)) # ai-relay-agent.json
 
 If both credentials expired, the node must be re-registered.
 
+> Only `/relay/v2/auth/refresh` creates or rotates credentials. `/auth/status`
+> only reports lifetimes. A recovery via registration secret rotates the
+> registration secret; persist the new one immediately.
+
 ---
 
-## 8. Claim work
+## 9. Claim work
 
 With a valid runtime token, a node can claim a stage that matches one of its
 capabilities:
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/claim" \
-  -H "Authorization: Bearer rt_..." \
+  -H "Authorization: Bearer *** \
   -H "Content-Type: application/json" \
   -d '{"capability": "chat"}'
 ```
@@ -306,13 +342,13 @@ The node should poll again after a short delay (1–3 seconds).
 
 ---
 
-## 9. Complete or fail a stage
+## 10. Complete or fail a stage
 
 After finishing the work, report the result:
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/stages/stg_.../complete" \
-  -H "Authorization: Bearer rt_..." \
+  -H "Authorization: Bearer *** \
   -H "Content-Type: application/json" \
   -d '{
     "node_id": "V34ETT74",
@@ -325,7 +361,7 @@ If the work fails, put the error inside `result`:
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/stages/stg_.../complete" \
-  -H "Authorization: Bearer rt_..." \
+  -H "Authorization: Bearer *** \
   -H "Content-Type: application/json" \
   -d '{
     "node_id": "V34ETT74",
@@ -336,14 +372,14 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/stages/stg_.../comple
 
 ---
 
-## 10. Submitting work to the relay
+## 11. Submitting work to the relay
 
 A node is not the only thing that can create work. Dashboard users, other
 nodes, and HTTP clients submit tasks to the relay scheduler.
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/tasks" \
-  -H "Authorization: Bearer <admin-or-node-token>" \
+  -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "task_name": "answer-chat-question",
@@ -400,7 +436,7 @@ See `nodes-design.md` for the full self-care pattern.
 
 ---
 
-## 11. Node types
+## 12. Node types
 
 ### KI-capable node
 
@@ -436,7 +472,7 @@ def execute_stage(stage):
 
 ---
 
-## 12. Minimal worker reference
+## 13. Minimal worker reference
 
 ```python
 #!/usr/bin/env python3
@@ -620,7 +656,7 @@ or the Hermes skill `ai-relay-agent-node` instead of this minimal example.
 
 ---
 
-## 13. Monitoring status file
+## 14. Monitoring status file
 
 The reference poller writes `~/.relay/worker_status.json` after every
 heartbeat. External health checks can read it.
@@ -662,7 +698,7 @@ echo "Worker OK"
 
 ---
 
-## 14. Helper scripts and examples
+## 15. Helper scripts and examples
 
 | Path | Purpose |
 |------|---------|
@@ -677,7 +713,7 @@ echo "Worker OK"
 
 ---
 
-## 15. Checklist for a new node
+## 16. Checklist for a new node
 
 - [ ] Know the relay URL from configuration or the user
 - [ ] Prepare `~/.relay/ai-relay-agent.json` with the planned `node_name`, `capabilities`, and `base_url`
@@ -695,7 +731,7 @@ echo "Worker OK"
 
 ---
 
-## 16. Common mistakes
+## 17. Common mistakes
 
 | Mistake | Consequence | Fix |
 |---------|-------------|-----|
@@ -711,7 +747,7 @@ echo "Worker OK"
 
 ---
 
-## 17. Relay administrator tasks
+## 18. Relay administrator tasks
 
 The following actions are **not** performed by a node. They are done by the
 human or KI agent that operates the relay:
@@ -731,7 +767,7 @@ For these tasks, the administrator should read `setup.md` and `dashboard.md`.
 
 ---
 
-## 18. Next steps
+## 19. Next steps
 
 - For understanding tokens, see `token-concept.md`.
 - For node design patterns, see `nodes-design.md`.

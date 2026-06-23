@@ -208,7 +208,7 @@ The node proves it is alive every few seconds:
 
 ```http
 POST /relay/v2/discovery/heartbeat
-Authorization: Bearer <token>
+Authorization: Bearer <...3e
 {
   "node_id": "V34ETT74",
   "status": "online",
@@ -219,13 +219,20 @@ Authorization: Bearer <token>
 
 Recommended interval: **8 seconds**.
 
+The `status` field in the heartbeat body is **informational only**. It updates
+the `presence` table, which is meant for human observers. The relay's scheduler
+uses `nodes.available`, `nodes.load`, and `nodes.queue_depth` to decide whether
+to send more work. To stop receiving tasks, set `available: false`. To tell
+the dashboard the node is busy while still honouring the scheduler's rules, use
+`status: "busy"` together with `available: false`.
+
 ### Claim
 
 The node asks for work matching one of its capabilities:
 
 ```http
 POST /relay/v2/scheduler/claim
-Authorization: Bearer <token>
+Authorization: Bearer <rt_...>
 {
   "capability": "storage.archive"
 }
@@ -241,7 +248,7 @@ The node reports the result:
 
 ```http
 POST /relay/v2/scheduler/stages/{stage_id}/complete
-Authorization: Bearer <token>
+Authorization: Bearer <rt_...>
 {
   "node_id": "V34ETT74",
   "task_id": "tsk_...",
