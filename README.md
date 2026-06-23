@@ -3,13 +3,33 @@
 Standalone agent cluster server for distributed AI agents. The core focuses on
 **connection, authentication, task distribution, and availability monitoring**.
 Domain services like Board, Vault, or Activity run as external nodes with their
-own capabilities.
+own capabilities and register with the relay over a public v2 API.
 
 - **Port:** 8788
 - **Framework:** FastAPI + uvicorn
 - **DB:** SQLite + WAL (`~/.relay/server.db`)
-- **Auth:** Bootstrap seeds + Bearer tokens
+- **Auth:** Bootstrap seeds + short-lived runtime tokens + recovery secrets
 - **Artifacts:** Files under `~/.relay/artifacts/`, metadata in the database
+
+The relay is intentionally **KI-less** at its core. It does not make AI
+decisions; it routes tasks to registered nodes that advertise the right
+capabilities. KI-capable worker nodes make decisions locally and post decision
+tasks back to the relay when they need help from another agent.
+
+## Documentation
+
+All public Markdown docs are served live by the relay at
+`/relay/v2/dashboard/docs/{name}`. Available documents:
+
+| Name | URL | Content |
+|---|---|---|
+| `node-readme` | `/relay/v2/dashboard/docs/node-readme` | How to connect a node to the relay |
+| `token-concept` | `/relay/v2/dashboard/docs/token-concept` | Token and credential lifecycle |
+| `setup` | `/relay/v2/dashboard/docs/setup` | Server installation and configuration |
+| `dashboard` | `/relay/v2/dashboard/docs/dashboard` | Dashboard usage and node approval |
+| `readme` | `/relay/v2/dashboard/docs/readme` | This document |
+
+Call `/relay/v2/dashboard/docs` for a JSON index.
 
 ## Quick Start
 
@@ -25,14 +45,42 @@ make deploy     # start systemd service
 
 ## Core API
 
-| Service   | Path                            |
-|-----------|---------------------------------|
-| Health    | `/health`                       |
-| Auth      | `/relay/v2/auth/*`              |
-| Discovery | `/relay/v2/discovery/*`         |
-| Scheduler | `/relay/v2/scheduler/*`         |
-| Presence  | `/relay/v2/presence/*`          |
-| Events    | `/relay/v2/events/stream?node=<id>` |
+| Service   | Path                                  | Purpose |
+|-----------|---------------------------------------|---------|
+| Health    | `/health`                             | Liveness check |
+| Auth      | `/relay/v2/auth/*`                    | Node registration, tokens, recovery |
+| Discovery | `/relay/v2/discovery/*`                 | Heartbeats, capability registry |
+| Scheduler | `/relay/v2/scheduler/*`                 | Task DAGs, stage claiming, completion |
+| Presence  | `/relay/v2/presence/*`                | Online/offline state |
+| Events    | `/relay/v2/events/stream?node=<id>`   | Real-time SSE event stream |
+
+## Architecture
+
+```
+                   ┌─────────────────────┐
+                   │  AI-Relay-Service   │
+                   │  (Core)             │
+                   │  Port 8788          │
+                   └─────────────────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        ↓                   ↓                   ↓
+   Discovery          Scheduler            Events
+   Registry           Task-Queue           SSE-Stream
+   Heartbeat          DAG-Stages
+   Presence           Artifacts
+        │                   │
+        └───────────────────┘
+                   │
+       ┌───────────┼───────────┐
+       ↓           ↓           ↓
+  Board-Node  Vault-Node  Activity-Node
+  capability  capability  capability
+```
+
+Nodes register their capabilities, send heartbeats, and claim matching stages
+from the scheduler. The relay keeps track of which nodes are online, what they
+can do, and routes tasks accordingly. The core never runs AI inference itself.
 
 ## Phase 4 Features
 
@@ -45,13 +93,14 @@ make deploy     # start systemd service
 - **External Example Nodes** — `examples/nodes/` contains standalone nodes that
   run as separate processes and talk to the core over the public v2 API.
 
-## Storage Node
+## Optional: Storage Node
 
-A KI-less storage service node is available in `nodes/storage-node/`. It
-registers with the capabilities `storage.archive`, `storage.list`,
-`storage.delete`, and `storage.quota`. It runs as a Docker container on your
-NAS, downloads files from the relay, writes them to a NAS mount, and can post
-cleanup decision tasks back to the relay for AI-capable nodes to handle.
+A KI-less storage service node is available in `nodes/storage-node/`. It is
+**not part of the core** and runs as a separate container. It registers with
+the capabilities `storage.archive`, `storage.list`, `storage.delete`, and
+`storage.quota`, downloads files from the relay, writes them to a NAS mount, and
+can post cleanup decision tasks back to the relay for AI-capable nodes to
+handle.
 
 See `nodes/storage-node/README.md` for setup and
 `nodes/storage-node/docker-compose.yml` for the Docker Compose deployment.
@@ -94,30 +143,6 @@ RELAY_MASTER_SECRET="adm_xxxxxxxxxxxx" \
 The nodes now receive runtime tokens and begin claiming matching stages. Submit
 a task via the scheduler API or use `scripts/manual_node_test.py` for a fully
 automated end-to-end test.
-
-## Architecture
-
-```
-                   ┌─────────────────────┐
-                   │  AI-Relay-Service   │
-                   │  (Core)             │
-                   │  8788               │
-                   └─────────────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ↓                   ↓                   ↓
-   Discovery          Scheduler            Events
-   Registry           Task-Queue           SSE-Stream
-   Heartbeat          DAG-Stages
-   Presence           Artifacts
-        │                   │
-        └───────────────────┘
-                   │
-       ┌───────────┼───────────┐
-       ↓           ↓           ↓
-  Board-Node  Vault-Node  Activity-Node
-  capability  capability  capability
-```
 
 ## Configuration
 
