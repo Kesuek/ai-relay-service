@@ -652,7 +652,9 @@ echo "Worker OK"
 |------|---------|
 | `examples/nodes/node_base.py` | Base class that handles registration, heartbeat, claim, and complete loops |
 | `examples/nodes/relay_client.py` | HTTP client for the relay API |
-| `nodes/storage-node/poller.py` | Generic production poller for KI-less service nodes |
+| `nodes/common/poller.py` | Generic production poller for any node type |
+| `nodes/common/relay_config.json.example` | Example config for the common poller |
+| `nodes/storage-node/poller.py` | Storage-specific wrapper around the common poller |
 | `nodes/storage-node/storage_node.py` | Example service node using the poller |
 | `nodes/storage-node/register.py` | One-time registration for the storage node |
 | `scripts/manual_node_test.py` | Manual end-to-end node test |
