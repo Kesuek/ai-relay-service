@@ -47,7 +47,45 @@ These are traditional AI agents. They can:
 - Never perform destructive actions unless the stage explicitly requests them.
 - When in doubt, return a request for clarification instead of guessing.
 
-## 2. KI-less service nodes
+## 2. Node execution modes
+
+A capability can be provided in different ways. The same logical service, for
+example image generation, may be implemented differently on different nodes.
+Document the mode with a label suffix so the relay and users know what they are
+talking to.
+
+| Mode | Suffix | Meaning | Example |
+|------|--------|---------|---------|
+| **Native** | `.native` | The node executes the tool directly. No local AI is invoked. | `mflux.native` |
+| **AI** | `.ai` | The node asks its local AI to decide and execute. | `mflux.ai` |
+| **Relay** | `.relay` | The node forwards the request to another specialised node. | `image.generate.relay` |
+
+The Mac node demonstrated the `.native` pattern for `mflux`: the node claimed
+`mflux` stages and ran `mflux` directly. The local Hermes instance was not
+consulted for every image generation request. This is correct when the request
+payload already contains all required parameters.
+
+A node may register both variants:
+
+```json
+{
+  "capabilities": [
+    {"name": "mflux.native", "version": "1.0.0"},
+    {"name": "chat.ai", "version": "1.0.0"}
+  ]
+}
+```
+
+A node should ask the user how a service should be exposed when the choice is
+not obvious. For example, during setup the installer can ask:
+
+- "Should mflux run natively on this node, or should the local AI decide each
+  invocation?"
+- "Should terminal commands be executed directly, or confirmed by the local AI?"
+
+The answer determines the registered capability name.
+
+## 3. KI-less service nodes
 
 These nodes are intentionally "dumb". They have no reasoning capability. They:
 
@@ -102,7 +140,7 @@ No KI logic lives inside the storage node.
 | `camera.capture` | Camera node | Take a photo |
 | `notify.pushover` | Notification node | Send push notifications |
 
-## 3. Anatomy of a node
+## 4. Anatomy of a node
 
 Every node, regardless of type, follows the same lifecycle:
 
@@ -182,7 +220,7 @@ Authorization: Bearer <token>
 }
 ```
 
-## 4. Decision boundaries
+## 5. Decision boundaries
 
 | Situation | KI node | Service node |
 |-----------|---------|--------------|
@@ -201,7 +239,7 @@ The rule of thumb:
 > If the answer is deterministic and reversible or explicitly authorised,
 > it can belong to a service node.
 
-## 5. Self-care in practice
+## 6. Self-care in practice
 
 ### Storage quota example
 
@@ -256,7 +294,7 @@ stages:
 A KI node returns `{"run_backup": true}`, and the relay schedules
 `backup.snapshot`.
 
-## 6. Naming conventions
+## 7. Naming conventions
 
 ### Capabilities
 
@@ -284,7 +322,7 @@ Include the host or role:
 - `m4-macmini-01`
 - `hermes-cli-agent`
 
-## 7. Error handling
+## 8. Error handling
 
 A node should report failures honestly:
 
@@ -301,7 +339,7 @@ A node should report failures honestly:
 
 Never silently swallow errors.
 
-## 8. Security
+## 9. Security
 
 - Service nodes run with minimal privileges.
 - A service node only touches the paths and devices it owns.
@@ -309,7 +347,7 @@ Never silently swallow errors.
 - KI nodes validate destructive payloads before approving them.
 - Unknown capabilities are ignored; nodes cannot claim work outside their role.
 
-## 9. Future directions
+## 10. Future directions
 
 Possible additional service nodes that fit this design:
 
@@ -323,9 +361,10 @@ Possible additional service nodes that fit this design:
 
 Each of these would follow the same rule: **execute only, decide never**.
 
-## 10. Summary
+## 11. Summary
 
 - The relay routes tasks based on capabilities.
+- A capability can be offered in native, AI, or relay mode.
 - KI nodes reason, plan, and decide.
 - Service nodes execute raw actions and report facts.
 - When a service node needs a decision, it posts a task back to the relay.
