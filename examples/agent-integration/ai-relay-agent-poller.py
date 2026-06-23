@@ -17,9 +17,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Import the generic poller from the relay repo.  The path must be absolute
-# so the systemd unit can start this script from any working directory.
-ROOT = Path(__file__).resolve().parent.parent.parent
+# Import the generic poller from the relay repo. The location must be explicit
+# because this script is usually copied to ~/.hermes/scripts/, outside the repo.
+ROOT = Path(os.environ.get("RELAY_REPO_ROOT", "/home/felix/projects/ai-relay-service"))
 sys.path.insert(0, str(ROOT / "nodes" / "common"))
 
 import poller  # noqa: E402
@@ -61,7 +61,10 @@ def handle_stage(stage: dict) -> dict:
 
 def main():
     p = poller.Poller()
-    p.register("agent.task", handle_stage)
+    caps = p.meta.get("capabilities", [])
+    for c in caps:
+        name = c["name"] if isinstance(c, dict) else c
+        p.register(name, handle_stage)
     p.run()
 
 

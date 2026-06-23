@@ -16,7 +16,8 @@ AI.
 1. The poller loads `~/.relay/ai-relay-agent.json` and `~/.relay/relay_config.json`.
 2. It ensures a valid runtime token is available, refreshing or recovering via
    `/relay/v2/auth/refresh` as needed.
-3. It heartbeats every 8 seconds with capability `agent.task`.
+3. It heartbeats every 8 seconds with the capabilities listed in
+   `~/.relay/ai-relay-agent.json`.
 4. When it claims a stage, it builds a prompt from the stage payload and runs:
 
    ```bash

@@ -218,23 +218,135 @@ def test_refresh_token():
             "capabilities": [{"name": "admin", "version": "1.0.0"}],
         },
     )
-    token = r.json()["token"]
+    admin_token = r.json()["token"]
 
+    worker_id, _, rs = _register_worker(
+        "Worker Refresh", [{"name": "board", "version": "1.0.0"}]
+    )
+
+    # Pending worker can poll status with registration secret.
+    r = client.post(
+        "/relay/v2/auth/status",
+        json={"node_id": worker_id, "registration_secret": rs},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "pending"
+    assert body["rt_valid_until"] is None
+    assert body["rs_valid_until"] is not None
+
+    # Approve worker.
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    worker_token = r.json()["token"]
+    assert worker_token.startswith("rt_")
+
+    # Approved worker can poll status with runtime token.
+    r = client.post(
+        "/relay/v2/auth/status",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={"node_id": worker_id},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "approved"
+
+    # Refresh runtime token with runtime token.
     r = client.post(
         "/relay/v2/auth/refresh",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {worker_token}"},
         json={"requested_credential": "runtime_token"},
     )
     assert r.status_code == 200
     new_token = r.json()["token"]
-    assert new_token != token
+    assert new_token != worker_token
 
-    # Old token invalidated.
-    r = client.get("/relay/v2/admin/nodes", headers={"Authorization": f"Bearer {token}"})
+    # Old runtime token invalidated.
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {worker_token}"},
+    )
     assert r.status_code == 401
 
     # New token works.
-    r = client.get("/relay/v2/admin/nodes", headers={"Authorization": f"Bearer {new_token}"})
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {new_token}"},
+    )
+    assert r.status_code == 200
+
+    # Recover runtime token with registration secret (rs gets rotated).
+    r = client.post(
+        "/relay/v2/auth/refresh",
+        json={
+            "node_id": worker_id,
+            "requested_credential": "runtime_token",
+            "registration_secret": rs,
+        },
+    )
+    assert r.status_code == 200
+    recovered_token = r.json()["token"]
+    assert recovered_token != new_token
+
+    # Recovered token works.
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {recovered_token}"},
+    )
+    assert r.status_code == 200
+
+
+def test_online_node_token_still_valid():
+    """After heartbeats move a node to 'online', its runtime token stays valid."""
+    from relay_server.core.auth import generate_secret, hash_secret
+
+    conn = get_conn()
+    secret = generate_secret("adm_")
+    conn.execute(
+        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
+        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+    r = client.post(
+        "/relay/v2/auth/register-admin",
+        json={
+            "node_name": "Admin Online",
+            "bootstrap_secret": secret,
+            "capabilities": [{"name": "admin", "version": "1.0.0"}],
+        },
+    )
+    assert r.status_code == 200
+    admin_token = r.json()["token"]
+
+    worker_id, _, _ = _register_worker(
+        "Worker Online", [{"name": "board", "version": "1.0.0"}]
+    )
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    worker_token = r.json()["token"]
+
+    # Heartbeat moves node to online.
+    r = client.post(
+        "/relay/v2/discovery/heartbeat",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={"capabilities": [{"name": "board", "version": "1.0.0"}], "status": "idle"},
+    )
+    assert r.status_code == 200
+
+    # Token still works for scheduler claim.
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {worker_token}"},
+    )
     assert r.status_code == 200
 
 

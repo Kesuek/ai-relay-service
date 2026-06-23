@@ -10,6 +10,7 @@ Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+Environment="RELAY_REPO_ROOT=/home/felix/projects/ai-relay-service"
 Environment="HERMES_TOOLSETS=terminal,file,web,image_gen"
 # Important: include tool paths that uv/conda install outside the default PATH.
 Environment="PATH=/home/felix/.local/bin:/home/felix/.local/share/uv/tools/mflux/bin:/usr/local/bin:/usr/bin:/bin"
