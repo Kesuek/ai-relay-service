@@ -372,7 +372,95 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/stages/stg_.../comple
 
 ---
 
-## 11. Submitting work to the relay
+## 11. Exchanging files through artifacts
+
+The relay has a built-in artifact store for passing binary or large text data
+between nodes. Typical uses are logs, Markdown files, images, and short audio
+files (for example TTS output or STT input). The default upload limit is
+**100 MiB** per file.
+
+### Upload a file
+
+Any approved node or admin can upload a file and receives an `artifact_id`:
+
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/storage/upload" \
+  -H "Authorization: Bearer *** \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@/path/to/generated-image.png" \
+  -F "task_id=tsk_abc123" \
+  -F "stage_id=stg_answer"
+```
+
+Response:
+
+```json
+{
+  "artifact_id": "artifact_a1B2c3D4",
+  "name": "generated-image.png",
+  "size_bytes": 123456,
+  "mime_type": "image/png",
+  "created_by": "V34ETT74"
+}
+```
+
+### Reference the artifact in a stage result or payload
+
+Instead of embedding base64 data in JSON, pass the `artifact_id`:
+
+```json
+{
+  "result": {
+    "artifact_id": "artifact_a1B2c3D4",
+    "description": "Generated image for the chat answer"
+  }
+}
+```
+
+Downstream stages or nodes can download it with the same ID.
+
+### Download a file
+
+```bash
+curl -O -J "http://${RELAY_HOST}:8788/relay/v2/storage/files/artifact_a1B2c3D4" \
+  -H "Authorization: Bearer *** \
+```
+
+### Fetch metadata only
+
+```bash
+curl "http://${RELAY_HOST}:8788/relay/v2/storage/files/artifact_a1B2c3D4/meta" \
+  -H "Authorization: Bearer *** \
+```
+
+### List artifacts for a task
+
+```bash
+curl "http://${RELAY_HOST}:8788/relay/v2/storage/list?task_id=tsk_abc123" \
+  -H "Authorization: Bearer *** \
+```
+
+### Typical hand-off pattern
+
+1. A KI-capable node generates an image and uploads it.
+2. The node returns `artifact_id` in the stage `result`.
+3. An orchestrator stage or the relay itself creates a follow-up stage with
+   `capability: storage.archive.native` and the `artifact_id` in the payload.
+4. A storage node claims the stage, downloads the file, and writes it to
+   long-term storage (for example a NAS mount).
+
+Files are stored under `~/.relay/artifacts` on the relay host by default. They
+are not automatically deleted. If a node wants to remove an artifact, it can
+use:
+
+```bash
+curl -X DELETE "http://${RELAY_HOST}:8788/relay/v2/storage/files/artifact_a1B2c3D4" \
+  -H "Authorization: Bearer *** \
+```
+
+---
+
+## 12. Submitting work to the relay
 
 A node is not the only thing that can create work. Dashboard users, other
 nodes, and HTTP clients submit tasks to the relay scheduler.
@@ -436,7 +524,7 @@ See `nodes-design.md` for the full self-care pattern.
 
 ---
 
-## 12. Node types
+## 13. Node types
 
 ### KI-capable node
 
@@ -472,7 +560,7 @@ def execute_stage(stage):
 
 ---
 
-## 13. Minimal worker reference
+## 14. Minimal worker reference
 
 ```python
 #!/usr/bin/env python3
@@ -656,7 +744,7 @@ or the Hermes skill `ai-relay-agent-node` instead of this minimal example.
 
 ---
 
-## 14. Monitoring status file
+## 15. Monitoring status file
 
 The reference poller writes `~/.relay/worker_status.json` after every
 heartbeat. External health checks can read it.
@@ -698,7 +786,7 @@ echo "Worker OK"
 
 ---
 
-## 15. Helper scripts and examples
+## 16. Helper scripts and examples
 
 | Path | Purpose |
 |------|---------|
@@ -713,7 +801,7 @@ echo "Worker OK"
 
 ---
 
-## 16. Checklist for a new node
+## 17. Checklist for a new node
 
 - [ ] Know the relay URL from configuration or the user
 - [ ] Prepare `~/.relay/ai-relay-agent.json` with the planned `node_name`, `capabilities`, and `base_url`
@@ -731,7 +819,7 @@ echo "Worker OK"
 
 ---
 
-## 17. Common mistakes
+## 18. Common mistakes
 
 | Mistake | Consequence | Fix |
 |---------|-------------|-----|
@@ -747,7 +835,7 @@ echo "Worker OK"
 
 ---
 
-## 18. Relay administrator tasks
+## 19. Relay administrator tasks
 
 The following actions are **not** performed by a node. They are done by the
 human or KI agent that operates the relay:
@@ -767,7 +855,7 @@ For these tasks, the administrator should read `setup.md` and `dashboard.md`.
 
 ---
 
-## 19. Next steps
+## 20. Next steps
 
 - For understanding tokens, see `token-concept.md`.
 - For node design patterns, see `nodes-design.md`.
