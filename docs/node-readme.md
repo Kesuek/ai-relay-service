@@ -189,15 +189,17 @@ automatically moves it back to `online`.
 sent again in the heartbeat body. If it changes, re-register or use the
 dashboard.
 
-Capabilities may be sent as objects or plain strings:
+Capabilities may be sent as objects or plain strings, and each heartbeat
+updates the node's advertised capabilities. A node can change what it offers
+at runtime by sending different capabilities in subsequent heartbeats:
 
 ```json
-{ "capabilities": [{"name": "chat", "version": "1.0.0"}] }
+{ "capabilities": ["chat.ai", "code.ai"] }
 ```
 
-```json
-{ "capabilities": ["chat", "storage"] }
-```
+The scheduler uses the most recent heartbeat capabilities for matching. The
+relay matches capability names **exactly**: a stage that asks for `chat.ai`
+will only be claimed by a node whose latest heartbeat advertised `chat.ai`.
 
 ---
 

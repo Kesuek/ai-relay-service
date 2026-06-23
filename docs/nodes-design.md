@@ -37,6 +37,35 @@ These are traditional AI agents. They can:
 | `llm.decide_cleanup` | Storage decision node | Decide which files to delete when quota is hit |
 | `llm.plan_task` | Orchestrator node | Break a user request into relay task DAGs |
 
+### Capability naming guidelines
+
+The relay matches capability names **exactly**. A stage that asks for
+`chat.ai` will only be claimed by a node that currently advertises `chat.ai`.
+There is no wildcard or implicit fallback.
+
+To keep clusters interoperable, the ecosystem recommends a small set of
+**core capability names**. These names describe *what* a node can do. The
+execution-mode suffix (see section 2) describes *how* it does it.
+
+| Core name | Typical execution mode | Meaning |
+|-----------|------------------------|---------|
+| `chat` | `.ai` | Conversational agent. Answers general questions, reasons, and interacts with users. |
+| `code` | `.ai` | Coding agent. Writes, reviews, and debugs code. |
+| `web` | `.ai` | Research agent. Searches the web and summarises pages. |
+| `vision` | `.ai` | Vision agent. Analyses images and describes contents. |
+| `terminal` | `.native` or `.ai` | Executes shell commands either directly or after local AI confirmation. |
+| `file` | `.native` | Filesystem operations such as read, write, move, delete. |
+| `storage.*` | `.native` | Storage services: archive, list, delete, quota checks. |
+| `llm.decide_*` | `.ai` | Decision stages for KI-less service nodes. The suffix describes the domain, e.g. `llm.decide_cleanup`. |
+| `llm.plan_*` | `.ai` | Orchestrator stages that break a request into a task DAG, e.g. `llm.plan_task`. |
+
+Use these names when they fit. You may register domain-specific names (for
+example `printer.a4.native`) if the core names do not cover your use case.
+
+A bare core name such as `chat` without a suffix is a category, not a concrete
+execution offer. A node that wants to provide chat services should register
+`chat.ai`, `chat.native`, or both.
+
 ### Design rules
 
 - Register one or more capability names that match the kind of work you do.
