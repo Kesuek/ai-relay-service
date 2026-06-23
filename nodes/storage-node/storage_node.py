@@ -15,22 +15,9 @@ import time
 from pathlib import Path
 
 import httpx
-
-from poller import (
-    CLAIM_INTERVAL,
-    HEARTBEAT_INTERVAL,
-    claim,
-    complete,
-    heartbeat,
-    load_meta,
-    load_token,
-    refresh_runtime_token,
-    submit_task,
-)
+from poller import Poller
 
 STORAGE_PATH = Path(os.environ.get("RELAY_STORAGE_PATH", "/storage"))
-BASE_URL = os.environ.get("RELAY_BASE_URL", "")
-NODE_NAME = os.environ.get("RELAY_NODE_NAME", "storage-node")
 QUOTA_THRESHOLD = float(os.environ.get("RELAY_QUOTA_THRESHOLD", "0.85"))
 
 
@@ -72,13 +59,19 @@ def handle_archive(stage: dict, meta: dict, token: str) -> dict:
 
     base_url = meta["base_url"]
 
-    # Metadaten lesen
-    r = httpx.get(_meta_url(artifact_id, base_url), headers={"Authorization": f"Bearer {token}"}, timeout=10)
+    r = httpx.get(
+        _meta_url(artifact_id, base_url),
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
     r.raise_for_status()
     file_meta = r.json()
 
-    # Datei herunterladen
-    r = httpx.get(_artifact_url(artifact_id, base_url), headers={"Authorization": f"Bearer {token}"}, timeout=120)
+    r = httpx.get(
+        _artifact_url(artifact_id, base_url),
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=120,
+    )
     r.raise_for_status()
 
     dest = _safe_path(target_path)
@@ -132,7 +125,7 @@ def handle_quota(stage: dict) -> dict:
     total, used, free = shutil.disk_usage(STORAGE_PATH)
     ratio = used / total if total else 0
 
-    result = {
+    return {
         "status": "quota",
         "total_bytes": total,
         "used_bytes": used,
@@ -141,10 +134,9 @@ def handle_quota(stage: dict) -> dict:
         "threshold": QUOTA_THRESHOLD,
         "threshold_exceeded": ratio > QUOTA_THRESHOLD,
     }
-    return result
 
 
-def post_cleanup_request(meta: dict, token: str):
+def post_cleanup_request(poller, token: str):
     """Wenn Quota überschritten ist, poste einen Service-Task ans Relay."""
     try:
         total, used, free = shutil.disk_usage(STORAGE_PATH)
@@ -166,81 +158,39 @@ def post_cleanup_request(meta: dict, token: str):
                 },
             }
         ]
-        result = submit_task(meta, token, task_name, stages, priority=5)
+        result = poller.submit_task(poller.meta, token, task_name, stages, priority=5)
         print(f"posted cleanup request task: {result.get('task', {}).get('task_id')}")
     except Exception as exc:
         print(f"cleanup request failed: {exc}", file=sys.stderr)
 
 
-def main():
+def register_handlers(poller):
+    """Register storage handlers on the poller and start the loop."""
     STORAGE_PATH.mkdir(parents=True, exist_ok=True)
 
-    meta = load_meta()
-    if BASE_URL:
-        meta["base_url"] = BASE_URL.rstrip("/")
-    token = load_token() or refresh_runtime_token(meta)
-    if not token:
-        print("no runtime token available", file=sys.stderr)
-        sys.exit(1)
+    def _handle(stage):
+        capability = stage.get("capability")
+        if capability == "storage.archive":
+            return handle_archive(stage, poller.meta, poller.token)
+        if capability == "storage.delete":
+            return handle_delete(stage)
+        if capability == "storage.list":
+            return handle_list(stage)
+        if capability == "storage.quota":
+            post_cleanup_request(poller, poller.token)
+            return handle_quota(stage)
+        return {"error": f"unknown capability {capability}"}
 
-    handlers = {
-        "storage.archive": lambda stage: handle_archive(stage, meta, token),
-        "storage.delete": handle_delete,
-        "storage.list": handle_list,
-        "storage.quota": handle_quota,
-    }
+    for cap in ["storage.archive", "storage.delete", "storage.list", "storage.quota"]:
+        poller.register(cap, _handle)
 
-    # Periodische Cleanup-Check (alle 5 Minuten)
-    last_cleanup_check = 0
+    print(f"storage node {poller.meta['node_id']} started at {STORAGE_PATH}")
+    poller.run()
 
-    print(f"storage node {meta['node_id']} started at {STORAGE_PATH}")
-    capabilities = [c["name"] for c in meta.get("capabilities", [])]
-    print(f"poller started for node {meta['node_id']} with caps {capabilities}")
 
-    last_claim = 0
-    while True:
-        try:
-            current_token = load_token() or token
-            if not current_token:
-                raise RuntimeError("no token available")
-            hb = heartbeat(meta, current_token)
-            print(f"heartbeat {hb.get('status')} at {time.strftime('%H:%M:%S')}")
-
-            now = time.time()
-            if now - last_cleanup_check > 300:
-                post_cleanup_request(meta, current_token)
-                last_cleanup_check = now
-
-            if now - last_claim > CLAIM_INTERVAL:
-                for cap in capabilities:
-                    if cap not in handlers:
-                        continue
-                    stage = claim(meta, current_token, cap)
-                    if stage:
-                        print(f"claimed {cap} stage: {stage.get('stage_id')}")
-                        try:
-                            result = handlers[cap](stage)
-                            complete(meta, current_token, stage["stage_id"], result)
-                            print(f"completed {stage.get('stage_id')}")
-                        except Exception as exc:
-                            print(f"handler error for {cap}: {exc}", file=sys.stderr)
-                            complete(meta, current_token, stage["stage_id"], {"error": str(exc)})
-                        break
-                last_claim = now
-
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in (401, 403):
-                print("token invalid, trying to refresh", file=sys.stderr)
-                token = refresh_runtime_token(meta)
-                if not token:
-                    print("refresh failed, exiting", file=sys.stderr)
-                    sys.exit(1)
-            else:
-                print(f"http error: {exc}", file=sys.stderr)
-        except Exception as exc:
-            print(f"error: {exc}", file=sys.stderr)
-
-        time.sleep(HEARTBEAT_INTERVAL)
+def main():
+    poller = Poller()
+    register_handlers(poller)
 
 
 if __name__ == "__main__":
