@@ -56,31 +56,103 @@ make deploy     # start systemd service
 
 ## Architecture
 
+The relay is a thin, stateful coordination layer. It owns the registry,
+heartbeat state, task DAG, and event stream, but it never runs AI inference
+or domain logic itself.
+
 ```
-                   ┌─────────────────────┐
-                   │  AI-Relay-Service   │
-                   │  (Core)             │
-                   │  Port 8788          │
-                   └─────────────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ↓                   ↓                   ↓
-   Discovery          Scheduler            Events
-   Registry           Task-Queue           SSE-Stream
-   Heartbeat          DAG-Stages
-   Presence           Artifacts
-        │                   │
-        └───────────────────┘
-                   │
-       ┌───────────┼───────────┐
-       ↓           ↓           ↓
-  Board-Node  Vault-Node  Activity-Node
-  capability  capability  capability
+                              ┌────────────────────────┐
+                              │   AI Relay Service     │
+                              │   core — port 8788     │
+                              │                        │
+                              │  ┌──────────────────┐  │
+                              │  │  Auth / Tokens   │  │
+                              │  │  (rt 7d, rs 12h) │  │
+                              │  └──────────────────┘  │
+                              │  ┌──────────────────┐  │
+                              │  │  Discovery       │  │
+                              │  │  registry +      │  │
+                              │  │  heartbeats      │  │
+                              │  └──────────────────┘  │
+                              │  ┌──────────────────┐  │
+                              │  │  Scheduler       │  │
+                              │  │  task DAG +      │  │
+                              │  │  stage claims    │  │
+                              │  └──────────────────┘  │
+                              │  ┌──────────────────┐  │
+                              │  │  Events          │  │
+                              │  │  SSE stream      │  │
+                              │  └──────────────────┘  │
+                              └────────────────────────┘
+                                        ▲  ▲
+           ┌────────────────────────────┘  └────────────────────────────┐
+           │ heartbeat / claim / complete           register            │
+           ▼                                                             ▼
+  ┌────────────────────┐                                      ┌────────────────────┐
+  │  Service Node      │◄──── KI-less: executes work ──────►│  Worker Node       │
+  │  (storage, board)  │         directly over API          │  with local AI     │
+  └────────────────────┘                                      └────────────────────┘
+                                                                       │
+                                                                       │ delegates
+                                                                       ▼
+                                                              ┌────────────────────┐
+                                                              │  Local Hermes AI   │
+                                                              │  decides tool/cap  │
+                                                              └────────────────────┘
+                                                                       │
+                                                                       │ posts decision
+                                                                       │ task back to relay
+                                                                       ▼
+                                                              ┌────────────────────┐
+                                                              │  Another node      │
+                                                              │  claims decision   │
+                                                              │  stage             │
+                                                              └────────────────────┐
+                                                                                 │
+                                                                                 │ executes
+                                                                                 ▼
+                                                                        ┌─────────────────┐
+                                                                        │  Tool / Service │
+                                                                        │  (mflux, etc.)  │
+                                                                        └─────────────────┘
 ```
 
-Nodes register their capabilities, send heartbeats, and claim matching stages
-from the scheduler. The relay keeps track of which nodes are online, what they
-can do, and routes tasks accordingly. The core never runs AI inference itself.
+### Auth flow for a new node
+
+```
+Node                              Relay
+ │                                  │
+ │  POST /auth/register             │
+ │  (name, capabilities)             │
+ │ ───────────────────────────────▶ │
+ │                                  │
+ │◀──────── node_id + rs ───────────│
+ │                                  │
+ │     admin approves via dashboard │
+ │     (relay returns rt to admin)  │
+ │◀──────── rt delivered ───────────│
+ │                                  │
+ │  loop:                           │
+ │    heartbeat every 8s with rt    │
+ │    claim stages with rt          │
+ │    refresh rt before expiry      │
+ │    refresh rs before expiry      │
+ │                                  │
+ │  if rt is lost:                  │
+ │  POST /auth/refresh              │
+ │  rs + requested=runtime_token    │
+ │ ───────────────────────────────▶ │
+ │                                  │
+ │◀──────── new rt + new rs ────────│
+```
+
+### Key rules
+
+- **One runtime token per node.** Refreshing it invalidates the previous one.
+- **Registration secret is recovery only.** It expires after 12 hours.
+- **Core is KI-less.** It routes based on capability strings; it does not choose tools.
+- **KI-capable nodes decide locally.** They may post a decision task back to the
+  relay so another node can execute it.
 
 ## Phase 4 Features
 
