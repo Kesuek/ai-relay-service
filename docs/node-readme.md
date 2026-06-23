@@ -144,19 +144,21 @@ Response:
 ```
 [Register] → temporary token (24h) + registration secret (12h)
        ↓
-[Admin approves] → runtime token (7 days)
+[Admin approves] → runtime token (7 days), node status: approved
        ↓
-[Heartbeat every 8s] → claim → work → complete
+[Heartbeat every 8s] → status becomes online → claim → work → complete
        ↓
 [Before expiry] → POST /auth/refresh → new runtime token
        ↓
 [Lost runtime token] → POST /auth/refresh with registration_secret
+                       → new runtime token + new registration secret
        ↓
 [Both credentials expired] → re-register
 ```
 
 Only `/relay/v2/auth/refresh` creates or rotates credentials. `/auth/status`
-only reports lifetimes.
+only reports lifetimes. A recovery via registration secret rotates the
+registration secret; persist the new one immediately.
 
 ---
 
@@ -238,8 +240,16 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
   }'
 ```
 
-The previous runtime token is invalidated and the response contains the new
-one. Save it immediately.
+The response contains a new runtime token **and a new registration secret**. The
+previous runtime token is invalidated and the old registration secret is rotated.
+Save both credentials immediately:
+
+```python
+data = r.json()
+save_token(data["token"])                          # ai-relay-agent.token
+state["registration_secret"] = data["registration_secret"]
+STATE_FILE.write_text(json.dumps(state, indent=2)) # ai-relay-agent.json
+```
 
 If both credentials expired, the node must be re-registered.
 
@@ -537,8 +547,12 @@ def recover_runtime_token():
     r.raise_for_status()
     data = r.json()
     new_token = data.get("token")
+    new_rs = data.get("registration_secret")
     if new_token:
         save_token(new_token)
+    if new_rs:
+        state["registration_secret"] = new_rs
+        STATE_FILE.write_text(json.dumps(state, indent=2))
     return new_token
 
 

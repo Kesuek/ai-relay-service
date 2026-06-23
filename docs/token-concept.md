@@ -186,6 +186,9 @@ Approval:
 - Invalidates the temporary token
 - Creates a runtime token for the node
 
+After the first successful heartbeat the node's status changes from `approved`
+to `online`. Runtime tokens remain valid for both `approved` and `online` nodes.
+
 ## 6. Runtime token recovery
 
 After approval the worker receives its first runtime token via the admin
@@ -207,8 +210,9 @@ Content-Type: application/json
 }
 ```
 
-The response contains a new runtime token. The previous runtime token (if any)
-is invalidated.
+The response contains a new runtime token **and a new registration secret**.
+The previous runtime token (if any) is invalidated, and the previous registration
+secret is rotated. Persist **both** credentials immediately.
 
 ## 7. Credential status
 
@@ -224,6 +228,21 @@ Content-Type: application/json
   "node_id": "V34ETT74"
 }
 ```
+
+A node that is still **pending** can also call this endpoint without an
+`Authorization` header, using its registration secret:
+
+```http
+POST /relay/v2/auth/status
+Content-Type: application/json
+
+{
+  "node_id": "V34ETT74",
+  "registration_secret": "rs_..."
+}
+```
+
+This lets a pending worker poll until an admin has approved it.
 
 Response:
 
@@ -327,12 +346,15 @@ Example `ai-relay-agent.json`:
 On startup:
 
 1. If `ai-relay-agent.json` exists → load `node_id` and `registration_secret`
-2. Use `/relay/v2/auth/status` with the registration secret to get a fresh
-   runtime token
+2. Use `/relay/v2/auth/refresh` with the registration secret to obtain a
+   runtime token and an updated registration secret
 3. Save the new token to `~/.relay/ai-relay-agent.token`
-4. If no registration file exists → register the node and save both secrets
+4. Save the new registration secret back to `~/.relay/ai-relay-agent.json`
+5. If no registration file exists → register the node and save both secrets
 
-The registration secret is the node's long-term identity. Never lose it.
+> **Note:** Refreshing a runtime token via `/relay/v2/auth/refresh` with the
+> registration secret rotates the registration secret. Always persist the new one
+> from the response and update `~/.relay/ai-relay-agent.json`.
 
 ## 10. Security model
 
@@ -343,9 +365,10 @@ Mitigation: tokens expire, can be refreshed, and are invalidated on refresh.
 
 ### Threat: registration secret stolen
 
-An attacker with the registration secret can poll for new runtime tokens.
-Mitigation: keep `ai-relay-agent.json` in a protected directory. Rotate is
-possible only by deleting and re-registering the node.
+An attacker with the registration secret can poll for new runtime tokens until
+the secret is rotated. Recovery via `/relay/v2/auth/refresh` with the
+registration secret invalidates the old one and returns a fresh pair. Keep
+`ai-relay-agent.json` in a protected directory.
 
 ### Threat: master seed stolen
 
