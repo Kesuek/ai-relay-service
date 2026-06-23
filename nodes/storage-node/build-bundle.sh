@@ -13,14 +13,15 @@ BUNDLE_DIR="$OUTPUT_DIR/storage-node-bundle"
 TARBALL="$OUTPUT_DIR/storage-node-bundle.tar.gz"
 
 mkdir -p "$BUNDLE_DIR"
+rm -rf "$BUNDLE_DIR"/*
 
 cp "$SCRIPT_DIR/Dockerfile" "$BUNDLE_DIR/"
 cp "$SCRIPT_DIR/requirements.txt" "$BUNDLE_DIR/"
 cp "$SCRIPT_DIR/storage_node.py" "$BUNDLE_DIR/"
-cp "$SCRIPT_DIR/poller.py" "$BUNDLE_DIR/"
-cp "$SCRIPT_DIR/register.py" "$BUNDLE_DIR/"
 cp "$SCRIPT_DIR/docker-compose.yml" "$BUNDLE_DIR/"
 cp "$SCRIPT_DIR/README.md" "$BUNDLE_DIR/"
+cp "$REPO_ROOT/nodes/common/poller.py" "$BUNDLE_DIR/"
+cp "$REPO_ROOT/nodes/common/relay_config.json.example" "$BUNDLE_DIR/"
 
 cd "$OUTPUT_DIR"
 tar -czf "$TARBALL" -C "$BUNDLE_DIR" .
@@ -30,4 +31,4 @@ echo ""
 echo "Deploy on the NAS:"
 echo "  scp $TARBALL user@nas:/tmp/"
 echo "  ssh user@nas mkdir -p /volume1/ai-relay-storage && tar -xzf /tmp/storage-node-bundle.tar.gz -C /volume1/ai-relay-storage"
-echo "  ssh user@nas 'cd /volume1/ai-relay-storage && docker compose up -d --build && docker compose run --rm ai-relay-storage python /app/register.py'"
+echo "  ssh user@nas 'cd /volume1/ai-relay-storage && docker compose up -d --build && docker compose run --rm ai-relay-storage python /app/storage_node.py --register'"

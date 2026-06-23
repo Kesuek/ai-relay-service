@@ -106,6 +106,11 @@ Owns:
 - Files on NAS mount
 - Posting cleanup decision tasks back to the relay when quota is exceeded
 
+Capabilities follow the execution-mode convention (see `nodes-design.md`). The
+storage-node executes directly, so its capabilities use the `.native` suffix:
+`storage.archive.native`, `storage.delete.native`, `storage.list.native`,
+`storage.quota.native`.
+
 ### `board-worker` (KI-capable worker node)
 
 Runs on a host with local AI, e.g. the M4 Mac mini.
@@ -194,23 +199,23 @@ Behavior:
 
 | Stage type | Capability | Producer | Consumer |
 |---|---|---|---|
-| `db.board.create` | `db.board.create` | Dashboard | db-node |
-| `db.board.read` | `db.board.read` | Dashboard / worker | db-node |
-| `db.thread.create` | `db.thread.create` | Dashboard / worker | db-node |
-| `db.thread.read` | `db.thread.read` | Dashboard / worker | db-node |
-| `db.thread.update` | `db.thread.update` | Dashboard / worker | db-node |
-| `db.post.create` | `db.post.create` | Dashboard / worker | db-node |
-| `db.post.read` | `db.post.read` | Dashboard / worker | db-node |
-| `db.post.update` | `db.post.update` | Dashboard / worker | db-node |
-| `db.search.query` | `db.search.query` | Dashboard / worker | db-node |
-| `db.search.reindex` | `db.search.reindex` | Scheduler | db-node |
-| `storage.archive` | `storage.archive` | Dashboard / worker / db-node | storage-node |
-| `storage.delete` | `storage.delete` | Dashboard / worker | storage-node |
-| `storage.quota` | `storage.quota` | Scheduler / dashboard | storage-node |
-| `board.reply.generate` | `board.reply.generate` | Scheduler rule | board-worker |
-| `board.summary.generate` | `board.summary.generate` | Dashboard / worker | board-worker |
-| `board.moderation.scan` | `board.moderation.scan` | Scheduler rule | board-worker |
-| `board.notification.route` | `board.notification.route` | Scheduler / worker | board-worker |
+| `db.board.create` | `db.board.create.native` | Dashboard | db-node |
+| `db.board.read` | `db.board.read.native` | Dashboard / worker | db-node |
+| `db.thread.create` | `db.thread.create.native` | Dashboard / worker | db-node |
+| `db.thread.read` | `db.thread.read.native` | Dashboard / worker | db-node |
+| `db.thread.update` | `db.thread.update.native` | Dashboard / worker | db-node |
+| `db.post.create` | `db.post.create.native` | Dashboard / worker | db-node |
+| `db.post.read` | `db.post.read.native` | Dashboard / worker | db-node |
+| `db.post.update` | `db.post.update.native` | Dashboard / worker | db-node |
+| `db.search.query` | `db.search.query.native` | Dashboard / worker | db-node |
+| `db.search.reindex` | `db.search.reindex.native` | Scheduler | db-node |
+| `storage.archive` | `storage.archive.native` | Dashboard / worker / db-node | storage-node |
+| `storage.delete` | `storage.delete.native` | Dashboard / worker | storage-node |
+| `storage.quota` | `storage.quota.native` | Scheduler / dashboard | storage-node |
+| `board.reply.generate` | `board.reply.generate.ai` | Scheduler rule | board-worker |
+| `board.summary.generate` | `board.summary.generate.ai` | Dashboard / worker | board-worker |
+| `board.moderation.scan` | `board.moderation.scan.ai` | Scheduler rule | board-worker |
+| `board.notification.route` | `board.notification.route.ai` | Scheduler / worker | board-worker |
 
 ---
 

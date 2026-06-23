@@ -169,10 +169,10 @@ Node                              Relay
 
 A KI-less storage service node is available in `nodes/storage-node/`. It is
 **not part of the core** and runs as a separate container. It registers with
-the capabilities `storage.archive`, `storage.list`, `storage.delete`, and
-`storage.quota`, downloads files from the relay, writes them to a NAS mount, and
-can post cleanup decision tasks back to the relay for AI-capable nodes to
-handle.
+capabilities such as `storage.archive.native`, `storage.list.native`,
+`storage.delete.native`, and `storage.quota.native`, downloads files from the
+relay, writes them to a NAS mount, and can post cleanup decision tasks back
+to the relay for AI-capable nodes to handle.
 
 See `nodes/storage-node/README.md` for setup and
 `nodes/storage-node/docker-compose.yml` for the Docker Compose deployment.

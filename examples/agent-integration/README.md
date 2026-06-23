@@ -32,26 +32,35 @@ the local Hermes session, not in the worker code.
 ## Setup
 
 1. Install Hermes CLI and make sure `hermes` is on the worker PATH.
-2. Register the node with the relay:
+2. Choose the capabilities the agent should advertise. Common choices are
+   `chat.ai`, `code.ai`, `web.ai`, or `terminal.ai`, depending on which
+   toolsets the local Hermes instance has. See `docs/nodes-design.md` for the
+   capability naming guidelines.
+3. Register the node with the relay:
 
    ```bash
    curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/register" \
      -H "Content-Type: application/json" \
      -d '{
        "node_name": "ai-relay-agent",
-       "capabilities": [{"name": "agent.task", "version": "1.0.0"}]
+       "capabilities": [{"name": "chat.ai", "version": "1.0.0"}]
      }'
    ```
 
-3. Save `node_id` and `registration_secret` to `~/.relay/ai-relay-agent.json`.
-4. Create `~/.relay/relay_config.json` from `nodes/common/relay_config.json.example`.
-5. Approve the node in the relay dashboard.
-6. Install and start the systemd unit:
+4. Save `node_id` and `registration_secret` to `~/.relay/ai-relay-agent.json`.
+5. Create `~/.relay/relay_config.json` from `nodes/common/relay_config.json.example`.
+6. Approve the node in the relay dashboard.
+7. Install and start the systemd unit:
 
    ```bash
    systemctl --user daemon-reload
    systemctl --user enable --now /home/felix/projects/ai-relay-service/examples/agent-integration/ai-relay-agent-poller.service
    ```
+
+The worker reads its capabilities from `~/.relay/ai-relay-agent.json` and
+advertises them in every heartbeat. You can change them at runtime by editing
+the file and restarting the worker, or by sending a heartbeat with different
+capabilities.
 
 ## Submitting work
 
@@ -59,14 +68,14 @@ From any client or node:
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/tasks" \
-  -H "Authorization: Bearer <rt_...>" \
+  -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "task_name": "ask-local-agent",
     "stages": [
       {
         "stage_name": "execute",
-        "capability": "agent.task",
+        "capability": "chat.ai",
         "payload": {"prompt": "generate an image of a small robot"}
       }
     ],

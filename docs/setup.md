@@ -17,7 +17,7 @@ KI-less Storage Node on your local network.
 - Python 3.11+ if you want to run the relay from source
 - Local network access or Tailscale
 
-## 1. 1. Install the relay server
+## 1. Install the relay server
 
 ### Option A: Install from source
 
@@ -40,7 +40,7 @@ docker build -t ai-relay-server:latest -f Dockerfile.relay .
 > The repository currently does not include a relay-server Dockerfile. Create one
 > yourself or use Option A for now.
 
-## 2. 2. Create the master admin seed
+## 2. Create the master admin seed
 
 The master seed is required for initial bootstrap and recovery. Create it once
 on the relay host:
@@ -56,7 +56,7 @@ Copy the printed `adm_...` secret and store it in a password manager.
 > admin is created through the dashboard, master-seed login is disabled until
 > recovery mode is explicitly enabled.
 
-## 3. 3. Start the relay server
+## 3. Start the relay server
 
 ### With mDNS enabled (recommended)
 
@@ -75,7 +75,7 @@ The relay is now reachable as:
 relay-server server --port 8788
 ```
 
-## 4. 4. Bootstrap the first human admin
+## 4. Bootstrap the first human admin
 
 When the server starts for the first time, no human admin exists. The dashboard
 login form therefore shows the **Master seed** option.
@@ -91,7 +91,7 @@ login form therefore shows the **Master seed** option.
 After that, master-seed login is automatically disabled. For day-to-day work,
 always use human admin accounts.
 
-## 5. 5. Recovery mode
+## 5. Recovery mode
 
 If all human admin accounts are locked out, enable recovery from the relay host:
 
@@ -109,9 +109,11 @@ Now the master seed can log in again and bootstrap a new admin. Once a new
 admin exists and has changed the temporary password, recovery mode is no longer
 needed and should be turned off.
 
-## 6. 9. Storage node on the NAS
+## 6. Storage node on the NAS
 
-The storage node is a KI-less Docker service that stores files on your NAS.
+The storage node is a KI-less Docker service that stores files on your NAS. The
+reference implementation is in `nodes/storage-node/`. It uses the generic poller
+from `nodes/common/poller.py` for relay communication.
 
 ### Download and extract the bundle (no git required)
 
@@ -122,8 +124,7 @@ curl -fsSL https://raw.githubusercontent.com/Kesuek/ai-relay-service/main/nodes/
 curl -fsSL https://raw.githubusercontent.com/Kesuek/ai-relay-service/main/nodes/storage-node/Dockerfile -o Dockerfile
 curl -fsSL https://raw.githubusercontent.com/Kesuek/ai-relay-service/main/nodes/storage-node/requirements.txt -o requirements.txt
 curl -fsSL https://raw.githubusercontent.com/Kesuek/ai-relay-service/main/nodes/storage-node/storage_node.py -o storage_node.py
-curl -fsSL https://raw.githubusercontent.com/Kesuek/ai-relay-service/main/nodes/storage-node/poller.py -o poller.py
-curl -fsSL https://raw.githubusercontent.com/Kesuek/ai-relay-service/main/nodes/storage-node/register.py -o register.py
+curl -fsSL https://raw.githubusercontent.com/Kesuek/ai-relay-service/main/nodes/common/poller.py -o poller.py
 ```
 
 > Or copy the prepared bundle from `dist/storage-node-bundle.tar.gz` in the
@@ -147,13 +148,13 @@ RELAY_BASE_URL=http://192.168.2.170:8788 docker compose up -d --build
 ### Register the node with the relay
 
 ```bash
-docker compose run --rm ai-relay-storage python /app/register.py
+docker compose run --rm ai-relay-storage python /app/storage_node.py --register
 ```
 
 This writes `~/.relay/ai-relay-agent.json` and `~/.relay/ai-relay-agent.token`
 inside the persistent Docker volume.
 
-## 7. 4. Approve or activate nodes
+## 7. Approve or activate nodes
 
 Every new node starts in `pending` state. An administrator must activate it
 before it can claim work.
@@ -182,11 +183,11 @@ ADMIN_TOKEN=$(curl -s -X POST "http://ai-relay.local:8788/relay/v2/auth/register
 Then approve the pending node:
 
 ```bash
-curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+curl -H "Authorization: Bearer *** \
   -X POST \
   "http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}/approve" \
   -H "Content-Type: application/json" \
-  -d '{"role":"service","capabilities":[{"name":"storage.archive","version":"1.0.0"}]}'
+  -d '{"role":"service","capabilities":[{"name":"storage.archive.native","version":"1.0.0"}]}'
 ```
 
 You can find `${NODE_ID}` in the agent JSON file inside the container:
@@ -195,32 +196,38 @@ You can find `${NODE_ID}` in the agent JSON file inside the container:
 docker exec ai-relay-storage cat /root/.relay/ai-relay-agent.json
 ```
 
-## 8. 5. Manage tokens
+## 8. Manage tokens
 
 ### Issue a new runtime token
 
 If a node lost its token or the token expired before it could refresh, issue a
-new runtime token:
+new runtime token via the admin API:
 
 ```bash
-curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+curl -H "Authorization: Bearer *** \
   -X POST \
   "http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}/token"
 ```
 
 This invalidates the previous runtime token for that node.
 
+### Recover a lost runtime token
+
+If the node still has its `registration_secret`, it can recover a new runtime
+token itself via `/relay/v2/auth/refresh`. The server returns a new runtime
+token and a new registration secret. See `docs/token-concept.md` for details.
+
 ### Delete a node
 
 Removing a node deletes its records, tokens, presence data, and task claims:
 
 ```bash
-curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+curl -H "Authorization: Bearer *** \
   -X DELETE \
   "http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}"
 ```
 
-## 9. 9. Verify the setup
+## 9. Verify the setup
 
 ### Health endpoint
 

@@ -6,10 +6,13 @@ tasks back to the relay for AI-capable nodes to decide on.
 
 ## Capabilities
 
-- `storage.archive` — move artifacts from the relay to NAS storage
-- `storage.list` — list archived files on NAS
-- `storage.delete` — delete archived files
-- `storage.quota` — report disk space status
+The storage node executes work directly, so its capabilities use the `.native`
+execution-mode suffix (see `docs/nodes-design.md`):
+
+- `storage.archive.native` — move artifacts from the relay to NAS storage
+- `storage.list.native` — list archived files on NAS
+- `storage.delete.native` — delete archived files
+- `storage.quota.native` — report disk space status
 
 ## Quick Start
 
@@ -41,7 +44,7 @@ docker run -d \
 If the node is not registered yet, run:
 
 ```bash
-docker exec ai-relay-storage python /app/register.py
+docker exec ai-relay-storage python /app/storage_node.py --register
 ```
 
 ### 4. Approve the node in the relay
@@ -49,10 +52,11 @@ docker exec ai-relay-storage python /app/register.py
 If the node is still pending, approve it via the relay dashboard or the admin API:
 
 ```bash
-curl -H "Authorization: Bearer ${REL...N}" \
+curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -X POST \
   http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}/approve \
-  -d '{"role":"service","capabilities":[{"name":"storage.archive","version":"1.0.0"}]}'
+  -H "Content-Type: application/json" \
+  -d '{"role":"service","capabilities":[{"name":"storage.archive.native","version":"1.0.0"}]}'
 ```
 
 The node can discover the relay via mDNS (`ai-relay.local`) if your relay has
@@ -61,10 +65,10 @@ network, override `RELAY_BASE_URL` with the relay's IP address.
 
 ## Flow
 
-1. A worker (for example the Mac worker) generates an image.
+1. A worker (for example a KI-capable agent node) generates an image.
 2. The worker uploads the image to `POST /relay/v2/storage/upload` and receives
    an `artifact_id`.
-3. The worker posts a task with a `storage.archive` stage and a
+3. The worker posts a task with a `storage.archive.native` stage and a
    `target_path` payload.
 4. The storage node claims the stage automatically.
 5. The storage node downloads the file from the relay and writes it to

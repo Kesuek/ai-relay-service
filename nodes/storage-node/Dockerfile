@@ -7,7 +7,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy node code
-COPY storage_node.py poller.py ./
+COPY storage_node.py ./
+COPY poller.py ./
+COPY relay_config.json.example ./
 
 # NAS mount point
 VOLUME ["/storage"]

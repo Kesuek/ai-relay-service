@@ -121,7 +121,8 @@ permissions for its members.
 ## 3. Node management
 
 The dashboard shows all registered nodes, their status, capabilities, and last
-heartbeat.
+heartbeat. Capabilities shown in the dashboard are the ones the node advertised
+in its most recent heartbeat, so they may change at runtime.
 
 ### 3.1 Approve a pending node
 
@@ -134,7 +135,8 @@ cannot claim work.
 4. Review or edit the role and capabilities
 5. Click **Confirm**
 
-The node receives a runtime token (`rt_...`) and can start claiming tasks.
+The node receives a runtime token (`rt_...`) and can start claiming tasks. After
+the first successful heartbeat its status changes from `approved` to `online`.
 
 > If you are using the dashboard for the first time, make sure you have
 > already created a human admin via the bootstrap page. The bootstrap page is
@@ -147,10 +149,14 @@ If a node lost its token or the token expired, issue a new one:
 1. Open **Nodes**
 2. Find the approved node
 3. Click **New token**
-4. Copy the token and give it to the node, or save it to the node's
-   `~/.relay/ai-relay-agent.token` file
+4. Copy the token and save it to the node's `~/.relay/ai-relay-agent.token`
+   file
 
 Issuing a new token invalidates the previous runtime token for that node.
+
+Alternatively, if the node still has its `registration_secret`, it can recover
+a new runtime token itself via `POST /relay/v2/auth/refresh`. That call also
+rotates the registration secret; the node must persist the new one.
 
 ### 3.3 Delete a node
 
@@ -257,7 +263,7 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/admin/nodes/${NODE_ID}/approve"
   -d '{
     "role": "service",
     "capabilities": [
-      {"name": "storage.archive", "version": "1.0.0"}
+      {"name": "storage.archive.native", "version": "1.0.0"}
     ]
   }'
 ```

@@ -1,8 +1,14 @@
 # Example Relay Nodes
 
-This directory contains standalone example nodes for the AI-Relay-Service v2.
-They run as external processes and talk to the core over the public HTTP/SSE
+This directory contains older standalone example nodes for the AI-Relay-Service
+v2. They run as external processes and talk to the core over the public HTTP/SSE
 API. They do **not** import any `relay_server` internals.
+
+> **Note:** These examples are from an earlier iteration of the node API. For
+> new nodes use the generic poller in `nodes/common/poller.py` or the KI-capable
+> agent wrapper in `examples/agent-integration/ai-relay-agent-poller.py`. Those
+> implementations follow the current token lifecycle and capability naming
+> conventions.
 
 ## Files
 
@@ -18,9 +24,13 @@ API. They do **not** import any `relay_server` internals.
 2. Initialize the master admin seed once.
 3. Start the example nodes. Each node registers as **pending** and waits.
 4. Run `approve_nodes.py` with the master seed to approve the nodes.
-   It writes each node's runtime token to `~/.relay/<node_id>.token`, where `<node_id>` is the ID assigned by the cluster.
+   It writes each node's runtime token to `~/.relay/<node_id>.token`.
 5. The nodes detect the runtime token, start heartbeating, and begin
    claiming/completing stages that match their capability.
+
+> For the current flow, a node registers once, saves `ai-relay-agent.json` and
+> `ai-relay-agent.token`, and refreshes/recovers its runtime token via
+> `/relay/v2/auth/refresh`. See `docs/node-readme.md` for details.
 
 ## Quick manual test
 
@@ -114,3 +124,5 @@ All nodes accept the following environment variables / CLI flags:
   an external actor (this demo uses `approve_nodes.py` writing a token file).
 - Example nodes use only the public v2 API and can run on a different host than
   the relay core as long as they can reach `RELAY_BASE_URL`.
+- For the current recommended poller and capability naming guidelines, see
+  `docs/node-readme.md` and `docs/nodes-design.md`.

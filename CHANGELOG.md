@@ -23,8 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Admin bootstrapping now goes through the running web dashboard, which is the
   normal path when the server is managed by systemd.
 - bcrypt is now used for master seed hashing instead of plain SHA-256.
-- Registration secrets (`rs_...`) are rotated on first use of
-  `/relay/v2/auth/status`, preventing replay of the registration secret.
+- Registration secrets (`rs_...`) are rotated when `/relay/v2/auth/refresh` is
+  called with a registration secret, preventing replay of the old secret.
 - File upload size is capped at 100 MiB via `max_upload_bytes` in `config.py`.
 - `slowapi` rate limiting is applied to `auth`, `dashboard`, and general API
   routes.
@@ -64,3 +64,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Documentation updated to reflect the new bootstrap, forced password change,
   and recovery-mode behavior.
+- `validate_token` now accepts nodes in `online` status as well as `approved`.
+- `/relay/v2/auth/status` supports unauthenticated pending polling with a
+  `registration_secret`.
+
+### Documentation
+
+- `token-concept.md` and `node-readme.md` updated to describe the
+  `approved → online` lifecycle, the read-only nature of `/auth/status`,
+  and registration-secret rotation during recovery.
+- `nodes-design.md` and `node-readme.md` updated with recommended core
+  capability names, execution-mode suffixes (`.native`, `.ai`, `.relay`),
+  and the rule that capabilities can be changed at runtime via heartbeat.
+- `AGENT_README.md` rewritten to match the current v2 auth flow and
+  capability naming guidelines.
