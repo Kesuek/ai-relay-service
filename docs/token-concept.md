@@ -21,11 +21,11 @@ easy to distinguish.
 
 | Prefix | Name | Purpose | Lifetime |
 |--------|------|---------|----------|
-| `adm_...` | **Master admin seed** | Bootstrap the cluster and recover admin access | Until rotated |
-| `hu_...`  | **Human user password** | Dashboard login for human users | Until changed |
-| `rs_...` | **Registration secret** | Long-lived secret used to poll for approval and refresh runtime tokens | Unlimited |
-| `tp_...` | **Temporary token** | Short-lived token returned immediately after registration; used only until approval | 24 hours by default |
-| `rt_...` | **Runtime token** | Bearer token for all node operations: heartbeat, claim, complete | 7 days by default |
+|| `adm_...` | **Master admin seed** | Bootstrap the cluster and recover admin access | Until rotated |
+|| `hu_...`  | **Human user password** | Dashboard login for human users | Until changed |
+|| `rs_...` | **Registration secret** | Recovery credential used only to recover a runtime token | 12 hours |
+|| `tp_...` | **Temporary token** | Short-lived token returned immediately after registration; used only until approval | 24 hours by default |
+|| `rt_...` | **Runtime token** | Bearer token for all node operations: heartbeat, claim, complete | 7 days by default |
 
 > **Important:** The master admin seed is equivalent to root access, but it is
 > only usable when no human admin exists or when recovery mode is explicitly
@@ -186,45 +186,60 @@ Approval:
 - Invalidates the temporary token
 - Creates a runtime token for the node
 
-## 6. Polling for approval
+## 6. Runtime token recovery
 
-Until approved, the node can poll the status endpoint with its registration
-secret:
+After approval the worker receives its first runtime token via the admin
+approval response. The worker should immediately call `POST /relay/v2/auth/refresh`
+with its runtime token and `requested_credential: "registration_secret"` to
+obtain the current registration secret, and persist both credentials.
+
+If the worker loses its runtime token, the registration secret can be used to
+recover a new one:
 
 ```http
-POST /relay/v2/auth/status
+POST /relay/v2/auth/refresh
 Content-Type: application/json
 
 {
   "node_id": "V34ETT74",
-  "registration_secret": "rs_..."
+  "registration_secret": "rs_...",
+  "requested_credential": "runtime_token"
 }
 ```
 
-While pending:
+The response contains a new runtime token. The previous runtime token (if any)
+is invalidated.
 
-```json
+## 7. Credential status
+
+The worker can check how long its credentials remain valid without changing
+anything:
+
+```http
+POST /relay/v2/auth/status
+Authorization: Bearer ***
+Content-Type: application/json
+
 {
-  "node_id": "V34ETT74",
-  "node_name": "nas-storage-01",
-  "status": "pending",
-  "message": "Awaiting admin approval"
+  "node_id": "V34ETT74"
 }
 ```
 
-After approval:
+Response:
 
 ```json
 {
   "node_id": "V34ETT74",
   "node_name": "nas-storage-01",
   "status": "approved",
-  "token": "rt_...",
-  "token_type": "runtime",
-  "expires_at": "2026-06-28T14:00:00+00:00",
-  "message": "Node approved — runtime token issued"
+  "rt_valid_until": "2026-06-30T03:41:23+00:00",
+  "rs_valid_until": "2026-06-23T15:41:23+00:00",
+  "message": "Credential status"
 }
 ```
+
+This endpoint is read-only and does not rotate credentials. The worker should
+poll it every few hours and refresh credentials proactively before they expire.
 
 ## 7. Runtime token usage
 

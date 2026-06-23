@@ -50,11 +50,11 @@ Save the response:
 Store these values persistently:
 
 - `node_id` — your unique ID in the cluster
-- `registration_secret` — used to poll for approval and refresh tokens
+- `registration_secret` — recovery credential, valid for 12 hours
 - `~/.relay/ai-relay-agent.json` — common location
 
-The temporary token is only valid for 24 hours, but the registration secret
-stays valid until the node is approved.
+The temporary token is only valid for 24 hours and is replaced by a runtime
+token after the node is approved.
 
 ## 3. Wait for activation
 
@@ -81,20 +81,33 @@ While waiting:
 }
 ```
 
-After activation:
+After approval the admin response contains the runtime token. Save it to
+`~/.relay/ai-relay-agent.token`.
+
+The node can then check credential lifetimes at any time with its runtime token:
+
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/status" \
+  -H "Authorization: Bearer *** \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_id": "V34ETT74"
+  }'
+```
+
+Response:
 
 ```json
 {
   "node_id": "V34ETT74",
   "status": "approved",
-  "token": "rt_...",
-  "token_type": "runtime",
-  "expires_at": "2026-06-28T14:00:00+00:00",
-  "message": "Node approved — runtime token issued"
+  "rt_valid_until": "2026-06-30T03:41:23+00:00",
+  "rs_valid_until": "2026-06-23T15:41:23+00:00",
+  "message": "Credential status"
 }
 ```
 
-Save the runtime token to `~/.relay/ai-relay-agent.token`.
+`/relay/v2/auth/status` is read-only. It never issues or rotates tokens.
 
 > The relay administrator activates nodes in the dashboard or with an admin
 > script. A node cannot approve itself.
@@ -199,10 +212,31 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
 
 Save the new token immediately. The old token becomes invalid.
 
-If the token already expired, use the registration secret to request a new
-runtime token through `/relay/v2/auth/status`. The registration secret is
-rotated on every successful status call, so save the new secret returned by
-the response.
+Refresh the registration secret proactively before it expires:
+
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
+  -H "Authorization: Bearer *** \
+  -H "Content-Type: application/json" \
+  -d '{"requested_credential": "registration_secret"}'
+```
+
+If the runtime token was lost, use the registration secret to recover a new one:
+
+```bash
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_id": "V34ETT74",
+    "registration_secret": "rs_...",
+    "requested_credential": "runtime_token"
+  }'
+```
+
+The previous runtime token is invalidated and the response contains the new
+one. Save it immediately.
+
+If both credentials expired, the node must be re-registered.
 
 ## 8. Service nodes and self-care
 
@@ -247,8 +281,8 @@ See `nodes-design.md` for the full self-care pattern.
 | Losing the registration secret | Cannot refresh tokens | Keep `ai-relay-agent.json` safe |
 | Claiming with the wrong capability | No tasks received | Use one of the registered capabilities |
 | Node stays pending forever | Nobody activated it | Ask the relay administrator to activate it |
-| Runtime token expired | All authenticated requests fail | Use `/relay/v2/auth/status` with the registration secret to get a new one |
-| Re-registering with the same node_id/node_name | 409 Conflict from `/relay/v2/auth/register` | Use `/relay/v2/auth/status` with the saved registration secret to refresh the token; only register once |
+> Runtime token expired | All authenticated requests fail | Refresh the token before expiry via `/relay/v2/auth/refresh`. If it is already lost, recover with the registration secret via `/relay/v2/auth/refresh`. |
+| Re-registering with the same node_id/node_name | 409 Conflict from `/relay/v2/auth/register` | Use the registration secret with `/relay/v2/auth/refresh` to recover the runtime token; only register once |
 | Wrong heartbeat body fields | 422 Unprocessable Content | Use `available`, `load`, `queue_depth`, `endpoint`, and `capabilities` only; `node_id` comes from the token |
 
 ## 12. Relay administrator tasks

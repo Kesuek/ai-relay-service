@@ -220,7 +220,11 @@ def test_refresh_token():
     )
     token = r.json()["token"]
 
-    r = client.post("/relay/v2/auth/refresh", headers={"Authorization": f"Bearer {token}"})
+    r = client.post(
+        "/relay/v2/auth/refresh",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"requested_credential": "runtime_token"},
+    )
     assert r.status_code == 200
     new_token = r.json()["token"]
     assert new_token != token
@@ -369,48 +373,173 @@ def test_human_user_with_explicit_node_permissions():
     assert r.status_code == 403
 
 
-def test_registration_secret_rotates_on_status():
-    """Every successful /auth/status call must issue a new runtime token and rotate the registration secret."""
-    from relay_server.core.auth import approve_node, hash_secret, register_pending_node
+
+def test_status_is_read_only_and_reports_cred_lifetimes():
+    """/auth/status with a runtime token returns TTLs without rotating anything."""
+    from relay_server.core.auth import approve_node, register_pending_node
+
+    init_db()
+
+    node_id, _, _ = register_pending_node(
+        node_name="Status Reporter",
+        endpoint="http://status.local",
+        capabilities=[{"name": "board", "version": "1.0.0"}],
+        role="service",
+    )
+    runtime_token = approve_node(node_id, role="service")
+    assert runtime_token is not None
+
+    r = client.post(
+        "/relay/v2/auth/status",
+        headers={"Authorization": f"Bearer {runtime_token}"},
+        json={"node_id": node_id},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["node_id"] == node_id
+    assert body["rt_valid_until"] is not None
+    assert body["rs_valid_until"] is not None
+
+    # Same token still works after /auth/status.
+    r = client.get(
+        "/relay/v2/discovery/nodes", headers={"Authorization": f"Bearer {runtime_token}"}
+    )
+    assert r.status_code == 200
+
+
+def test_refresh_runtime_token_rotates_it():
+    """Refreshing the runtime token invalidates the old one."""
+    from relay_server.core.auth import approve_node, register_pending_node
+
+    init_db()
+
+    node_id, _, _ = register_pending_node(
+        node_name="Refresh Runner",
+        endpoint="http://refresh.local",
+        capabilities=[{"name": "board", "version": "1.0.0"}],
+        role="service",
+    )
+    runtime_token = approve_node(node_id, role="service")
+
+    r = client.post(
+        "/relay/v2/auth/refresh",
+        headers={"Authorization": f"Bearer {runtime_token}"},
+        json={"requested_credential": "runtime_token"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["token_type"] == "runtime"
+    new_token = body["token"]
+    assert new_token != runtime_token
+    assert new_token.startswith("rt_")
+
+    # Old token invalidated.
+    r = client.get(
+        "/relay/v2/discovery/nodes", headers={"Authorization": f"Bearer {runtime_token}"}
+    )
+    assert r.status_code == 401
+
+    # New token works.
+    r = client.get(
+        "/relay/v2/discovery/nodes", headers={"Authorization": f"Bearer {new_token}"}
+    )
+    assert r.status_code == 200
+
+
+def test_refresh_registration_secret_with_runtime_token():
+    """A valid runtime token can proactively rotate the registration secret."""
+    from relay_server.core.auth import approve_node, register_pending_node
+
+    init_db()
+
+    node_id, _, reg_secret = register_pending_node(
+        node_name="RS Rotator",
+        endpoint="http://rs.local",
+        capabilities=[{"name": "board", "version": "1.0.0"}],
+        role="service",
+    )
+    runtime_token = approve_node(node_id, role="service")
+
+    r = client.post(
+        "/relay/v2/auth/refresh",
+        headers={"Authorization": f"Bearer {runtime_token}"},
+        json={"requested_credential": "registration_secret"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["token_type"] == "registration_secret"
+    new_secret = body["token"]
+    assert new_secret.startswith("rs_")
+    assert new_secret != reg_secret
+
+    # Old registration secret no longer works for recovery.
+    r = client.post(
+        "/relay/v2/auth/refresh",
+        json={
+            "node_id": node_id,
+            "requested_credential": "runtime_token",
+            "registration_secret": reg_secret,
+        },
+    )
+    assert r.status_code == 401
+
+    # New registration secret recovers a runtime token.
+    r = client.post(
+        "/relay/v2/auth/refresh",
+        json={
+            "node_id": node_id,
+            "requested_credential": "runtime_token",
+            "registration_secret": new_secret,
+        },
+    )
+    assert r.status_code == 200
+    recovered_token = r.json()["token"]
+    assert recovered_token.startswith("rt_")
+
+    # The runtime token used before recovery is invalidated.
+    r = client.get(
+        "/relay/v2/discovery/nodes", headers={"Authorization": f"Bearer {runtime_token}"}
+    )
+    assert r.status_code == 401
+
+    # Recovered token works.
+    r = client.get(
+        "/relay/v2/discovery/nodes", headers={"Authorization": f"Bearer {recovered_token}"}
+    )
+    assert r.status_code == 200
+
+
+def test_expired_registration_secret_cannot_recover_runtime_token():
+    """When the registration secret expires, recovery is impossible."""
+    from relay_server.core.auth import approve_node, register_pending_node
     from relay_server.core.db import get_conn
 
     init_db()
 
     node_id, _, reg_secret = register_pending_node(
-        node_name="Rotator",
-        endpoint="http://rotator.local",
+        node_name="Expired RS",
+        endpoint="http://expired.local",
         capabilities=[{"name": "board", "version": "1.0.0"}],
         role="service",
     )
-
     runtime_token = approve_node(node_id, role="service")
-    assert runtime_token is not None
 
-    # First /auth/status call uses the original registration secret.
-    r = client.post(
-        "/relay/v2/auth/status",
-        json={"node_id": node_id, "registration_secret": reg_secret},
+    # Artificially expire the registration secret in the database.
+    conn = get_conn()
+    conn.execute(
+        "UPDATE nodes SET registration_secret_expires_at = ? WHERE node_id = ?",
+        ("2020-01-01T00:00:00+00:00", node_id),
     )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["token_type"] == "runtime"
-    assert body["token"].startswith("rt_")
-    assert body["registration_secret"].startswith("rs_")
-    assert body["registration_secret"] != reg_secret
+    conn.commit()
+    conn.close()
 
-    new_secret = body["registration_secret"]
-
-    # The old registration secret must no longer work.
     r = client.post(
-        "/relay/v2/auth/status",
-        json={"node_id": node_id, "registration_secret": reg_secret},
+        "/relay/v2/auth/refresh",
+        json={
+            "node_id": node_id,
+            "requested_credential": "runtime_token",
+            "registration_secret": reg_secret,
+        },
     )
     assert r.status_code == 401
 
-    # The new registration secret works.
-    r = client.post(
-        "/relay/v2/auth/status",
-        json={"node_id": node_id, "registration_secret": new_secret},
-    )
-    assert r.status_code == 200
-    assert r.json()["registration_secret"] != new_secret
