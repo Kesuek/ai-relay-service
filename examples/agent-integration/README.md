@@ -1,68 +1,77 @@
-# Agent Integration Examples
+# AI Relay Agent Integration
 
-These scripts show how a single autonomous agent identity connects to the
-ai-relay-service, persists its credentials, and posts or claims work.
-
-They are written for the `ai-relay-agent` identity that talks through multiple
-Hermes sessions (CLI, Matrix, TUI, cron, etc.).  See the skill
-`ai-relay-agent-node` for the full cross-session convention.
+This directory contains a reference KI-capable worker that registers as a node
+in the AI Relay cluster and delegates every claimed stage to the local Hermes
+AI.
 
 ## Files
 
-- `ai-relay-agent-poller.py` — background worker loop: heartbeat + claim + complete
-- `relay-task.py` — CLI helper to submit a one-off task
+| File | Purpose |
+|---|---|
+| `ai-relay-agent-poller.py` | KI-capable delegator worker. Uses `nodes/common/poller.py` for auth, heartbeat, claim, and completion. Hands stage payloads to the local `hermes` CLI. |
+| `ai-relay-agent-poller.service` | systemd user unit for running the worker permanently. |
 
-## Expected credentials
+## How it works
 
-```text
-~/.relay/ai-relay-agent.json   # node_id, registration_secret, capabilities, base_url
-~/.relay/ai-relay-agent.token  # current rt_... runtime token
-```
+1. The poller loads `~/.relay/ai-relay-agent.json` and `~/.relay/relay_config.json`.
+2. It ensures a valid runtime token is available, refreshing or recovering via
+   `/relay/v2/auth/refresh` as needed.
+3. It heartbeats every 8 seconds with capability `agent.task`.
+4. When it claims a stage, it builds a prompt from the stage payload and runs:
 
-## Usage
+   ```bash
+   hermes -z "<prompt>" -t terminal,file,web,image_gen
+   ```
 
-### Run the poller
+5. It completes the stage with the stdout/stderr/returncode from Hermes.
 
-```bash
-python3 examples/agent-integration/ai-relay-agent-poller.py
-```
+This keeps tool selection, prompt interpretation, and environment handling inside
+the local Hermes session, not in the worker code.
 
-For production, run it as a systemd user service:
+## Setup
 
-```bash
-systemctl --user enable --now ai-relay-agent-poller.service
-```
+1. Install Hermes CLI and make sure `hermes` is on the worker PATH.
+2. Register the node with the relay:
 
-### Submit a task
+   ```bash
+   curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/register" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "node_name": "ai-relay-agent",
+       "capabilities": [{"name": "agent.task", "version": "1.0.0"}]
+     }'
+   ```
 
-```bash
-python3 examples/agent-integration/relay-task.py \
-  -c code \
-  -t "fix typo in README" \
-  '{"command": "sed -i s/teh/the/g README.md"}'
-```
+3. Save `node_id` and `registration_secret` to `~/.relay/ai-relay-agent.json`.
+4. Create `~/.relay/relay_config.json` from `nodes/common/relay_config.json.example`.
+5. Approve the node in the relay dashboard.
+6. Install and start the systemd unit:
 
-The poller will claim the stage, execute the placeholder handler, and complete it.
-Replace `execute_task()` in the poller with real capability dispatch.
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user enable --now /home/felix/projects/ai-relay-service/examples/agent-integration/ai-relay-agent-poller.service
+   ```
 
-## Systemd service
+## Submitting work
 
-Copy the template and fill in the placeholders:
-
-```bash
-cp examples/agent-integration/ai-relay-agent-poller.service.template \
-   ~/.config/systemd/user/ai-relay-agent-poller.service
-```
-
-Edit the file and replace:
-
-- `%AGENT_NAME%` — stable name, e.g. `ai-relay-agent`
-- `%PYTHON%` — path to the Python interpreter, e.g. `/home/felix/projects/ai-relay-service/.venv/bin/python3`
-- `%SCRIPT_DIR%` — path to `examples/agent-integration`
-
-Then enable and start:
+From any client or node:
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now ai-relay-agent-poller.service
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/tasks" \
+  -H "Authorization: Bearer <rt_...>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_name": "ask-local-agent",
+    "stages": [
+      {
+        "stage_name": "execute",
+        "capability": "agent.task",
+        "payload": {"prompt": "generate an image of a small robot"}
+      }
+    ],
+    "priority": 1
+  }'
 ```
+
+The relay routes the stage to the agent node. The agent delegates the prompt to
+Hermes, which decides to run the appropriate tool.

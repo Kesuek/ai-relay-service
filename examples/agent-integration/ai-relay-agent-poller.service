@@ -1,0 +1,18 @@
+[Unit]
+Description=AI Relay Agent Poller (ki-capable delegator)
+After=network-online.target ai-relay-service.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/felix/projects/ai-relay-service/.venv/bin/python3 /home/felix/projects/ai-relay-service/examples/agent-integration/ai-relay-agent-poller.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment="HERMES_TOOLSETS=terminal,file,web,image_gen"
+# Important: include tool paths that uv/conda install outside the default PATH.
+Environment="PATH=/home/felix/.local/bin:/home/felix/.local/share/uv/tools/mflux/bin:/usr/local/bin:/usr/bin:/bin"
+
+[Install]
+WantedBy=default.target
