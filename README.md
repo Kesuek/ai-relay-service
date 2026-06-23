@@ -19,17 +19,17 @@ tasks back to the relay when they need help from another agent.
 ## Documentation
 
 All public Markdown docs are served live by the relay at
-`/relay/v2/dashboard/docs/{name}`. Available documents:
+`/relay/v2/docs/{name}`. Available documents:
 
 | Name | URL | Content |
 |---|---|---|
-| `node-readme` | `/relay/v2/dashboard/docs/node-readme` | How to connect a node to the relay |
-| `token-concept` | `/relay/v2/dashboard/docs/token-concept` | Token and credential lifecycle |
-| `setup` | `/relay/v2/dashboard/docs/setup` | Server installation and configuration |
-| `dashboard` | `/relay/v2/dashboard/docs/dashboard` | Dashboard usage and node approval |
-| `readme` | `/relay/v2/dashboard/docs/readme` | This document |
+| `node-readme` | `/relay/v2/docs/node-readme` | How to connect a node to the relay |
+| `token-concept` | `/relay/v2/docs/token-concept` | Token and credential lifecycle |
+| `setup` | `/relay/v2/docs/setup` | Server installation and configuration |
+| `dashboard` | `/relay/v2/docs/dashboard` | Dashboard usage and node approval |
+| `readme` | `/relay/v2/docs/readme` | This document |
 
-Call `/relay/v2/dashboard/docs` for a JSON index.
+Call `/relay/v2/docs` for a JSON index.
 
 ## Quick Start
 

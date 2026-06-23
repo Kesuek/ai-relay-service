@@ -540,3 +540,40 @@ def test_bootstrap_creates_first_admin_with_temporary_password():
     )
     assert r.status_code == 303
     assert "disabled" in r.headers["location"]
+
+
+def test_public_docs_index():
+    """The docs index lists public documents and their URLs."""
+    r = client.get("/relay/v2/docs")
+    assert r.status_code == 200
+    data = r.json()
+    assert "docs" in data
+    names = {d["name"] for d in data["docs"]}
+    assert "readme" in names
+    assert "node-readme" in names
+    assert "token-concept" in names
+    for doc in data["docs"]:
+        assert doc["url"].startswith("/relay/v2/docs/")
+        assert "available" in doc
+
+
+def test_public_docs_render_markdown_as_html():
+    """A known document is rendered as HTML and contains expected content."""
+    r = client.get("/relay/v2/docs/node-readme")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "<html" in r.text
+    assert "AI Relay" in r.text
+
+
+def test_public_docs_unknown_returns_404():
+    """Unknown document names return 404."""
+    r = client.get("/relay/v2/docs/unknown-doc")
+    assert r.status_code == 404
+
+
+def test_dashboard_agent_readme_redirects_to_public_docs():
+    """The old dashboard agent-readme URL redirects to the new public docs path."""
+    r = client.get("/relay/v2/dashboard/agent-readme", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/relay/v2/docs/node-readme"
