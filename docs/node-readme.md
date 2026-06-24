@@ -794,6 +794,7 @@ echo "Worker OK"
 | `examples/nodes/relay_client.py` | HTTP client for the relay API |
 | `nodes/common/poller.py` | Generic production poller for any node type |
 | `nodes/common/relay_config.json.example` | Example config for the common poller |
+| `nodes/common/README.md` | Poller architecture and platform wrappers (systemd, launchd, cron) |
 | `nodes/storage-node/poller.py` | Storage-specific wrapper around the common poller |
 | `nodes/storage-node/storage_node.py` | Example service node using the poller |
 | `nodes/storage-node/register.py` | One-time registration for the storage node |
@@ -816,6 +817,7 @@ echo "Worker OK"
 - [ ] Monitor credential lifetimes via `/relay/v2/auth/status` and refresh before expiry
 - [ ] Ensure `~/.relay/worker_status.json` is written for external monitoring
 - [ ] Configure a LaunchAgent, systemd unit, or container restart policy
+- [ ] Use a background heartbeat thread so long work does not mark the node offline
 
 ---
 
