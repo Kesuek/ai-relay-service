@@ -258,7 +258,10 @@ class WorkerNode:
             r = httpx.post(
                 f"{self.base_url}/relay/v2/scheduler/claim",
                 headers={"Authorization": f"Bearer {self.token}"},
-                json={"capability": None, "capabilities": cap_list},
+                json={
+                    "capability": None,
+                    "capability_type": None,
+                },
                 timeout=10,
             )
             if r.status_code == 204:
