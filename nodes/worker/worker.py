@@ -200,11 +200,9 @@ class WorkerNode:
 
         try:
             r = httpx.post(
-                f"{self.base_url}/relay/v2/discovery/heartbeat",
+                f"{self.base_url}/relay/v2/discovery/worker-heartbeat",
                 headers={"Authorization": f"Bearer {self.token}"},
                 json={
-                    "node_id": self.node_id,
-                    "status": "online",
                     "load": os.getloadavg()[0] if hasattr(os, "getloadavg") else 0.0,
                     "queue_depth": self._in_flight,
                     "capabilities": cap_list,
