@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
-"""
-Generischer Worker-Node fuer AI Relay.
+"""Generischer Worker-Node fuer AI Relay.
 
 Capabilities werden aus einer YAML-Datei geladen und im Heartbeat
 an den Server gesendet. Der Worker uebernimmt:
@@ -23,8 +21,12 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import httpx
+import typer
+import yaml
 
-from nodes.common.capability import CapabilitySet, load_capabilities_from_yaml
+from nodes.common.capability import (
+    CapabilitySet, Capability, load_capabilities_from_yaml,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -62,8 +64,10 @@ def _retry(fn, *args, **kwargs):
             log.warning("Timeout (Versuch %d/%d): %s", attempt, MAX_RETRIES, exc)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in (429, 500, 502, 503, 504):
-                log.warning("Server-Fehler %d (Versuch %d/%d): %s",
-                            exc.response.status_code, attempt, MAX_RETRIES, exc)
+                log.warning(
+                    "Server-Fehler %d (Versuch %d/%d): %s",
+                    exc.response.status_code, attempt, MAX_RETRIES, exc,
+                )
             else:
                 raise
         if attempt == MAX_RETRIES:
@@ -83,7 +87,7 @@ class WorkerNode:
         name: str,
         base_url: str,
         capabilities_file: Path,
-        heartbeat_interval: int = 10,
+        heartbeat_interval: int = 8,
     ):
         self.name = name
         self.base_url = base_url.rstrip("/")
@@ -93,8 +97,8 @@ class WorkerNode:
         self.node_id: Optional[str] = None
         self.token: Optional[str] = None
         self.capabilities = CapabilitySet()
+        self._caps_mtime: float = 0.0
 
-        self._running = False
         self._tasks_completed = 0
         self._tasks_failed = 0
         self._in_flight = 0
@@ -111,6 +115,10 @@ class WorkerNode:
         caps = load_capabilities_from_yaml(self.capabilities_file)
         with self._lock:
             self.capabilities = caps
+        try:
+            self._caps_mtime = os.path.getmtime(self.capabilities_file)
+        except OSError:
+            self._caps_mtime = 0.0
         log.info("Capabilities geladen: %s", caps.names)
 
     def reload_capabilities(self, signum=None, frame=None) -> None:
@@ -127,7 +135,7 @@ class WorkerNode:
         cap_list = self.capabilities.to_list()
         log.info("Registriere Node '%s' mit %d Capabilities ...", self.name, len(cap_list))
 
-        def _do_register():
+        def _do_register() -> dict:
             r = httpx.post(
                 f"{self.base_url}/relay/v2/auth/register",
                 json={
@@ -209,12 +217,23 @@ class WorkerNode:
             log.error("Heartbeat fehlgeschlagen: %s", exc)
             return False
 
+    def _check_caps_changed(self) -> None:
+        """Prueft ob die capabilities.yaml seit dem letzten Laden geaendert wurde."""
+        try:
+            current_mtime = os.path.getmtime(self.capabilities_file)
+        except OSError:
+            return
+        if current_mtime != self._caps_mtime:
+            log.info("Capabilities-Datei geaendert, lade neu")
+            self.reload_capabilities()
+
     def _heartbeat_loop(self) -> None:
         """Hintergrund-Thread: Heartbeat im Intervall senden."""
         while not self._stop_event.is_set():
+            self._check_caps_changed()
             success = self._heartbeat_once()
             with self._lock:
-                self._last_hb_ok = success
+                self._last_hb_ok = success  # type: ignore[attr-defined]
             log.debug("Heartbeat %s", "ok" if success else "failed")
 
             for _ in range(self.heartbeat_interval):
@@ -234,11 +253,14 @@ class WorkerNode:
         """Naechsten Task vom Server anfordern."""
         if not self.node_id or not self.token:
             return None
+        cap_list = [c.name for c in self.capabilities.filter(available_only=True)]
+        if not cap_list:
+            return None
         try:
             r = httpx.post(
                 f"{self.base_url}/relay/v2/scheduler/claim",
                 headers={"Authorization": f"Bearer {self.token}"},
-                json={"capability": None},
+                json={"capability": None, "capabilities": cap_list},
                 timeout=10,
             )
             if r.status_code == 204:
@@ -270,6 +292,13 @@ class WorkerNode:
         cap = stage.get("capability", "")
         handler = self._handlers.get(cap)
         if handler:
+            # Pruefe Payload gegen Input-Schema, falls vorhanden
+            cap_obj: Optional[Capability] = self.capabilities.get(cap)
+            if cap_obj is not None and cap_obj.input_schema is not None:
+                payload = stage.get("payload", {})
+                ok, errors = cap_obj.input_schema.validate_payload(payload)
+                if not ok:
+                    return {"error": "Payload-Validierung fehlgeschlagen", "details": errors}
             return handler(stage)
         return {"error": f"Kein Handler fuer Capability '{cap}'"}
 
@@ -343,9 +372,38 @@ class WorkerNode:
         log.info("Shutdown-Signal empfangen: %s", sig_name)
         self._stop_event.set()
 
+    # ------------------------------------------------------------------
+    # Monitoring
+    # ------------------------------------------------------------------
+    def write_status(self) -> None:
+        """Status-Datei einmalig schreiben (zurueckgesetzt fuer Tests)."""
+        self._write_status()
+
+    def is_running(self) -> bool:
+        """Gibt True zurueck wenn der Worker laeuft."""
+        return not self._stop_event.is_set()
+
+    @property
+    def tasks_completed(self) -> int:
+        return self._tasks_completed
+
+    @property
+    def tasks_failed(self) -> int:
+        return self._tasks_failed
+
+    @property
+    def in_flight(self) -> int:
+        return self._in_flight
+
+    # ------------------------------------------------------------------
+    # Start
+    # ------------------------------------------------------------------
     def start(self) -> None:
         """Worker starten - blockierend bis Shutdown."""
         log.info("=== Worker '%s' startet ===", self.name)
+
+        # Arbeitsverzeichnis sicherstellen
+        BASE_DIR.mkdir(parents=True, exist_ok=True)
 
         self.load_capabilities()
 
@@ -382,61 +440,75 @@ class WorkerNode:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-def main():
-    import argparse
+app = typer.Typer(
+    name="relay-worker",
+    help="AI-Relay Worker-Node",
+    add_completion=False,
+)
 
-    parser = argparse.ArgumentParser(description="AI-Relay Worker-Node")
-    sub = parser.add_subparsers(dest="command")
 
-    start_p = sub.add_parser("start", help="Worker starten")
-    start_p.add_argument("--name", default="worker-01", help="Name des Nodes")
-    start_p.add_argument("--url", default=os.environ.get("RELAY_BASE_URL", "http://localhost:8788"),
-                        help="Relay-Server URL")
-    start_p.add_argument("--caps", default=str(DEFAULT_CAPS_FILE),
-                        help="Pfad zur capabilities.yaml")
-    start_p.add_argument("--heartbeat", type=int, default=10,
-                        help="Heartbeat-Intervall in Sekunden")
+@app.command("start")
+def start(
+    name: str = typer.Option("worker-01", "--name", help="Name des Nodes"),
+    url: str = typer.Option(
+        os.environ.get("RELAY_BASE_URL", "http://localhost:8788"),
+        "--url",
+        help="Relay-Server URL",
+    ),
+    caps: Path = typer.Option(
+        DEFAULT_CAPS_FILE,
+        "--caps",
+        help="Pfad zur capabilities.yaml",
+    ),
+    heartbeat: int = typer.Option(8, "--heartbeat", help="Heartbeat-Intervall in Sekunden"),
+):
+    """Worker starten und laufen lassen."""
+    worker = WorkerNode(
+        name=name,
+        base_url=url,
+        capabilities_file=caps,
+        heartbeat_interval=heartbeat,
+    )
+    worker.start()
 
-    register_p = sub.add_parser("register", help="Nur registrieren (ohne starten)")
-    register_p.add_argument("--name", default="worker-01")
-    register_p.add_argument("--url", default=os.environ.get("RELAY_BASE_URL", "http://localhost:8788"))
-    register_p.add_argument("--caps", default=str(DEFAULT_CAPS_FILE))
 
-    status_p = sub.add_parser("status", help="Gespeicherten Status anzeigen")
-
-    args = parser.parse_args()
-
-    if args.command == "start":
-        worker = WorkerNode(
-            name=args.name,
-            base_url=args.url,
-            capabilities_file=Path(args.caps),
-            heartbeat_interval=args.heartbeat,
-        )
-        worker.start()
-
-    elif args.command == "register":
-        worker = WorkerNode(
-            name=args.name,
-            base_url=args.url,
-            capabilities_file=Path(args.caps),
-        )
-        worker.load_capabilities()
-        if worker.register():
-            print(f"Node registriert: {worker.node_id}")
-        else:
-            print("Registrierung fehlgeschlagen", file=sys.stderr)
-            sys.exit(1)
-
-    elif args.command == "status":
-        if STATUS_FILE.exists():
-            print(STATUS_FILE.read_text())
-        else:
-            print("Kein Statusfile gefunden unter", STATUS_FILE)
-
+@app.command("register")
+def register(
+    name: str = typer.Option("worker-01", "--name", help="Name des Nodes"),
+    url: str = typer.Option(
+        os.environ.get("RELAY_BASE_URL", "http://localhost:8788"),
+        "--url",
+        help="Relay-Server URL",
+    ),
+    caps: Path = typer.Option(
+        DEFAULT_CAPS_FILE,
+        "--caps",
+        help="Pfad zur capabilities.yaml",
+    ),
+):
+    """Nur registrieren (ohne starten)."""
+    worker = WorkerNode(
+        name=name,
+        base_url=url,
+        capabilities_file=caps,
+    )
+    worker.load_capabilities()
+    if worker.register():
+        typer.echo(f"Node registriert: {worker.node_id}", err=True)
     else:
-        parser.print_help()
+        typer.echo("Registrierung fehlgeschlagen", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("status")
+def status_cmd():
+    """Gespeicherten Status anzeigen."""
+    if STATUS_FILE.exists():
+        typer.echo(STATUS_FILE.read_text())
+    else:
+        typer.echo(f"Kein Statusfile gefunden unter {STATUS_FILE}", err=True)
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
-    main()
+    app()

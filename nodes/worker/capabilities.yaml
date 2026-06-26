@@ -104,7 +104,7 @@ capabilities:
   # ---- WORKFLOWS (mehrschrittige Ablaeufe) -----------------------------
   - name: "workflow.data-pipeline"
     type: workflow
-    description: "CSV-Import -> Bereinigung -> DB-Insert -> Report
+    description: "CSV-Import -> Bereinigung -> DB-Insert -> Report"
     version: "0.1.0"
     available: true
     config:
