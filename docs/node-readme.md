@@ -217,9 +217,10 @@ A node that misses too many heartbeats is considered offline and will not
 receive tasks. Once the node sends a valid heartbeat again, the relay
 automatically moves it back to `online`.
 
-`endpoint` is set during registration (section 2). It does not need to be
-sent again in the heartbeat body. If it changes, re-register or use the
-dashboard.
+`endpoint` is set during registration (section 2). You do not need to send it
+again in the heartbeat body unless the endpoint changed at runtime. When
+present, the relay updates the stored endpoint for the node. If the endpoint
+changed permanently, re-registering or using the dashboard is usually cleaner.
 
 Capabilities may be sent as objects or plain strings, and each heartbeat
 updates the node's advertised capabilities. A node can change what it offers
@@ -529,16 +530,21 @@ See `nodes-design.md` for the full self-care pattern.
 ### KI-capable node
 
 Claim → understand → execute → complete. Execution may use local tools.
+A KI-capable node should hand the stage payload to its local AI rather than
+hard-coding individual tool calls. The AI decides which tools to run and how
+to combine them.
 
 ```python
 def execute_stage(stage):
     payload = stage["payload"]
     capability = stage["capability"]
 
-    if capability == "image.generate":
-        return {"image_path": str(generate_image(payload["prompt"]))}
     if capability == "chat":
         return {"answer": local_llm_chat(payload["question"])}
+    if capability == "image.generate":
+        # Delegate to the local AI so it can choose the right image generator,
+        # dimensions, and storage based on the prompt and environment.
+        return {"image_path": str(delegate_to_local_ai(payload["prompt"]))}
     return {"error": f"Unknown capability: {capability}"}
 ```
 
@@ -793,11 +799,11 @@ echo "Worker OK"
 | `examples/nodes/node_base.py` | Base class that handles registration, heartbeat, claim, and complete loops |
 | `examples/nodes/relay_client.py` | HTTP client for the relay API |
 | `nodes/common/poller.py` | Generic production poller for any node type |
+| `nodes/common/poller.py` | Generic production poller for any node type |
 | `nodes/common/relay_config.json.example` | Example config for the common poller |
-| `nodes/common/README.md` | Poller architecture and platform wrappers (systemd, launchd, cron) |
-| `nodes/storage-node/poller.py` | Storage-specific wrapper around the common poller |
-| `nodes/storage-node/storage_node.py` | Example service node using the poller |
+| `nodes/storage-node/storage_node.py` | Example service node using the common poller |
 | `nodes/storage-node/register.py` | One-time registration for the storage node |
+| `nodes/storage-node/build-bundle.sh` | Creates a deployable bundle for the storage node |
 | `scripts/manual_node_test.py` | Manual end-to-end node test |
 
 ---
@@ -848,6 +854,11 @@ human or KI agent that operates the relay:
 - Activate pending nodes in the dashboard
 - Issue new runtime tokens when needed
 - Delete nodes from the cluster
+
+The AI Relay Agent itself (the assistant that is talking to you right now)
+is also a KI-capable worker node in the cluster. It uses its local Hermes
+instance to claim decision stages, choose tools, and return results, just like
+any other KI-capable node.
 
 For these tasks, the administrator should read `setup.md` and `dashboard.md`.
 

@@ -7,7 +7,6 @@ Diese Node hat keine KI-Logik. Sie:
 - postet Service-Tasks an das Relay, wenn menschliche/KI-Entscheidungen nötig sind
 """
 
-import json
 import os
 import shutil
 import sys
@@ -15,7 +14,11 @@ import time
 from pathlib import Path
 
 import httpx
-from poller import Poller
+
+try:
+    from poller import Poller
+except ImportError:
+    from nodes.common.poller import Poller
 
 STORAGE_PATH = Path(os.environ.get("RELAY_STORAGE_PATH", "/storage"))
 QUOTA_THRESHOLD = float(os.environ.get("RELAY_QUOTA_THRESHOLD", "0.85"))
@@ -158,7 +161,7 @@ def post_cleanup_request(poller, token: str):
                 },
             }
         ]
-        result = poller.submit_task(poller.meta, token, task_name, stages, priority=5)
+        result = poller.submit_task(task_name, stages, priority=5)
         print(f"posted cleanup request task: {result.get('task', {}).get('task_id')}")
     except Exception as exc:
         print(f"cleanup request failed: {exc}", file=sys.stderr)
