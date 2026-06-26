@@ -1,0 +1,128 @@
+# =============================================================================
+# capabilities.yaml – Template fuer generische Worker-Nodes
+# =============================================================================
+#
+# Jede Capability beschreibt ein Feature des Nodes.
+# Felder:
+#   name        – eindeutiger Identifier (z.B. "chat.llama3")
+#   type        – ai | tool | script | workflow | resource
+#   description – menschlich lesbare Beschreibung
+#   version     – semver
+#   available   – true/false (kann zur Laufzeit umgeschaltet werden)
+#   config      – provider-spezifische Konfiguration (freies JSON)
+#   metadata    – optionale Zusatzdaten (z.B. GPU-Info, max_connections)
+# =============================================================================
+
+worker_name: "generic-worker-01"
+
+capabilities:
+  # ---- KI / LLM ---------------------------------------------------------
+  - name: "chat.openai"
+    type: ai
+    description: "OpenAI GPT-4o Chat-Modell"
+    version: "1.0.0"
+    available: true
+    config:
+      model: "gpt-4o"
+      provider: "openai"
+      api_key_env: "OPENAI_API_KEY"
+      max_tokens: 8192
+      temperature: 0.7
+
+  - name: "chat.llama3"
+    type: ai
+    description: "Llama 3.1 8B via Ollama (lokal)"
+    version: "1.0.0"
+    available: true
+    config:
+      model: "llama3.1:8b"
+      provider: "ollama"
+      endpoint: "http://localhost:11434"
+      max_tokens: 4096
+      temperature: 0.7
+
+  - name: "embedding.bge"
+    type: ai
+    description: "BGE-Small Embedding-Modell fuer RAG"
+    version: "1.0.0"
+    available: true
+    config:
+      model: "bge-small-en-v1.5"
+      provider: "ollama"
+      endpoint: "http://localhost:11434"
+      dimensions: 384
+
+  # ---- TOOLS ------------------------------------------------------------
+  - name: "tool.ffmpeg"
+    type: tool
+    description: "FFmpeg fuer Audio/Video-Konvertierung"
+    version: "1.0.0"
+    available: true
+    config:
+      binary: "/usr/bin/ffmpeg"
+      max_duration_seconds: 3600
+
+  - name: "tool.pdftotext"
+    type: tool
+    description: "PDF-zu-Text Konvertierung via pdftotext"
+    version: "1.0.0"
+    available: true
+    config:
+      binary: "/usr/bin/pdftotext"
+      max_pages: 500
+
+  - name: "tool.webscrape"
+    type: tool
+    description: "Webseiten-Extraktion via HTTP"
+    version: "1.0.0"
+    available: true
+    config:
+      timeout_seconds: 30
+      max_content_length: 500000
+      allowed_domains: []
+
+  # ---- SCRIPTS (laufen an der KI vorbei, werden von ihr getriggert) -----
+  - name: "script.data-cleanup"
+    type: script
+    description: "CSV-Bereinigung und Normalisierung"
+    version: "0.1.0"
+    available: true
+    config:
+      script: "scripts/cleanup_csv.py"
+      timeout: 120
+      sandbox: true
+
+  - name: "script.report-gen"
+    type: script
+    description: "Generiert woechtliche Berichte aus Datenbank-Dumps"
+    version: "0.1.0"
+    available: true
+    config:
+      script: "scripts/weekly_report.py"
+      timeout: 300
+
+  # ---- WORKFLOWS (mehrschrittige Ablaeufe) -----------------------------
+  - name: "workflow.data-pipeline"
+    type: workflow
+    description: "CSV-Import -> Bereinigung -> DB-Insert -> Report
+    version: "0.1.0"
+    available: true
+    config:
+      steps:
+        - name: "import"
+          capability: "script.data-cleanup"
+        - name: "report"
+          capability: "script.report-gen"
+
+  # ---- RESOURCES --------------------------------------------------------
+  - name: "resource.postgres"
+    type: resource
+    description: "PostgreSQL-Datenbank-Zugang"
+    version: "1.0.0"
+    available: true
+    config:
+      host: "db.internal"
+      port: 5432
+      database: "relay_data"
+      # Kein Passwort hier – kommt aus ~/.relay/secrets/
+      ssl: true
