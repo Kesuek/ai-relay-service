@@ -745,7 +745,7 @@ if __name__ == "__main__":
     main_loop()
 ```
 
-For production use the generic `Poller` class from `nodes/storage-node/poller.py`
+For production use the generic `Poller` class from `nodes/common/poller.py`
 or the Hermes skill `ai-relay-agent-node` instead of this minimal example.
 
 ---
@@ -798,7 +798,6 @@ echo "Worker OK"
 |------|---------|
 | `examples/nodes/node_base.py` | Base class that handles registration, heartbeat, claim, and complete loops |
 | `examples/nodes/relay_client.py` | HTTP client for the relay API |
-| `nodes/common/poller.py` | Generic production poller for any node type |
 | `nodes/common/poller.py` | Generic production poller for any node type |
 | `nodes/common/relay_config.json.example` | Example config for the common poller |
 | `nodes/storage-node/storage_node.py` | Example service node using the common poller |
@@ -875,3 +874,178 @@ For these tasks, the administrator should read `setup.md` and `dashboard.md`.
 - For installing and configuring the relay, see `setup.md`.
 - For managing users and approving nodes, see `dashboard.md`.
 - For the message board design, see `design-board.md`.
+
+---
+
+## 21. node-cli — generic capability-driven daemon
+
+`node-cli` is a generic command-line tool that runs as a daemon
+(heartbeat + claim/complete loop) or as a foreground process. Unlike the
+specific node implementations, the CLI itself is **capability-agnostic**:
+all capabilities are defined in external YAML profiles.
+
+### 21.1 Quick start
+
+```bash
+# 1. Create a capability profile
+mkdir -p ~/.relay/capabilities.d
+cat > ~/.relay/capabilities.d/default.yaml <<'YAML'
+capabilities:
+  - name: chat.ai
+    version: "1.0.0"
+    auto_publish: true
+    claimable: true
+    handler: /opt/relay/handlers/chat-ai.sh
+    max_parallel: 2
+    timeout: 300
+  - name: mflux
+    version: "1.0.0"
+    auto_publish: true
+    claimable: false
+YAML
+
+# 2. Validate and publish the profile (daemon reads only the active file)
+node-cli capabilities validate default
+node-cli capabilities publish default
+
+# 3. Start the daemon
+node-cli daemon start
+node-cli daemon status
+```
+
+### 21.2 CLI commands
+
+```bash
+# Daemon control
+node-cli daemon start          # start daemon in background
+node-cli daemon stop           # stop via PID file
+node-cli daemon status         # show PID, active profile, last heartbeat
+node-cli daemon restart        # stop + start
+node-cli daemon foreground     # run in foreground (for systemd/Docker)
+
+# One-shot operations
+node-cli heartbeat             # single heartbeat (foreground)
+node-cli claim <capability>    # claim one stage, print JSON to stdout
+node-cli complete <stage_id> --task <task_id> --result-file <path>
+node-cli task submit --name <name> --stage <cap>:<json_payload> [--priority N]
+
+# Capability profile management
+node-cli capabilities list                        # list profiles in capabilities.d/
+node-cli capabilities validate [profile]          # validate a profile (default: active)
+node-cli capabilities publish <profile>           # validate + atomically copy to active + SIGHUP daemon
+node-cli capabilities diff [profile]              # diff working profile vs active
+node-cli capabilities current                     # show active profile name
+
+# Status
+node-cli status                # print worker_status.json content
+node-cli reload                # send SIGHUP to running daemon
+```
+
+### 21.3 Profile YAML format
+
+```yaml
+capabilities:
+  - name: chat.ai
+    version: "1.0.0"        # semantic version (default: "1.0.0")
+    auto_publish: true      # include in every heartbeat (default: true)
+    claimable: true         # daemon may claim stages for this capability
+    handler: /opt/relay/handlers/chat-ai.sh   # required when claimable: true
+    max_parallel: 2         # in-flight handler limit (default: 1)
+    timeout: 300            # handler timeout in seconds (default: 300)
+```
+
+Rules:
+
+- `auto_publish: true` → included in every heartbeat as an available capability.
+- `claimable: true` → the daemon may claim stages for this capability.
+- `handler` → **required** when `claimable: true`. Path to an executable or
+  a shell command.
+- `max_parallel` → default `1`. Per-capability in-flight handler limit.
+- `timeout` → handler timeout in seconds. Default `300`.
+
+### 21.4 Push model (working vs active profiles)
+
+```
+Operator edits ~/.relay/capabilities.d/default.yaml
+        ↓
+node-cli capabilities validate default    ← validates without touching active
+        ↓
+node-cli capabilities publish default      ← validates + atomic write to active.yaml
+        ↓
+Daemon picks up change at next heartbeat (mtime check) or via SIGHUP
+```
+
+**Key invariant:** the daemon only reads `~/.relay/capabilities.active.yaml`.
+Working profiles in `capabilities.d/` are never read by the daemon at runtime.
+This prevents the daemon from loading a half-edited file.
+
+### 21.5 Handler contract
+
+A handler is an external subprocess (script, binary, or shell command).
+The following environment variables are set before execution:
+
+| Variable | Value |
+|----------|-------|
+| `RELAY_STAGE_ID` | Stage ID from claim |
+| `RELAY_TASK_ID` | Task ID from claim |
+| `RELAY_CAPABILITY` | Capability name |
+| `RELAY_NODE_ID` | Assigned node ID |
+| `RELAY_BASE_URL` | Relay server URL |
+| `RELAY_TOKEN_FILE` | Path to runtime token file |
+
+- **Stdin:** stage `payload` as a JSON string (empty object if absent).
+- **Stdout:** must be valid JSON — the result dict sent to `/complete`.
+- **Stderr:** captured and included in the error result if the exit code is non-zero.
+- **Exit 0** → stdout parsed as the result dict and sent to the complete endpoint.
+- **Exit non-zero** → `{"error": "handler exited with code N", "stderr": "..."}`.
+- **Timeout** → `{"error": "handler timeout after Ns"}`.
+
+Example handler (`/opt/relay/handlers/chat-ai.sh`):
+
+```sh
+#!/bin/sh
+payload="$(cat)"
+echo "$payload"
+```
+
+### 21.6 Environment variable overrides
+
+| Variable | Overrides |
+|----------|-----------|
+| `RELAY_BASE_URL` | Server URL |
+| `RELAY_HEARTBEAT_INTERVAL` | Heartbeat interval in seconds |
+| `RELAY_CLAIM_INTERVAL` | Claim loop interval in seconds |
+| `RELAY_PROFILES_DIR` | Path to profiles directory |
+| `RELAY_LOG_LEVEL` | Log level (DEBUG/INFO/WARNING/ERROR) |
+| `RELAY_CAPABILITY_<NAME>_HANDLER` | Override handler for a capability |
+| `RELAY_CAPABILITY_<NAME>_MAX_PARALLEL` | Override max_parallel |
+
+`<NAME>` is uppercased with dots/hyphens normalized to underscores, e.g.
+`chat.ai` → `RELAY_CAPABILITY_CHAT_AI_HANDLER`.
+
+### 21.7 Files
+
+| Path | Purpose |
+|------|---------|
+| `~/.relay/capabilities.d/*.yaml` | Working profiles |
+| `~/.relay/capabilities.active.yaml` | Published/active profile (daemon reads only this) |
+| `~/.relay/capabilities.active.profile` | Name of the currently active profile |
+| `~/.relay/node-cli.pid` | Daemon PID file |
+| `~/.relay/node-cli.log` | Daemon log output |
+| `~/.relay/worker_status.json` | Last heartbeat result |
+
+### 21.8 Validation rules
+
+A profile is **invalid** if any of these are true:
+
+- YAML syntax error
+- `capabilities` key missing or not a list
+- Any capability missing `name`
+- Duplicate capability names
+- `claimable: true` and `handler` missing or empty
+- `max_parallel` not a positive integer
+- `timeout` not a positive integer
+- `auto_publish` or `claimable` not boolean
+
+On validation error the CLI prints the error with context (file, capability)
+and does **not** touch the active profile.
