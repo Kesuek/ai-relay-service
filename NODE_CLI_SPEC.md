@@ -474,6 +474,3 @@ After completing all tasks, provide a **Final Report** as a separate Markdown fi
 - [ ] Report file `REPORT_NODE_CLI.md` exists in repo root or PR description
 - [ ] No secrets or credentials in any committed file
 
----
-
-## 15. Open Questions & Design Decisions
