@@ -399,3 +399,81 @@ For list-style input (the original path), a generated `field_N` key is used as f
 3. No retry on `complete` failure — rely on the poller's token-error retry first. Retry can be added later.
 4. Profiles use YAML, not JSON, because YAML is more human-friendly for editing config files.
 5. The Push Model (separate working vs active profiles) prevents the daemon from loading a half-edited file.
+
+---
+
+## 16. Deliverable: Final Report (Template for OpenCode)
+
+After completing all tasks, provide a **Final Report** as a separate Markdown file (`REPORT_NODE_CLI.md`). The report must cover:
+
+### Report Structure
+
+```markdown
+# Node-CLI & Daemon — Final Report
+
+## Summary
+- What was implemented (files created, files modified)
+- What was NOT implemented (and why)
+- Any deviations from this spec
+
+## Implementation Details
+
+### Architecture Decisions
+- Any changes from the spec made during implementation (with rationale)
+- Trade-offs accepted
+
+### File Inventory
+| File | Lines | Purpose | Status |
+|------|-------|---------|--------|
+| `nodes/common/capability_loader.py` | | Load/validate/publish profiles | Implemented / Partial / Skipped |
+| `nodes/common/handler_runner.py` | | Subprocess handler execution | ... |
+| `nodes/common/node_cli.py` | | CLI entry point + all subcommands | ... |
+| `tests/test_capability_loader.py` | | ... | ... |
+| `tests/test_handler_runner.py` | | ... | ... |
+| `tests/test_node_cli.py` | | ... | ... |
+
+### Known Issues
+- Bugs found during implementation (with reproduction steps)
+- Workarounds applied
+- Issues deferred to future work
+
+### Pre-existing Bugs Found
+- `CapabilityInputSchema.from_dict()` KeyError (already fixed in `0898380`)
+- Any new bugs discovered while building
+
+### Test Coverage
+- Total tests: X passed, Y failed, Z skipped
+- New tests written: N
+- Existing tests still passing: verify with `PYTHONPATH=src pytest tests/ -q`
+
+### Linting
+- ruff check output (clean or list of remaining warnings)
+
+### Security Considerations
+- Handler subprocesses use `shell=True` — risk assessment
+- Profile files are trusted-operator-only — documented
+- Token handling (file-based, not in memory longer than needed)
+
+## Open Questions (Updated)
+- Which questions from §15 were resolved?
+- New questions discovered during implementation?
+
+## Recommendations for Next Steps
+- What should be done after this PR is merged
+- Priority order for remaining tasks
+```
+
+### Verification Checklist (must be TRUE before submitting)
+
+- [ ] `ruff check nodes/common/ tests/ --select E,W,F,I,N` → 0 errors
+- [ ] `PYTHONPATH=src pytest tests/ -q` → all existing tests pass + new tests pass
+- [ ] All 9 CLI subcommands from §5 are functional
+- [ ] Daemon starts, heartbeats, and claims at least one stage end-to-end
+- [ ] Profile publish/validate/list/diff/current all work
+- [ ] Handler runner subprocess execution works with correct env/stdin/stdout/timeout
+- [ ] Report file `REPORT_NODE_CLI.md` exists in repo root or PR description
+- [ ] No secrets or credentials in any committed file
+
+---
+
+## 15. Open Questions & Design Decisions
