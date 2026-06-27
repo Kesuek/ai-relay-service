@@ -1,12 +1,12 @@
-"""Generischer Worker-Node fuer AI Relay.
+"""Generic worker node for AI Relay.
 
-Capabilities werden aus einer YAML-Datei geladen und im Heartbeat
-an den Server gesendet. Der Worker uebernimmt:
-- Heartbeat-Loop mit voller Capability-Liste
-- Task-Claiming und -Ausfuehrung
-- Graceful Shutdown (SIGTERM/SIGINT)
-- Retry mit Exponential Backoff
-- SIGHUP-Reload fuer Capabilities
+Capabilities are loaded from a YAML file and sent in the heartbeat
+to the server. The worker handles:
+- Heartbeat loop with full capability list
+- Task claiming and execution
+- Graceful shutdown (SIGTERM/SIGINT)
+- Retry with exponential backoff
+- SIGHUP reload for capabilities
 """
 
 import json
@@ -18,14 +18,15 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 import httpx
 import typer
-import yaml
 
 from nodes.common.capability import (
-    CapabilitySet, Capability, load_capabilities_from_yaml,
+    Capability,
+    CapabilitySet,
+    load_capabilities_from_yaml,
 )
 
 # ---------------------------------------------------------------------------
@@ -46,14 +47,14 @@ DEFAULT_CAPS_FILE = BASE_DIR / "capabilities.yaml"
 STATUS_FILE = BASE_DIR / "worker_status.json"
 
 # ---------------------------------------------------------------------------
-# Retry-Helper
+# Retry Helper
 # ---------------------------------------------------------------------------
 MAX_RETRIES = 5
 INITIAL_BACKOFF = 1.0
 
 
 def _retry(fn, *args, **kwargs):
-    """Rufe ``fn`` mit Exponential-Backoff bei Netzwerkfehlern."""
+    """Call ``fn`` with exponential backoff on network errors."""
     backoff = INITIAL_BACKOFF
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -80,7 +81,7 @@ def _retry(fn, *args, **kwargs):
 # Worker-Klasse
 # ---------------------------------------------------------------------------
 class WorkerNode:
-    """Generischer Worker-Node mit konfigurierbaren Capabilities."""
+    """Generic worker node with configurable capabilities."""
 
     def __init__(
         self,
@@ -88,11 +89,13 @@ class WorkerNode:
         base_url: str,
         capabilities_file: Path,
         heartbeat_interval: int = 8,
+        task_timeout: int = 600,
     ):
         self.name = name
         self.base_url = base_url.rstrip("/")
         self.capabilities_file = capabilities_file
         self.heartbeat_interval = heartbeat_interval
+        self.task_timeout = task_timeout
 
         self.node_id: Optional[str] = None
         self.token: Optional[str] = None
@@ -107,11 +110,9 @@ class WorkerNode:
         self._threads: list[threading.Thread] = []
         self._handlers: dict[str, Callable] = {}
 
-    # ------------------------------------------------------------------
-    # Initialisierung
-    # ------------------------------------------------------------------
+    # ---- Initialization ---------------------------------------------------
     def load_capabilities(self) -> None:
-        """Capabilities aus YAML-Datei laden."""
+        """Load capabilities from a YAML file."""
         caps = load_capabilities_from_yaml(self.capabilities_file)
         with self._lock:
             self.capabilities = caps
@@ -119,21 +120,21 @@ class WorkerNode:
             self._caps_mtime = os.path.getmtime(self.capabilities_file)
         except OSError:
             self._caps_mtime = 0.0
-        log.info("Capabilities geladen: %s", caps.names)
+        log.info("Capabilities loaded: %s", caps.names)
 
     def reload_capabilities(self, signum=None, frame=None) -> None:
-        """SIGHUP-Handler: Capabilities neu laden."""
-        log.info("SIGHUP erhalten - lade Capabilities neu")
+        """Reload handler: reload capabilities."""
+        log.info("SIGHUP received, reloading capabilities")
         try:
             self.load_capabilities()
             self._heartbeat_once()
         except Exception as exc:
-            log.error("Fehler beim Reload: %s", exc)
+            log.error("Reload error: %s", exc)
 
     def register(self) -> bool:
-        """Node am Relay-Server registrieren."""
+        """Register this node with the relay server."""
         cap_list = self.capabilities.to_list()
-        log.info("Registriere Node '%s' mit %d Capabilities ...", self.name, len(cap_list))
+        log.info("Registering node '%s' with %d capabilities ...", self.name, len(cap_list))
 
         def _do_register() -> dict:
             r = httpx.post(
@@ -152,7 +153,7 @@ class WorkerNode:
         try:
             data = _retry(_do_register)
         except Exception as exc:
-            log.error("Registrierung fehlgeschlagen: %s", exc)
+            log.error("Registration failed: %s", exc)
             return False
 
         if not data:
@@ -160,7 +161,7 @@ class WorkerNode:
         self.node_id = data.get("node_id")
         self.token = data.get("token")
         status = data.get("status", "unknown")
-        log.info("Registriert: node_id=%s status=%s", self.node_id, status)
+        log.info("Registered: node_id=%s status=%s", self.node_id, status)
 
         if data.get("registration_secret"):
             self._save_meta(data)
@@ -168,7 +169,7 @@ class WorkerNode:
         return True
 
     def _save_meta(self, data: dict) -> None:
-        """Node-Metadaten persistieren."""
+        """Persist node metadata to disk."""
         meta_path = BASE_DIR / "worker_meta.json"
         meta = {
             "node_id": data.get("node_id"),
@@ -182,7 +183,7 @@ class WorkerNode:
         tmp.rename(meta_path)
 
     def _load_meta(self) -> Optional[dict]:
-        """Gespeicherte Metadaten laden (Restart ohne neue Registrierung)."""
+        """Load persisted metadata (restart without re-registration)."""
         meta_path = BASE_DIR / "worker_meta.json"
         if meta_path.exists():
             return json.loads(meta_path.read_text())
@@ -192,7 +193,7 @@ class WorkerNode:
     # Heartbeat
     # ------------------------------------------------------------------
     def _heartbeat_once(self) -> bool:
-        """Ein einzelnes Heartbeat senden."""
+        """Send a single heartbeat to the relay."""
         if not self.node_id or not self.token:
             return False
 
@@ -216,17 +217,18 @@ class WorkerNode:
             return False
 
     def _check_caps_changed(self) -> None:
-        """Prueft ob die capabilities.yaml seit dem letzten Laden geaendert wurde."""
+        """Check if capabilities.yaml was modified since last load."""
         try:
             current_mtime = os.path.getmtime(self.capabilities_file)
         except OSError:
             return
         if current_mtime != self._caps_mtime:
-            log.info("Capabilities-Datei geaendert, lade neu")
+            log.info("Capabilities file changed, reloading")
             self.reload_capabilities()
 
+    # ---- Heartbeat Loop ----------------------------------------------------
     def _heartbeat_loop(self) -> None:
-        """Hintergrund-Thread: Heartbeat im Intervall senden."""
+        """Send heartbeats at regular intervals."""
         while not self._stop_event.is_set():
             self._check_caps_changed()
             success = self._heartbeat_once()
@@ -239,16 +241,14 @@ class WorkerNode:
                     break
                 time.sleep(1)
 
-    # ------------------------------------------------------------------
-    # Task-Claiming & -Ausfuehrung
-    # ------------------------------------------------------------------
+    # ---- Task Claiming & Execution -------------------------------------
     def register_handler(self, capability_name: str, handler: Callable) -> None:
-        """Handler fuer eine Capability registrieren."""
+        """Register a handler for a specific capability."""
         self._handlers[capability_name] = handler
-        log.info("Handler registriert: %s", capability_name)
+        log.info("Handler registered: %s", capability_name)
 
     def _claim_task(self) -> Optional[dict]:
-        """Naechsten Task vom Server anfordern."""
+        """Request the next available task from the relay."""
         if not self.node_id or not self.token:
             return None
         cap_list = [c.name for c in self.capabilities.filter(available_only=True)]
@@ -269,11 +269,11 @@ class WorkerNode:
             r.raise_for_status()
             return r.json().get("stage")
         except Exception as exc:
-            log.debug("Kein Task verfuegbar: %s", exc)
+            log.debug("No task available: %s", exc)
             return None
 
     def _complete_task(self, task_id: str, stage_id: str, result: dict) -> None:
-        """Task-Ergebnis an den Server zuruecksenden."""
+        """Send the task result back to the relay server."""
         try:
             httpx.post(
                 f"{self.base_url}/relay/v2/scheduler/stages/{stage_id}/complete",
@@ -283,28 +283,28 @@ class WorkerNode:
                     "task_id": task_id,
                     "result": result,
                 },
-                timeout=self.heartbeat_interval * 3,
+                timeout=self.task_timeout,
             ).raise_for_status()
         except Exception as exc:
-            log.error("Task-Abschluss fehlgeschlagen: %s", exc)
+            log.error("Task completion failed: task=%s error=%s", task_id, exc)
 
     def _execute_stage(self, stage: dict) -> dict:
-        """Fuehrt eine Stage aus - delegiert an registrierten Handler."""
+        """Execute a stage by delegating to the registered handler."""
         cap = stage.get("capability", "")
         handler = self._handlers.get(cap)
         if handler:
-            # Pruefe Payload gegen Input-Schema, falls vorhanden
+            # Check payload against input schema if available
             cap_obj: Optional[Capability] = self.capabilities.get(cap)
             if cap_obj is not None and cap_obj.input_schema is not None:
                 payload = stage.get("payload", {})
                 ok, errors = cap_obj.input_schema.validate_payload(payload)
                 if not ok:
-                    return {"error": "Payload-Validierung fehlgeschlagen", "details": errors}
+                    return {"error": "Payload validation failed", "details": errors}
             return handler(stage)
-        return {"error": f"Kein Handler fuer Capability '{cap}'"}
+        return {"error": f"No handler for capability '{cap}'"}
 
     def _task_loop(self) -> None:
-        """Hintergrund-Thread: Tasks claimen und ausfuehren."""
+        """Background thread: claim and execute tasks."""
         while not self._stop_event.is_set():
             with self._lock:
                 if self._in_flight > 0:
@@ -331,7 +331,7 @@ class WorkerNode:
                     self._tasks_completed += 1
                 log.info("Completed: task=%s stage=%s", task_id, stage_id)
             except Exception as exc:
-                log.error("Task fehlgeschlagen: task=%s error=%s", task_id, exc)
+                log.error("Task failed: task=%s error=%s", task_id, exc)
                 self._complete_task(task_id, stage_id, {"error": str(exc)})
                 with self._lock:
                     self._tasks_failed += 1
@@ -343,7 +343,7 @@ class WorkerNode:
     # Status-Reporting
     # ------------------------------------------------------------------
     def _write_status(self) -> None:
-        """Schreibt aktuellen Status auf Disk (fuer Monitoring)."""
+        """Write current status to disk for monitoring."""
         status = {
             "pid": os.getpid(),
             "node_id": self.node_id,
@@ -358,30 +358,28 @@ class WorkerNode:
         tmp.write_text(json.dumps(status, indent=2, default=str))
         tmp.rename(STATUS_FILE)
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+    # ---- Lifecycle ----------------------------------------------------
     def _setup_signals(self) -> None:
-        """SIGTERM, SIGINT, SIGHUP registrieren."""
+        """Register SIGTERM, SIGINT, and SIGHUP handlers."""
         signal.signal(signal.SIGTERM, self._shutdown)
         signal.signal(signal.SIGINT, self._shutdown)
         signal.signal(signal.SIGHUP, self.reload_capabilities)
 
     def _shutdown(self, signum=None, frame=None) -> None:
-        """Graceful Shutdown."""
+        """Perform graceful shutdown."""
         sig_name = signal.Signals(signum).name if signum else "unknown"
-        log.info("Shutdown-Signal empfangen: %s", sig_name)
+        log.info("Shutdown signal received: %s", sig_name)
         self._stop_event.set()
 
     # ------------------------------------------------------------------
     # Monitoring
     # ------------------------------------------------------------------
     def write_status(self) -> None:
-        """Status-Datei einmalig schreiben (zurueckgesetzt fuer Tests)."""
+        """Write status file once (reset for tests)."""
         self._write_status()
 
     def is_running(self) -> bool:
-        """Gibt True zurueck wenn der Worker laeuft."""
+        """Return True if the worker is running."""
         return not self._stop_event.is_set()
 
     @property
@@ -397,19 +395,18 @@ class WorkerNode:
         return self._in_flight
 
     # ------------------------------------------------------------------
-    # Start
-    # ------------------------------------------------------------------
+    # ---- Start --------------------------------------------------------------
     def start(self) -> None:
-        """Worker starten - blockierend bis Shutdown."""
-        log.info("=== Worker '%s' startet ===", self.name)
+        """Start the worker (blocking until shutdown)."""
+        log.info("=== Starting worker '%s' ===", self.name)
 
-        # Arbeitsverzeichnis sicherstellen
+        # Ensure working directory exists
         BASE_DIR.mkdir(parents=True, exist_ok=True)
 
         self.load_capabilities()
 
         if not self.register():
-            log.error("Registrierung fehlgeschlagen - beende")
+            log.error("Registration failed, exiting")
             sys.exit(1)
 
         self._setup_signals()
@@ -421,7 +418,7 @@ class WorkerNode:
         task_thread.start()
         self._threads = [hb_thread, task_thread]
 
-        log.info("Worker '%s' laeuft (node_id=%s)", self.name, self.node_id)
+        log.info("Worker '%s' started (node_id=%s)", self.name, self.node_id)
 
         try:
             while not self._stop_event.is_set():
@@ -430,12 +427,12 @@ class WorkerNode:
         except KeyboardInterrupt:
             self._shutdown()
 
-        log.info("Warte auf Threads ...")
+        log.info("Waiting for threads ...")
         for t in self._threads:
             t.join(timeout=5)
 
         self._write_status()
-        log.info("=== Worker '%s' beendet ===", self.name)
+        log.info("=== Worker '%s' stopped ===", self.name)
 
 
 # ---------------------------------------------------------------------------
@@ -450,44 +447,48 @@ app = typer.Typer(
 
 @app.command("start")
 def start(
-    name: str = typer.Option("worker-01", "--name", help="Name des Nodes"),
+    name: str = typer.Option("worker-01", "--name", help="Node name"),
     url: str = typer.Option(
         os.environ.get("RELAY_BASE_URL", "http://localhost:8788"),
         "--url",
-        help="Relay-Server URL",
+        help="Relay server URL",
     ),
     caps: Path = typer.Option(
         DEFAULT_CAPS_FILE,
         "--caps",
-        help="Pfad zur capabilities.yaml",
+        help="Path to capabilities.yaml",
     ),
-    heartbeat: int = typer.Option(8, "--heartbeat", help="Heartbeat-Intervall in Sekunden"),
+    heartbeat: int = typer.Option(8, "--heartbeat", help="Heartbeat interval in seconds"),
+    task_timeout: int = typer.Option(
+        600, "--task-timeout", help="Task completion timeout in seconds"
+    ),
 ):
-    """Worker starten und laufen lassen."""
+    """Start the worker and keep it running."""
     worker = WorkerNode(
         name=name,
         base_url=url,
         capabilities_file=caps,
         heartbeat_interval=heartbeat,
+        task_timeout=task_timeout,
     )
     worker.start()
 
 
 @app.command("register")
 def register(
-    name: str = typer.Option("worker-01", "--name", help="Name des Nodes"),
+    name: str = typer.Option("worker-01", "--name", help="Node name"),
     url: str = typer.Option(
         os.environ.get("RELAY_BASE_URL", "http://localhost:8788"),
         "--url",
-        help="Relay-Server URL",
+        help="Relay server URL",
     ),
     caps: Path = typer.Option(
         DEFAULT_CAPS_FILE,
         "--caps",
-        help="Pfad zur capabilities.yaml",
+        help="Path to capabilities.yaml",
     ),
 ):
-    """Nur registrieren (ohne starten)."""
+    """Register only (without starting)."""
     worker = WorkerNode(
         name=name,
         base_url=url,
@@ -495,19 +496,19 @@ def register(
     )
     worker.load_capabilities()
     if worker.register():
-        typer.echo(f"Node registriert: {worker.node_id}", err=True)
+        typer.echo(f"Node registered: {worker.node_id}", err=True)
     else:
-        typer.echo("Registrierung fehlgeschlagen", err=True)
+        typer.echo("Registration failed", err=True)
         raise typer.Exit(code=1)
 
 
 @app.command("status")
 def status_cmd():
-    """Gespeicherten Status anzeigen."""
+    """Display the stored status."""
     if STATUS_FILE.exists():
         typer.echo(STATUS_FILE.read_text())
     else:
-        typer.echo(f"Kein Statusfile gefunden unter {STATUS_FILE}", err=True)
+        typer.echo(f"No status file found at {STATUS_FILE}", err=True)
         raise typer.Exit(code=1)
 
 

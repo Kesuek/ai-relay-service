@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""KI-lose Storage-Node für AI Relay.
+"""KI-free Storage Node for AI Relay.
 
-Diese Node hat keine KI-Logik. Sie:
-- registriert sich am Relay mit storage.* Capabilities
-- schreibt/löscht/listet Dateien auf dem NAS-Mount
-- postet Service-Tasks an das Relay, wenn menschliche/KI-Entscheidungen nötig sind
+This node has no AI logic. It:
+- registers with the relay using storage.* capabilities
+- writes/deletes/lists files on the NAS mount
+- posts service tasks to the relay when human/AI decisions are needed
 """
 
 import os
@@ -52,7 +52,7 @@ def _safe_path(target_path: str | None, base: Path = STORAGE_PATH) -> Path:
 
 
 def handle_archive(stage: dict, meta: dict, token: str) -> dict:
-    """Lade Artifact vom Relay herunter und schreibe es aufs NAS."""
+    """Download an artifact from the relay and write it to the NAS."""
     payload = stage.get("payload", {})
     artifact_id = payload.get("artifact_id")
     target_path = payload.get("target_path", artifact_id or "unknown")
@@ -91,7 +91,7 @@ def handle_archive(stage: dict, meta: dict, token: str) -> dict:
 
 
 def handle_delete(stage: dict) -> dict:
-    """Lösche Datei vom NAS."""
+    """Delete a file from the NAS."""
     payload = stage.get("payload", {})
     target_path = payload.get("target_path")
     if not target_path:
@@ -105,7 +105,7 @@ def handle_delete(stage: dict) -> dict:
 
 
 def handle_list(stage: dict) -> dict:
-    """Liste Dateien im NAS-Storage auf."""
+    """List files in the NAS storage."""
     prefix = stage.get("payload", {}).get("prefix", "")
     base = _safe_path(prefix)
 
@@ -124,7 +124,7 @@ def handle_list(stage: dict) -> dict:
 
 
 def handle_quota(stage: dict) -> dict:
-    """Ermittle Speicherplatz-Status."""
+    """Determine storage space status."""
     total, used, free = shutil.disk_usage(STORAGE_PATH)
     ratio = used / total if total else 0
 
@@ -140,7 +140,7 @@ def handle_quota(stage: dict) -> dict:
 
 
 def post_cleanup_request(poller, token: str):
-    """Wenn Quota überschritten ist, poste einen Service-Task ans Relay."""
+    """If quota is exceeded, post a service task to the relay."""
     try:
         total, used, free = shutil.disk_usage(STORAGE_PATH)
         ratio = used / total if total else 0
