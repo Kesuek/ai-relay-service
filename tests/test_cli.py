@@ -4,22 +4,21 @@ import os
 import tempfile
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 os.environ["RELAY_DB_PATH"] = ""
 
 from relay_server.config import settings
 from relay_server.core.auth import init_master_seed
-from relay_server.main import app
 from relay_server.core.db import init_db_for_path
 from relay_server.core.users import create_user, list_users, set_user_active
+from relay_server.main import app
 
 
 def test_recovery_cli_deactivates_admin_and_re_enables_seed_login():
     """Recovery CLI deactivates human admins so the master seed can log in again."""
-    from relay_server.cli import main
     from relay_server.api.v2.dashboard import has_admin_user
+    from relay_server.cli import main
 
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
@@ -33,7 +32,10 @@ def test_recovery_cli_deactivates_admin_and_re_enables_seed_login():
         assert seed
 
         # Create a human admin; master-seed login should now be disabled.
-        create_user("locked-out-admin", "very-strong-passphrase-42", group_names=["admin"], force_password_change=False)
+        create_user(
+            "locked-out-admin", "very-strong-passphrase-42",
+            group_names=["admin"], force_password_change=False,
+        )
         assert has_admin_user() is True
 
         # Run recovery CLI with --all.

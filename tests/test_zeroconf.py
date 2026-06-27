@@ -1,6 +1,5 @@
 """Tests for mDNS / Zeroconf registration."""
 
-import os
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -9,8 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from relay_server.config import settings
-from relay_server.core.auth import generate_secret, hash_secret
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import init_db
 from relay_server.core.zeroconf import RelayZeroconf, _local_ip
 from relay_server.main import app
 

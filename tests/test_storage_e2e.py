@@ -1,6 +1,5 @@
 """End-to-end test for upload → task → storage-node archive via relay storage router."""
 
-import os
 import tempfile
 from pathlib import Path
 
@@ -11,7 +10,6 @@ from relay_server.config import settings
 from relay_server.core.auth import (
     generate_secret,
     hash_secret,
-    register_admin_node,
 )
 from relay_server.core.db import get_conn, init_db
 from relay_server.main import app
@@ -25,7 +23,8 @@ def _admin_bootstrap():
     conn = get_conn()
     secret = generate_secret("adm_")
     conn.execute(
-        "INSERT OR REPLACE INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO admin_seeds "
+        "(seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
         ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
     )
     conn.commit()

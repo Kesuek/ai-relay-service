@@ -11,10 +11,10 @@ os.environ["RELAY_DB_PATH"] = ""
 os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-production"
 
 from relay_server.config import settings
+from relay_server.core.auth import init_master_seed
 from relay_server.core.db import init_db
 from relay_server.core.session import generate_csrf_token, sign_user_cookie
 from relay_server.core.users import create_user
-from relay_server.core.auth import init_master_seed
 from relay_server.main import app
 
 
@@ -70,7 +70,9 @@ def _login_cookie_flags():
 
 
 def test_dashboard_session_cookie_has_security_flags():
-    create_user("viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False)
+    create_user(
+        "viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False,
+    )
     flags = _login_cookie_flags()
     assert flags.get("httponly") is True
     assert flags.get("samesite") is True
@@ -135,7 +137,10 @@ def test_dashboard_rejects_node_token_cookie():
 def test_relay_user_takes_precedence_over_relay_token():
     """A human viewer session must win over a stale admin node token."""
     admin_token = _admin_node_token()
-    viewer = create_user("viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False)
+    viewer = create_user(
+        "viewer", "strong-passphrase-42",
+        group_names=["viewer"], force_password_change=False,
+    )
 
     cookies = _mixed_cookies(admin_token, viewer)
     r = client.get("/relay/v2/dashboard/api/me", cookies=cookies)
@@ -149,7 +154,9 @@ def test_relay_user_takes_precedence_over_relay_token():
 def test_dashboard_login_clears_stale_relay_token():
     """Logging in as a human user must not set or keep a relay_token cookie."""
     admin_token = _admin_node_token()
-    create_user("adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False)
+    create_user(
+        "adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False,
+    )
 
     # Pre-seed the client with a stale admin node token.
     client.cookies.set("relay_token", admin_token)
@@ -167,7 +174,10 @@ def test_dashboard_login_clears_stale_relay_token():
 def test_human_user_can_manage_users_despite_admin_token_cookie():
     """Mixed cookies with a human admin should still allow user management."""
     admin_token = _admin_node_token()
-    adminuser = create_user("adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False)
+    adminuser = create_user(
+        "adminuser", "strong-passphrase-42",
+        group_names=["admin"], force_password_change=False,
+    )
 
     cookies = _mixed_cookies(admin_token, adminuser)
     csrf_cookie = generate_csrf_token()
@@ -184,7 +194,9 @@ def test_human_user_can_manage_users_despite_admin_token_cookie():
 
 def test_api_me_returns_permissions_for_human_user():
     # Create an admin human user.
-    create_user("adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False)
+    create_user(
+        "adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False,
+    )
 
     r = _human_login("adminuser", "strong-passphrase-42")
     assert r.status_code == 303
@@ -199,7 +211,9 @@ def test_api_me_returns_permissions_for_human_user():
 
 
 def test_api_me_returns_empty_permissions_for_viewer_user():
-    create_user("viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False)
+    create_user(
+        "viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False,
+    )
 
     r = _human_login("viewer", "strong-passphrase-42")
     cookies = r.cookies
@@ -212,7 +226,9 @@ def test_api_me_returns_empty_permissions_for_viewer_user():
 
 
 def test_users_manage_endpoints_require_permission():
-    create_user("viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False)
+    create_user(
+        "viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False,
+    )
     r = _human_login("viewer", "strong-passphrase-42")
     cookies = r.cookies
 
@@ -229,10 +245,12 @@ def test_users_manage_endpoints_require_permission():
 
 
 def test_admin_can_create_user_and_manage_groups():
-    create_user("adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False)
+    create_user(
+        "adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False,
+    )
     r = _human_login("adminuser", "strong-passphrase-42")
     cookies = r.cookies
-    csrf_cookie = cookies.get("relay_csrf")
+    _csrf_cookie = cookies.get("relay_csrf")
 
     r = client.post(
         "/relay/v2/dashboard/api/users",
@@ -292,7 +310,9 @@ def test_admin_can_create_user_and_manage_groups():
 
 
 def test_groups_manage_endpoints_require_permission():
-    create_user("viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False)
+    create_user(
+        "viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False,
+    )
     r = _human_login("viewer", "strong-passphrase-42")
     cookies = r.cookies
 
@@ -312,7 +332,9 @@ def test_groups_manage_endpoints_require_permission():
 
 
 def test_admin_can_update_group_permissions():
-    create_user("adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False)
+    create_user(
+        "adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False,
+    )
     r = _human_login("adminuser", "strong-passphrase-42")
     cookies = r.cookies
 
@@ -349,7 +371,9 @@ def test_plain_json_user_cookie_is_rejected():
 
 def test_tampered_signed_user_cookie_is_rejected():
     """A valid signed cookie that has been tampered with must be rejected."""
-    create_user("adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False)
+    create_user(
+        "adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False,
+    )
     r = _human_login("adminuser", "strong-passphrase-42")
     signed_cookie = r.cookies.get("relay_user")
     assert signed_cookie
@@ -406,7 +430,10 @@ def test_master_seed_login_disabled_after_admin_exists():
     assert seed
 
     # Create a human admin first.
-    create_user("recovery-admin", "another-strong-passphrase-88", group_names=["admin"], force_password_change=False)
+    create_user(
+        "recovery-admin", "another-strong-passphrase-88",
+        group_names=["admin"], force_password_change=False,
+    )
 
     r = client.post(
         "/relay/v2/dashboard/login",
@@ -423,7 +450,8 @@ def test_master_seed_login_disabled_after_admin_exists():
 
 
 def test_new_user_forced_to_change_password():
-    """A user created with force_password_change=True is redirected to the password change page on login."""
+    """A user created with force_password_change=True is redirected
+    to the password change page on login."""
     from relay_server.core.users import create_user
 
     init_db()

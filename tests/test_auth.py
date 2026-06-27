@@ -52,7 +52,9 @@ def test_auth_init_master_and_register_admin():
     from relay_server.core.db import get_conn
 
     conn = get_conn()
-    row = conn.execute("SELECT seed_hash FROM admin_seeds WHERE seed_id = ?", ("master",)).fetchone()
+    row = conn.execute(
+        "SELECT seed_hash FROM admin_seeds WHERE seed_id = ?", ("master",)
+    ).fetchone()
     conn.close()
     assert row is not None
     assert row["seed_hash"] != seed
@@ -357,7 +359,10 @@ def test_human_admin_user_can_approve_and_issue_token():
     init_db()
 
     # Create a human admin user.
-    create_user(username="admin-human", password="very-secret-password-99", group_names=["admin"], force_password_change=False)
+    create_user(
+        username="admin-human", password="very-secret-password-99",
+        group_names=["admin"], force_password_change=False,
+    )
 
     # Log in to obtain session cookies.
     r = client.post(
@@ -402,7 +407,10 @@ def test_human_user_without_permission_gets_403():
     init_db()
 
     # Create a human viewer user (dashboard:view only).
-    create_user(username="viewer-human", password="very-secret-password-99", group_names=["viewer"], force_password_change=False)
+    create_user(
+        username="viewer-human", password="very-secret-password-99",
+        group_names=["viewer"], force_password_change=False,
+    )
 
     # Log in to obtain session cookies.
     r = client.post(
@@ -453,7 +461,10 @@ def test_human_user_with_explicit_node_permissions():
     # Assign explicit node permissions to the custom group.
     set_group_permissions("grp_nodemgr", ["nodes:approve", "nodes:token"])
 
-    create_user(username="node-manager", password="very-secret-password-99", group_names=["nodemgr"], force_password_change=False)
+    create_user(
+        username="node-manager", password="very-secret-password-99",
+        group_names=["nodemgr"], force_password_change=False,
+    )
 
     r = client.post(
         "/relay/v2/dashboard/login",
@@ -634,7 +645,7 @@ def test_expired_registration_secret_cannot_recover_runtime_token():
         capabilities=[{"name": "board", "version": "1.0.0"}],
         role="service",
     )
-    runtime_token = approve_node(node_id, role="service")
+    _runtime_token = approve_node(node_id, role="service")
 
     # Artificially expire the registration secret in the database.
     conn = get_conn()

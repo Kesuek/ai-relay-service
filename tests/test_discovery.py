@@ -251,7 +251,9 @@ def test_heartbeat_rejects_invalid_payload():
 def test_presence_update_rejects_invalid_payload():
     secret = _seed_admin()
     admin_id, admin_token = _register_admin(secret)
-    worker_id, _ = _register_worker("Worker Invalid Presence", [{"name": "board", "version": "1.0.0"}])
+    worker_id, _ = _register_worker(
+        "Worker Invalid Presence", [{"name": "board", "version": "1.0.0"}]
+    )
     r = client.post(
         f"/relay/v2/admin/nodes/{worker_id}/approve",
         json={"role": "service", "capabilities": [{"name": "board", "version": "1.0.0"}]},
@@ -403,6 +405,7 @@ def test_stale_nodes_marked_offline():
 
     # Simulate old heartbeat by moving last_seen back in time.
     from datetime import datetime, timedelta, timezone
+
     from relay_server.core.db import get_conn
     old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
     conn = get_conn()
@@ -410,7 +413,7 @@ def test_stale_nodes_marked_offline():
     conn.commit()
     conn.close()
 
-    
+
     updated = mark_offline_nodes()
     assert worker_id in updated
 
