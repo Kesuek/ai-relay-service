@@ -78,7 +78,7 @@ def _retry(fn, *args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# Worker-Klasse
+# Worker class
 # ---------------------------------------------------------------------------
 class WorkerNode:
     """Generic worker node with configurable capabilities."""
@@ -440,7 +440,7 @@ class WorkerNode:
 # ---------------------------------------------------------------------------
 app = typer.Typer(
     name="relay-worker",
-    help="AI-Relay Worker-Node",
+    help="AI Relay worker node",
     add_completion=False,
 )
 

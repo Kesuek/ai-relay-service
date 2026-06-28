@@ -1,25 +1,25 @@
 # =============================================================================
-# capabilities.yaml – Template fuer generische Worker-Nodes
+# capabilities.yaml – template for generic worker nodes
 # =============================================================================
 #
-# Jede Capability beschreibt ein Feature des Nodes.
-# Felder:
-#   name        – eindeutiger Identifier (z.B. "chat.llama3")
+# Each capability describes a feature of the node.
+# Fields:
+#   name        – unique identifier (e.g. "chat.llama3")
 #   type        – ai | tool | script | workflow | resource
-#   description – menschlich lesbare Beschreibung
+#   description – human-readable description
 #   version     – semver
-#   available   – true/false (kann zur Laufzeit umgeschaltet werden)
-#   config      – provider-spezifische Konfiguration (freies JSON)
-#   metadata    – optionale Zusatzdaten (z.B. GPU-Info, max_connections)
+#   available   – true/false (can be toggled at runtime)
+#   config      – provider-specific configuration (free-form JSON)
+#   metadata    – optional extra data (e.g. GPU info, max_connections)
 # =============================================================================
 
 worker_name: "generic-worker-01"
 
 capabilities:
-  # ---- KI / LLM ---------------------------------------------------------
+  # ---- AI / LLM ---------------------------------------------------------
   - name: "chat.openai"
     type: ai
-    description: "OpenAI GPT-4o Chat-Modell"
+    description: "OpenAI GPT-4o chat model"
     version: "1.0.0"
     available: true
     config:
@@ -31,7 +31,7 @@ capabilities:
 
   - name: "chat.llama3"
     type: ai
-    description: "Llama 3.1 8B via Ollama (lokal)"
+    description: "Llama 3.1 8B via Ollama (local)"
     version: "1.0.0"
     available: true
     config:
@@ -43,7 +43,7 @@ capabilities:
 
   - name: "embedding.bge"
     type: ai
-    description: "BGE-Small Embedding-Modell fuer RAG"
+    description: "BGE-Small embedding model for RAG"
     version: "1.0.0"
     available: true
     config:
@@ -55,7 +55,7 @@ capabilities:
   # ---- TOOLS ------------------------------------------------------------
   - name: "tool.ffmpeg"
     type: tool
-    description: "FFmpeg fuer Audio/Video-Konvertierung"
+    description: "FFmpeg for audio/video conversion"
     version: "1.0.0"
     available: true
     config:
@@ -64,7 +64,7 @@ capabilities:
 
   - name: "tool.pdftotext"
     type: tool
-    description: "PDF-zu-Text Konvertierung via pdftotext"
+    description: "PDF-to-text conversion via pdftotext"
     version: "1.0.0"
     available: true
     config:
@@ -73,7 +73,7 @@ capabilities:
 
   - name: "tool.webscrape"
     type: tool
-    description: "Webseiten-Extraktion via HTTP"
+    description: "Website extraction via HTTP"
     version: "1.0.0"
     available: true
     config:
@@ -81,10 +81,10 @@ capabilities:
       max_content_length: 500000
       allowed_domains: []
 
-  # ---- SCRIPTS (laufen an der KI vorbei, werden von ihr getriggert) -----
+  # ---- SCRIPTS (run outside the AI, triggered by it) ---------------------
   - name: "script.data-cleanup"
     type: script
-    description: "CSV-Bereinigung und Normalisierung"
+    description: "CSV cleanup and normalization"
     version: "0.1.0"
     available: true
     config:
@@ -94,17 +94,17 @@ capabilities:
 
   - name: "script.report-gen"
     type: script
-    description: "Generiert woechtliche Berichte aus Datenbank-Dumps"
+    description: "Generates weekly reports from database dumps"
     version: "0.1.0"
     available: true
     config:
       script: "scripts/weekly_report.py"
       timeout: 300
 
-  # ---- WORKFLOWS (mehrschrittige Ablaeufe) -----------------------------
+  # ---- WORKFLOWS (multi-step pipelines) ---------------------------------
   - name: "workflow.data-pipeline"
     type: workflow
-    description: "CSV-Import -> Bereinigung -> DB-Insert -> Report"
+    description: "CSV import -> cleanup -> DB insert -> report"
     version: "0.1.0"
     available: true
     config:
@@ -117,12 +117,12 @@ capabilities:
   # ---- RESOURCES --------------------------------------------------------
   - name: "resource.postgres"
     type: resource
-    description: "PostgreSQL-Datenbank-Zugang"
+    description: "PostgreSQL database access"
     version: "1.0.0"
     available: true
     config:
       host: "db.internal"
       port: 5432
       database: "relay_data"
-      # Kein Passwort hier – kommt aus ~/.relay/secrets/
+      # No password here – comes from ~/.relay/secrets/
       ssl: true

@@ -1,167 +1,167 @@
 # Building Plan – ai-relay-service
 
-> Zentrale Referenz für den aktuellen Entwicklungsstand und die nächsten Schritte.
-> Aktualisiert: 2026-06-26
+> Central reference for the current development status and the next steps.
+> Updated: 2026-06-26
 
 ---
 
-## Projekt-Übersicht
+## Project overview
 
 - **Repo:** `~/projects/ai-relay-service`
-- **Branch:** `master` (clean nach Commit `4544b65`)
-- **Build:** `pip install -e .` im venv `.venv`
-- **Start Server:** `relay-server` (Entrypoint: `relay_server.main:main`)
-- **Start Worker:** `relay-worker start` (kommend)
-- **Tests:** `pytest` → aktuell 43/43 grün
+- **Branch:** `master` (clean after commit `4544b65`)
+- **Build:** `pip install -e .` in the venv `.venv`
+- **Start server:** `relay-server` (entrypoint: `relay_server.main:main`)
+- **Start worker:** `relay-worker start` (upcoming)
+- **Tests:** `pytest` → currently 43/43 green
 
 ---
 
-## Architektur-Entscheidungen (aktuell final)
+## Architecture decisions (currently final)
 
-| # | Entscheidung | Status |
-|---|-------------|--------|
-| AD-1 | Input-Schema: flexibel als `dict`, Validierung über `CapabilityInputSchema` | ✅ |
-| AD-2 | Capability-Klassen: Server (`models/`) + Worker (`nodes/common/`) getrennt, aber kompatibel | ✅ |
-| AD-3 | Validierung: CLI lokal (UX) + Worker (Autorität), Server nur Basis-Check | ✅ |
-| AD-4 | Capability-API-Endpoints in `discovery.py` | ✅ |
-| AD-5 | Atomic Write für `capabilities.yaml` (CLI) + mtime-Check (Daemon) | ✅ |
-| AD-6 | Heartbeat alle 8s, kein File-Read pro Heartbeat, nur bei mtime-Änderung oder SIGHUP | ✅ |
+| # | Decision | Status |
+|---|-----------|--------|
+| AD-1 | Input schema: flexible as `dict`, validation via `CapabilityInputSchema` | ✅ |
+| AD-2 | Capability classes: server (`models/`) + worker (`nodes/common/`) separated, but compatible | ✅ |
+| AD-3 | Validation: CLI locally (UX) + worker (authority), server only basic check | ✅ |
+| AD-4 | Capability API endpoints in `discovery.py` | ✅ |
+| AD-5 | Atomic write for `capabilities.yaml` (CLI) + mtime check (daemon) | ✅ |
+| AD-6 | Heartbeat every 8s, no file read per heartbeat, only on mtime change or SIGHUP | ✅ |
 
 ---
 
-## Aktueller Stand
+## Current status
 
-### ✅ Abgeschlossen
+### ✅ Completed
 
-| Bereich | Was | Wo |
+| Area | What | Where |
 |---------|-----|----|
-| Server-API | Auth v2, SlowAPI, Dashboard, CSRF, Security Headers | `src/relay_server/` |
-| Datenbank | SQLite, `nodes`-Tabelle mit `capabilities` JSON-Column | `src/relay_server/core/db.py` |
-| Scheduler | Task-Phase-System, Claim/Release/Complete, DAG-Stages | `src/relay_server/api/v2/scheduler.py` |
-| Node-Capabilities | `CapabilitySet`, `Capability` Dataclass, YAML-Load | `nodes/common/capability.py` |
-| Worker-Daemon | Registrierung, Heartbeat-Loop, Graceful Shutdown, CLI-Stub | `nodes/worker/worker.py` |
-| Capability-Template | Beispiel-`capabilities.yaml` mit `script.image.flux` | `nodes/worker/capabilities.yaml` |
+| Server API | Auth v2, SlowAPI, dashboard, CSRF, security headers | `src/relay_server/` |
+| Database | SQLite, `nodes` table with `capabilities` JSON column | `src/relay_server/core/db.py` |
+| Scheduler | Task phase system, claim/release/complete, DAG stages | `src/relay_server/api/v2/scheduler.py` |
+| Node capabilities | `CapabilitySet`, `Capability` dataclass, YAML load | `nodes/common/capability.py` |
+| Worker daemon | Registration, heartbeat loop, graceful shutdown, CLI stub | `nodes/worker/worker.py` |
+| Capability template | Example `capabilities.yaml` with `script.image.flux` | `nodes/worker/capabilities.yaml` |
 
-### 🔄 In Arbeit
+### 🔄 In progress
 
-| Bereich | Was | Status |
+| Area | What | Status |
 |---------|-----|--------|
-| Data Models (neu) | `models/capability.py` (InputField + Schema + Validierung) | ✅ geschrieben |
-| Data Models (neu) | `models/discovery.py` (DiscoveryNode, DiscoveryCapability) | ✅ geschrieben |
-| Data Models (neu) | `models/task.py` (SimpleTaskRequest, idempotency) | ✅ geschrieben |
-| models/__init__.py | Aufräumen: alte Capability ersetzen, neue importieren | ⬜ offen |
+| Data models (new) | `models/capability.py` (InputField + schema + validation) | ✅ written |
+| Data models (new) | `models/discovery.py` (DiscoveryNode, DiscoveryCapability) | ✅ written |
+| Data models (new) | `models/task.py` (SimpleTaskRequest, idempotency) | ✅ written |
+| models/__init__.py | Cleanup: replace old Capability, import new ones | ⬜ open |
 
-### ⬜ Noch nicht begonnen
+### ⬜ Not yet started
 
-| Bereich | Was | Prio |
+| Area | What | Prio |
 |---------|-----|------|
-| Server Discovery-API | `GET /capabilities`, `GET /capabilities/{name}` | 🔴 P0 |
-| Server Simple-Task | `POST /scheduler/task-simple` | 🔴 P0 |
-| Worker Input-Validator | Payload gegen input-Schema prüfen | 🔴 P0 |
-| Worker Token-Refresh | Credential-Refresh vor Expiry | 🔴 P0 |
-| Worker Artifact-Download | Input-Artifacts vor Stage holen | 🟡 P1 |
-| Worker SIGHUP + mtime | Capabilities zur Laufzeit neu laden | 🟡 P1 |
-| Worker Reconnect | Auto-Reconnect + Re-Register | 🟡 P1 |
-| CLI caps write | Atomic Write + Validate | 🔴 P0 |
-| CLI task submit | Task absenden mit Server-Discovery | 🔴 P0 |
-| CLI caps validate | Schema-Prüfung (lokal) | 🟡 P1 |
-| CLI caps show | Capabilities anzeigen (lokal/Server) | 🟢 P2 |
-| CLI task watch | Live-Follow eines Tasks | 🟢 P2 |
-| CLI config | `~/.relay/config.json` verwalten | 🟡 P1 |
+| Server discovery API | `GET /capabilities`, `GET /capabilities/{name}` | 🔴 P0 |
+| Server simple task | `POST /scheduler/task-simple` | 🔴 P0 |
+| Worker input validator | Validate payload against input schema | 🔴 P0 |
+| Worker token refresh | Credential refresh before expiry | 🔴 P0 |
+| Worker artifact download | Fetch input artifacts before a stage | 🟡 P1 |
+| Worker SIGHUP + mtime | Reload capabilities at runtime | 🟡 P1 |
+| Worker reconnect | Auto-reconnect + re-register | 🟡 P1 |
+| CLI caps write | Atomic write + validate | 🔴 P0 |
+| CLI task submit | Submit a task with server discovery | 🔴 P0 |
+| CLI caps validate | Schema validation (local) | 🟡 P1 |
+| CLI caps show | Display capabilities (local/server) | 🟢 P2 |
+| CLI task watch | Live-follow a task | 🟢 P2 |
+| CLI config | Manage `~/.relay/config.json` | 🟡 P1 |
 
 ---
 
-## Coding-Session Ablauf (nach opencode-Run-Muster)
+## Coding session workflow (following the opencode-run pattern)
 
-### Neue Dateien erstellen
-
-```
-opencode run --agent primary "Erstelle die Datei models/__init__.py mit allen Pydantic-Modellen. 
-Die alten Capability/Task-Modelle in der Datei müssen durch die neuen aus models/capability.py, 
-models/discovery.py und models/task.py ersetzt werden. Importiere alles sauber und stelle 
-sicher, dass bestehende Imports aus api/v2/auth.py und api/v2/scheduler.py weiter funktionieren."
-```
-
-### Bestehende Server-Endpoints erweitern
+### Create new files
 
 ```
-opencode run --agent primary "Erweitere src/relay_server/api/v2/discovery.py um zwei neue GET-Endpoints:
-1. GET /capabilities - gibt DiscoveryResponse zurück (alle Capabilities aller Nodes)
-2. GET /capabilities/{name} - gibt DiscoveryDetailResponse zurück
-
-Die Daten kommen aus der SQLite nodes-Tabelle, capabilities-JSON-Spalte. 
-Merging: gleiche Capability-Name von verschiedenen Nodes wird zu einem Eintrag mit nodes-Array."
+opencode run --agent primary "Create the file models/__init__.py with all Pydantic models.
+The old Capability/Task models in the file must be replaced by the new ones from models/capability.py,
+models/discovery.py and models/task.py. Import everything cleanly and make sure
+existing imports from api/v2/auth.py and api/v2/scheduler.py keep working."
 ```
 
-### Worker-Daemon erweitern
+### Extend existing server endpoints
 
 ```
-opencode run --agent primary "Erweitere nodes/worker/worker.py um:
-1. Input-Validierung vor Task-Ausführung gegen CapabilityInputSchema
-2. mtime-Check im Heartbeat-Loop: os.path.getmtime() prüfen, bei Änderung reload
-3. SIGHUP-Handler: capabilities.yaml neu laden + sofort Heartbeat senden
-4. Error-Handling: bei invalider Capability Exception loggen, stage als failed markieren
+opencode run --agent primary "Extend src/relay_server/api/v2/discovery.py with two new GET endpoints:
+1. GET /capabilities - returns DiscoveryResponse (all capabilities of all nodes)
+2. GET /capabilities/{name} - returns DiscoveryDetailResponse
 
-Verwende nodes/common/capability.py für CapabilitySet und CapabilityInputSchema."
+The data comes from the SQLite nodes table, capabilities JSON column.
+Merging: the same capability name from different nodes becomes one entry with a nodes array."
 ```
 
-### Worker-CLI erstellen
+### Extend the worker daemon
 
 ```
-opencode run --agent primary "Erstelle das CLI-Package cli/ mit:
+opencode run --agent primary "Extend nodes/worker/worker.py with:
+1. Input validation before task execution against CapabilityInputSchema
+2. mtime check in the heartbeat loop: check os.path.getmtime(), reload on change
+3. SIGHUP handler: reload capabilities.yaml + send a heartbeat immediately
+4. Error handling: log an exception for an invalid capability, mark the stage as failed
+
+Use nodes/common/capability.py for CapabilitySet and CapabilityInputSchema."
+```
+
+### Create the worker CLI
+
+```
+opencode run --agent primary "Create the CLI package cli/ with:
 - cli/commands/caps.py: write, validate, show
 - cli/commands/tasks.py: submit, list, watch
-- cli/client.py: HTTP-Client (RelayClient)
+- cli/client.py: HTTP client (RelayClient)
 - cli/commands/discover.py: capabilities, nodes
 
-Die CLI verwendet Typer. caps write macht Atomic Write (tmp → validate → mv).
-task submit holt Capabilities vom Server, validiert Payload lokal, sendet Task."
+The CLI uses Typer. caps write does an atomic write (tmp → validate → mv).
+task submit fetches capabilities from the server, validates the payload locally, sends the task."
 ```
 
 ---
 
-## Build-Aufrufe
+## Build commands
 
 ```bash
-# Full build (im Projektverzeichnis)
+# Full build (in the project directory)
 pip install -e .
 
 # Tests
 pytest -x -q
 
-# Ruff (Linting)
+# Ruff (linting)
 ruff check .
 
-# Einzelnes Modul testen
+# Test a single module
 pytest tests/test_discovery.py -v
 ```
 
 ---
 
-## Vorgaben
+## Conventions
 
-- **Python-Version:** 3.11+
-- **Formatierung:** Ruff (line-length 100, target py311)
-- **Test-Framework:** pytest + pytest-asyncio
-- **Docstrings:** Google-Style
+- **Python version:** 3.11+
+- **Formatting:** Ruff (line-length 100, target py311)
+- **Test framework:** pytest + pytest-asyncio
+- **Docstrings:** Google style
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `refactor:`)
-- **Keine** API-Keys oder Secrets in Code/Config – nur `[REDACTED]`
+- **No** API keys or secrets in code/config – only `[REDACTED]`
 
 ---
 
-## Task-Referenz
+## Task reference
 
-Ausführliche Task-Liste siehe `TASKS.md` (im Projekt-Root).
-| ID | Aufgabe | Prio | Status |
+See `TASKS.md` (in the project root) for the detailed task list.
+| ID | Task | Prio | Status |
 |----|---------|------|--------|
-| T-010 | Input-Schema Validierung in capability.py | 🔴 | ⬜ todo |
-| T-011 | Atomic Write CLI (`caps write`) | 🔴 | ⬜ todo |
-| T-012 | mtime-Check + SIGHUP-Reload | 🟡 | ⬜ todo |
-| T-013 | Credential-Refresh im Worker | 🔴 | ⬜ todo |
-| T-014 | Artifact-Download im Worker | 🟡 | ⬜ todo |
-| T-015 | Discovery-API Endpoints | 🔴 | ⬜ todo |
+| T-010 | Input schema validation in capability.py | 🔴 | ⬜ todo |
+| T-011 | Atomic write CLI (`caps write`) | 🔴 | ⬜ todo |
+| T-012 | mtime check + SIGHUP reload | 🟡 | ⬜ todo |
+| T-013 | Credential refresh in the worker | 🔴 | ⬜ todo |
+| T-014 | Artifact download in the worker | 🟡 | ⬜ todo |
+| T-015 | Discovery API endpoints | 🔴 | ⬜ todo |
 | T-016 | POST /scheduler/task-simple | 🔴 | ⬜ todo |
-| T-017 | Worker-CLI task submit | 🟡 | ⬜ todo |
-| T-018 | CLI Capability-Cache | 🟢 | ⬜ todo |
-| T-019 | Token-Management/Auto-Refresh | 🔴 | ⬜ todo |
-| T-020 | Schema-Validierung Input-Constraints | 🟡 | ⬜ todo |
+| T-017 | Worker CLI task submit | 🟡 | ⬜ todo |
+| T-018 | CLI capability cache | 🟢 | ⬜ todo |
+| T-019 | Token management/auto-refresh | 🔴 | ⬜ todo |
+| T-020 | Schema validation input constraints | 🟡 | ⬜ todo |
