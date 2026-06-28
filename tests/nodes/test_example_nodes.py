@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent.parent
 PYTHON = REPO / ".venv" / "bin" / "python3"
 NODES_DIR = REPO / "examples" / "nodes"
 
@@ -171,6 +171,10 @@ def relay_environment():
         env["RELAY_DB_PATH"] = str(db_path)
         env["RELAY_ARTIFACTS_DIR"] = str(artifacts_dir)
         env["RELAY_LOG_LEVEL"] = "info"
+        # The relay server requires a persistent session secret for cookie
+        # signing. Set it explicitly so the node test suite is self-contained
+        # and does not depend on env vars mutated by the server test modules.
+        env["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-production"
 
         server = None
         vault = None

@@ -274,7 +274,7 @@ curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
 After a few seconds the storage node claims the task and writes the file to
 `/volume1/ai-relay-storage/test.txt`.
 
-## 10. 9. Systemd service for the relay
+## 10. Systemd service for the relay
 
 Create `/etc/systemd/system/ai-relay.service`:
 
@@ -304,7 +304,7 @@ sudo systemctl enable ai-relay.service
 sudo systemctl start ai-relay.service
 ```
 
-## 11. 9. Updating
+## 11. Updating
 
 Pull the latest code, reinstall, and restart:
 
