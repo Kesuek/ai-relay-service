@@ -6,6 +6,7 @@ import json
 import textwrap
 from pathlib import Path
 
+import httpx
 import pytest
 
 from nodes.common import capability_loader as cl
@@ -87,6 +88,7 @@ EXPECTED_SUBCOMMANDS = {
     "capabilities",
     "status",
     "reload",
+    "artifact",
 }
 
 
@@ -121,6 +123,9 @@ def test_all_subcommands_parse_without_errors():
         ["capabilities", "current"],
         ["status"],
         ["reload"],
+        ["artifact", "download", "artifact_123"],
+        ["artifact", "download", "artifact_123", "--output", "/tmp/out.bin"],
+        ["artifact", "download", "artifact_123", "-o", "/tmp/out.bin"],
     ]
     for argv in cases:
         ns = parser.parse_args(argv)
@@ -327,3 +332,152 @@ def test_task_submit_stage_invalid_no_colon():
 def test_task_submit_stage_invalid_json():
     with pytest.raises(SystemExit):
         cli._parse_stage_arg("chat.ai:not-json")
+
+
+# ---------------------------------------------------------------------------
+# artifact download
+# ---------------------------------------------------------------------------
+
+
+class _FakeStreamResponse:
+    """Minimal stand-in for an httpx streaming Response."""
+
+    def __init__(self, *, status_code: int, chunks, headers: dict | None = None) -> None:
+        self.status_code = status_code
+        self._chunks = list(chunks)
+        self.headers = headers or {}
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                "error", request=None, response=self  # type: ignore[arg-type]
+            )
+
+    def iter_bytes(self, chunk_size: int = 65536):  # noqa: ARG002
+        for c in self._chunks:
+            yield c
+
+
+class _FakeStreamCM:
+    """Context manager returned by a mocked ``httpx.stream``."""
+
+    def __init__(self, response: _FakeStreamResponse) -> None:
+        self._response = response
+        self.entered = False
+
+    def __enter__(self) -> _FakeStreamResponse:
+        self.entered = True
+        return self._response
+
+    def __exit__(self, *exc) -> None:
+        return None
+
+
+def _write_token(base: Path) -> Path:
+    token_path = base / "ai-relay-agent.token"
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text("rt_testtoken123\n", encoding="utf-8")
+    return token_path
+
+
+def _make_client(base: Path, monkeypatch: pytest.MonkeyPatch):
+    _write_token(base)
+    meta = {"node_id": "n1", "base_url": "http://relay.test", "capabilities": []}
+    cfg = {"base_url": "http://relay.test", "request_timeout": 5}
+    return cli.RelayClient(meta, cfg)
+
+
+def test_download_artifact_writes_streamed_content(isolated_paths: Path, monkeypatch):
+    client = _make_client(isolated_paths, monkeypatch)
+    payload = b"HELLO-ARTIFACT-BYTES"
+    fake = _FakeStreamResponse(
+        status_code=200,
+        chunks=[payload[:5], payload[5:]],
+        headers={"content-disposition": 'attachment; filename="report.bin"'},
+    )
+    cm = _FakeStreamCM(fake)
+    monkeypatch.setattr(cli.httpx, "stream", lambda *a, **k: cm)
+
+    out = isolated_paths / "downloads"
+    out.mkdir(parents=True, exist_ok=True)
+    target = client.download_artifact("artifact_abc", output_path=out / "report.bin")
+    assert target == out / "report.bin"
+    assert target.read_bytes() == payload
+    assert cm.entered is True
+
+
+def test_download_artifact_uses_content_disposition_filename(isolated_paths: Path, monkeypatch):
+    client = _make_client(isolated_paths, monkeypatch)
+    payload = b"streamed-data"
+    fake = _FakeStreamResponse(
+        status_code=200,
+        chunks=[payload],
+        headers={"content-disposition": 'inline; filename="from-server.txt"'},
+    )
+    monkeypatch.setattr(cli.httpx, "stream", lambda *a, **k: _FakeStreamCM(fake))
+    monkeypatch.chdir(isolated_paths)
+
+    target = client.download_artifact("artifact_xyz")
+    assert target.name == "from-server.txt"
+    assert target.parent == Path(".")
+    assert target.read_bytes() == payload
+    target.unlink(missing_ok=True)
+
+
+def test_download_artifact_raises_on_http_error(isolated_paths: Path, monkeypatch):
+    client = _make_client(isolated_paths, monkeypatch)
+    fake = _FakeStreamResponse(status_code=404, chunks=[], headers={})
+    monkeypatch.setattr(cli.httpx, "stream", lambda *a, **k: _FakeStreamCM(fake))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        client.download_artifact("artifact_missing")
+
+
+def test_cmd_artifact_download_invokes_client(isolated_paths: Path, monkeypatch, capsys):
+    client = _make_client(isolated_paths, monkeypatch)
+    payload = b"cli-payload"
+
+    captured = {}
+
+    def fake_download(artifact_id, output_path=None, **kw):
+        captured["artifact_id"] = artifact_id
+        captured["output_path"] = output_path
+        target = output_path or (isolated_paths / "out.bin")
+        target.write_bytes(payload)
+        return target
+
+    monkeypatch.setattr(cli.RelayClient, "download_artifact", staticmethod(fake_download))
+
+    monkeypatch.setattr(cli, "load_meta", lambda: {"node_id": "n1", "base_url": "http://relay.test"})
+    monkeypatch.setattr(cli, "_effective_config", lambda: {"base_url": "http://relay.test", "request_timeout": 5})
+    monkeypatch.setattr(cli, "RelayClient", lambda meta, cfg: client)
+
+    rc = cli.main(["artifact", "download", "artifact_cli1", "-o", str(isolated_paths / "x.bin")])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Downloaded" in out
+    assert str(len(payload)) in out
+    assert captured["artifact_id"] == "artifact_cli1"
+
+
+def test_poller_download_artifact_streams_to_disk(isolated_paths: Path, monkeypatch):
+    _write_token(isolated_paths)
+    _write(isolated_paths / "ai-relay-agent.json", json.dumps({
+        "node_id": "n1",
+        "base_url": "http://relay.test",
+        "capabilities": [],
+    }))
+    poller_obj = poller.Poller()
+    payload = b"poller-bytes"
+
+    fake = _FakeStreamResponse(
+        status_code=200,
+        chunks=[payload[:3], payload[3:]],
+        headers={"content-disposition": 'attachment; filename="poll.bin"'},
+    )
+    monkeypatch.setattr(poller.httpx, "stream", lambda *a, **k: _FakeStreamCM(fake))
+
+    target = poller_obj.download_artifact("artifact_p1")
+    assert target.name == "poll.bin"
+    assert target.read_bytes() == payload
+    target.unlink(missing_ok=True)

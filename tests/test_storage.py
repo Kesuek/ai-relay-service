@@ -1,5 +1,6 @@
 """Tests for the generic storage upload/download endpoints."""
 
+import base64
 import os
 import tempfile
 from pathlib import Path
@@ -22,6 +23,7 @@ def fresh_db():
         db_path = Path(tmp) / "test.db"
         settings.db_path = db_path
         settings.artifacts_dir = Path(tmp) / "artifacts"
+        settings.chunked_uploads_dir = Path(tmp) / "chunked_uploads"
         init_db()
         yield
 
@@ -139,6 +141,32 @@ def test_storage_list_and_delete():
     assert artifact_id not in ids
 
 
+def test_storage_large_upload_exceeds_spool_ram_threshold():
+    """Upload a file larger than the SpooledTemporaryFile RAM threshold (1 MiB).
+
+    Forces the spool to roll over to disk and exercises the chunkwise move
+    path in store_artifact_from_file.
+    """
+    headers = _admin_headers()
+    content = b"x" * (2 * 1024 * 1024)  # 2 MiB -> spills past the 1 MiB spool
+
+    upload = client.post(
+        "/relay/v2/storage/upload",
+        headers=headers,
+        files={"file": ("large.bin", content, "application/octet-stream")},
+    )
+    assert upload.status_code == 200, upload.text
+    body = upload.json()
+    assert body["name"] == "large.bin"
+    assert body["size_bytes"] == len(content)
+
+    artifact_id = body["artifact_id"]
+
+    download = client.get(f"/relay/v2/storage/files/{artifact_id}", headers=headers)
+    assert download.status_code == 200
+    assert download.content == content
+
+
 def test_storage_upload_with_optional_task_stage():
     headers = _admin_headers()
 
@@ -149,3 +177,163 @@ def test_storage_upload_with_optional_task_stage():
     )
     assert upload.status_code == 200, upload.text
     assert upload.json()["artifact_id"].startswith("artifact_")
+
+
+# ── Chunked upload tests ────────────────────────────────────────
+
+
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode("ascii")
+
+
+def test_chunked_upload_happy_path():
+    headers = _admin_headers()
+    chunks = [b"AAA", b"BBB", b"CCC"]
+    expected = b"".join(chunks)
+
+    init = client.post(
+        "/relay/v2/storage/chunked/init",
+        headers=headers,
+        json={"name": "test.bin", "mime_type": "application/octet-stream", "total_chunks": 3},
+    )
+    assert init.status_code == 200, init.text
+    upload_id = init.json()["upload_id"]
+    assert init.json()["status"] == "init"
+    assert upload_id.startswith("upl_")
+
+    for i, chunk in enumerate(chunks):
+        r = client.post(
+            f"/relay/v2/storage/chunked/{upload_id}/chunk",
+            headers=headers,
+            json={"chunk_index": i, "data_b64": _b64(chunk)},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "received"
+        assert r.json()["received"] == i + 1
+
+    complete = client.post(
+        f"/relay/v2/storage/chunked/{upload_id}/complete",
+        headers=headers,
+        json={},
+    )
+    assert complete.status_code == 200, complete.text
+    body = complete.json()
+    assert body["status"] == "created"
+    assert body["size_bytes"] == len(expected)
+    artifact_id = body["artifact_id"]
+
+    download = client.get(f"/relay/v2/storage/files/{artifact_id}", headers=headers)
+    assert download.status_code == 200
+    assert download.content == expected
+
+
+def test_chunked_upload_complete_missing_chunks():
+    headers = _admin_headers()
+
+    init = client.post(
+        "/relay/v2/storage/chunked/init",
+        headers=headers,
+        json={"name": "partial.bin", "total_chunks": 3},
+    )
+    upload_id = init.json()["upload_id"]
+
+    # Only upload chunk 0
+    client.post(
+        f"/relay/v2/storage/chunked/{upload_id}/chunk",
+        headers=headers,
+        json={"chunk_index": 0, "data_b64": _b64(b"AAA")},
+    )
+
+    complete = client.post(
+        f"/relay/v2/storage/chunked/{upload_id}/complete",
+        headers=headers,
+        json={},
+    )
+    assert complete.status_code == 400
+    assert "Missing chunks" in complete.json()["detail"]
+
+
+def test_chunked_upload_chunk_for_unknown_session():
+    headers = _admin_headers()
+    r = client.post(
+        "/relay/v2/storage/chunked/upl_doesnotexist/chunk",
+        headers=headers,
+        json={"chunk_index": 0, "data_b64": _b64(b"x")},
+    )
+    assert r.status_code == 404
+
+
+def test_chunked_upload_checksum_mismatch():
+    import hashlib
+
+    headers = _admin_headers()
+    payload = b"hello-chunked-world"
+    chunks = [payload[:5], payload[5:11], payload[11:]]
+
+    init = client.post(
+        "/relay/v2/storage/chunked/init",
+        headers=headers,
+        json={"name": "chk.bin", "total_chunks": len(chunks)},
+    )
+    upload_id = init.json()["upload_id"]
+
+    for i, chunk in enumerate(chunks):
+        client.post(
+            f"/relay/v2/storage/chunked/{upload_id}/chunk",
+            headers=headers,
+            json={"chunk_index": i, "data_b64": _b64(chunk)},
+        )
+
+    wrong = "0" * 64
+    complete = client.post(
+        f"/relay/v2/storage/chunked/{upload_id}/complete",
+        headers=headers,
+        json={"checksum": wrong},
+    )
+    assert complete.status_code == 400
+    assert "Checksum mismatch" in complete.json()["detail"]
+
+    # The session should still be present so the client can retry/inspect.
+    # A correct checksum must now succeed.
+    correct = hashlib.sha256(payload).hexdigest()
+    complete2 = client.post(
+        f"/relay/v2/storage/chunked/{upload_id}/complete",
+        headers=headers,
+        json={"checksum": correct},
+    )
+    assert complete2.status_code == 200, complete2.text
+    assert complete2.json()["status"] == "created"
+
+
+def test_chunked_upload_rejects_bad_base64():
+    headers = _admin_headers()
+    init = client.post(
+        "/relay/v2/storage/chunked/init",
+        headers=headers,
+        json={"name": "bad.bin", "total_chunks": 1},
+    )
+    upload_id = init.json()["upload_id"]
+    r = client.post(
+        f"/relay/v2/storage/chunked/{upload_id}/chunk",
+        headers=headers,
+        json={"chunk_index": 0, "data_b64": "!!!not base64!!!"},
+    )
+    assert r.status_code == 400
+    assert "base64" in r.json()["detail"]
+
+
+def test_chunked_upload_rejects_chunk_index_out_of_range():
+    headers = _admin_headers()
+    init = client.post(
+        "/relay/v2/storage/chunked/init",
+        headers=headers,
+        json={"name": "oor.bin", "total_chunks": 2},
+    )
+    upload_id = init.json()["upload_id"]
+    r = client.post(
+        f"/relay/v2/storage/chunked/{upload_id}/chunk",
+        headers=headers,
+        json={"chunk_index": 5, "data_b64": _b64(b"x")},
+    )
+    assert r.status_code == 400
+    assert "out of range" in r.json()["detail"]
