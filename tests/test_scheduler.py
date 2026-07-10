@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["RELAY_DB_PATH"] = ""
+os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-production"
 
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
@@ -22,11 +23,17 @@ def fresh_db():
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
         settings.db_path = db_path
+        settings.session_secret = "test-session-secret-do-not-use-in-production"
         settings.heartbeat_interval_seconds = 10
         settings.heartbeat_timeout_multiplier = 2
         settings.claim_ttl_seconds = 60
+        # Reset cached pepper so each test re-evaluates session_secret.
+        import relay_server.core.auth as auth_mod
+
+        auth_mod._TOKEN_PEPPER = None
         init_db()
         yield
+        auth_mod._TOKEN_PEPPER = None
 
 
 client = TestClient(app)
@@ -281,3 +288,30 @@ def test_artifact_upload_and_list():
     assert r.status_code == 200
     assert len(r.json()["artifacts"]) == 1
     assert r.json()["artifacts"][0]["size_bytes"] == 11
+
+
+def test_task_payload_too_large():
+    """Task mit payload > max_payload_bytes muss 422 zurueckgeben."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    from relay_server.config import settings
+
+    # Ein Payload, der groesser ist als das Limit
+    big_payload = {"data": "x" * (settings.max_payload_bytes + 1)}
+
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "big-payload-test",
+            "stages": [{
+                "stage_name": "main",
+                "capability": "test.ai",
+                "payload": big_payload,
+            }],
+        },
+    )
+    assert r.status_code == 422, f"Expected 422, got {r.status_code}: {r.text}"
