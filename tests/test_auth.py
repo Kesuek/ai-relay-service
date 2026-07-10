@@ -21,10 +21,15 @@ def fresh_db():
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
         settings.db_path = db_path
-        settings.session_secret = "test-secret"
+        settings.session_secret = "test-session-secret-do-not-use-in-production"
         settings.session_cookie_secure = False
+        # Reset cached pepper so each test re-evaluates session_secret.
+        import relay_server.core.auth as auth_mod
+
+        auth_mod._TOKEN_PEPPER = None
         init_db()
         yield
+        auth_mod._TOKEN_PEPPER = None
 
 
 client = TestClient(app)
@@ -665,4 +670,24 @@ def test_expired_registration_secret_cannot_recover_runtime_token():
         },
     )
     assert r.status_code == 401
+
+
+def test_token_pepper_fails_without_session_secret():
+    """_get_token_pepper() muss fail-fast wenn session_secret fehlt."""
+    from relay_server.core.auth import _get_token_pepper
+
+    # session_secret im Test ist gesetzt (siehe conftest/fixture),
+    # also testen wir den Pfad ueber eine temporaere Konfiguration.
+    original = settings.session_secret
+    try:
+        settings.session_secret = None
+        # _TOKEN_PEPPER global zuruecksetzen
+        import relay_server.core.auth as auth_mod
+
+        auth_mod._TOKEN_PEPPER = None
+        with pytest.raises(RuntimeError, match="RELAY_SESSION_SECRET"):
+            _get_token_pepper()
+    finally:
+        settings.session_secret = original
+        auth_mod._TOKEN_PEPPER = None
 
