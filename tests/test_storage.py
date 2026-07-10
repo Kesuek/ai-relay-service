@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["RELAY_DB_PATH"] = ""
+os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-production"
 
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
@@ -22,10 +23,16 @@ def fresh_db():
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
         settings.db_path = db_path
+        settings.session_secret = "test-session-secret-do-not-use-in-production"
         settings.artifacts_dir = Path(tmp) / "artifacts"
         settings.chunked_uploads_dir = Path(tmp) / "chunked_uploads"
+        # Reset cached pepper so each test re-evaluates session_secret.
+        import relay_server.core.auth as auth_mod
+
+        auth_mod._TOKEN_PEPPER = None
         init_db()
         yield
+        auth_mod._TOKEN_PEPPER = None
 
 
 client = TestClient(app)
