@@ -9,3 +9,9 @@ log_level: info
 heartbeat_interval_seconds: 30
 heartbeat_timeout_multiplier: 2
 claim_ttl_seconds: 60
+
+# REQUIRED: Session secret for dashboard cookie signing.
+# Generate with: openssl rand -base64 32
+# Must be at least 32 characters. Keep stable — changing it invalidates
+# all active dashboard sessions.
+# session_secret: "your-random-secret-here"

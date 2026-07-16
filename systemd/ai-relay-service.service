@@ -10,6 +10,9 @@ Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 Environment=RELAY_DB_PATH=%h/.relay/server.db
+# REQUIRED: Set RELAY_SESSION_SECRET or create ~/.relay/config.yaml with
+# session_secret. Without it the server refuses to start.
+# Environment=RELAY_SESSION_SECRET=your-32-char-secret-here
 
 [Install]
 WantedBy=default.target

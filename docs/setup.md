@@ -40,7 +40,30 @@ docker build -t ai-relay-server:latest -f Dockerfile.relay .
 > The repository currently does not include a relay-server Dockerfile. Create one
 > yourself or use Option A for now.
 
-## 2. Create the master admin seed
+## 2. Configure the session secret
+
+The relay signs dashboard session cookies with a **session secret** — a random
+string of at least 32 characters. This secret must be set **before** the server
+starts, otherwise the server refuses to boot.
+
+Create `~/.relay/config.yaml`:
+
+```yaml
+# ~/.relay/config.yaml
+session_secret: "<generate a random 32+ char string, e.g. openssl rand -base64 32>"
+```
+
+Alternatively, set the `RELAY_SESSION_SECRET` environment variable:
+
+```bash
+export RELAY_SESSION_SECRET="<your-random-secret>"
+```
+
+> **Important:** The session secret is a **persistent** key. Changing it
+> invalidates all existing dashboard session cookies, forcing every admin to
+> log in again. Generate it once and keep it stable.
+
+## 3. Create the master admin seed
 
 The master seed is required for initial bootstrap and recovery. Create it once
 on the relay host:
@@ -289,6 +312,9 @@ User=felix
 WorkingDirectory=/home/felix/projects/ai-relay-service
 ExecStart=/home/felix/projects/ai-relay-service/.venv/bin/relay-server server --port 8788
 Environment=RELAY_ENABLE_MDNS=true
+# REQUIRED: Set RELAY_SESSION_SECRET or create ~/.relay/config.yaml with
+# session_secret. Without it the server refuses to start.
+# Environment=RELAY_SESSION_SECRET=your-32-char-secret-here
 Restart=always
 RestartSec=10
 
