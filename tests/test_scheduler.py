@@ -374,3 +374,126 @@ def test_db_write_does_not_retry_non_lock_error():
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         other_error()
     assert call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# T-017: Timeout Enforcement Tests
+# ---------------------------------------------------------------------------
+
+
+def test_enforce_timeouts_marks_overdue_stages():
+    """A claimed stage past its timeout is marked timed_out."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "test_ai", "version": "1.0"}], admin_token=admin_token
+    )
+
+    # Create a task with a very short timeout.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "timeout-test",
+            "stages": [{"stage_name": "s1", "capability": "test_ai", "timeout_seconds": 1}],
+        },
+    )
+    assert r.status_code == 200
+    stage_id = r.json()["stages"][0]["stage_id"]
+
+    # Claim the stage.
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={},
+    )
+    assert r.json()["claimed"] is True
+
+    # Manually backdate claimed_at to force timeout.
+    import datetime
+
+    conn = get_conn()
+    old_time = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).isoformat()
+    conn.execute(
+        "UPDATE task_stages SET claimed_at = ? WHERE stage_id = ?",
+        (old_time, stage_id),
+    )
+    conn.commit()
+    conn.close()
+
+    # Enforce timeouts.
+    r = client.post(
+        "/relay/v2/scheduler/enforce-timeouts",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert stage_id in body["stages_timed_out"]
+
+    # Single-stage task with all stages timed_out -> task itself timed_out.
+    assert len(body["tasks_timed_out"]) == 1
+    timed_out_task_id = body["tasks_timed_out"][0]
+
+    # Verify stage is timed_out.
+    r = client.get(
+        f"/relay/v2/scheduler/tasks/{timed_out_task_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    task = r.json()
+    assert task["task"]["status"] == "timed_out"
+    stage = task["task_stages"][0] if "task_stages" in task else None
+    # StageSummary lives under "stages"
+    stages = task.get("stages", [])
+    assert any(s["status"] == "timed_out" for s in stages)
+
+
+def test_enforce_timeouts_noop_when_none_overdue():
+    """enforce_timeouts returns empty lists when nothing is overdue."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    r = client.post(
+        "/relay/v2/scheduler/enforce-timeouts",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"stages_timed_out": [], "tasks_timed_out": []}
+
+
+def test_enforce_timeouts_does_not_touch_pending_stage():
+    """A pending (not yet claimed) stage is unaffected by timeout enforcement."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "pending-only",
+            "stages": [{"stage_name": "s1", "capability": "test_ai", "timeout_seconds": 1}],
+        },
+    )
+    assert r.status_code == 200
+    task_id = r.json()["task"]["task_id"]
+
+    r = client.post(
+        "/relay/v2/scheduler/enforce-timeouts",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {"stages_timed_out": [], "tasks_timed_out": []}
+
+    # Task still pending (no claim happened).
+    r = client.get(
+        f"/relay/v2/scheduler/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.json()["task"]["status"] == "pending"
