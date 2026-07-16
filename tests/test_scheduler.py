@@ -1,6 +1,7 @@
 """Tests for scheduler task lifecycle."""
 
 import os
+import sqlite3
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -315,3 +316,61 @@ def test_task_payload_too_large():
         },
     )
     assert r.status_code == 422, f"Expected 422, got {r.status_code}: {r.text}"
+
+
+# ---------------------------------------------------------------------------
+# T-016: Lock-Retry Tests
+# ---------------------------------------------------------------------------
+
+
+def test_db_write_retries_on_locked():
+    """Scheduler retries write when DB is locked."""
+    from relay_server.core.scheduler import _retry_db_write
+
+    call_count = 0
+
+    @_retry_db_write
+    def flaky_write():
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise sqlite3.OperationalError("database is locked")
+        return "ok"
+
+    result = flaky_write()
+    assert result == "ok"
+    assert call_count == 3
+
+
+def test_db_write_raises_after_exhausted_retries():
+    """Scheduler raises after all retries exhausted."""
+    from relay_server.core.scheduler import _retry_db_write, _LOCKED_RETRIES
+
+    call_count = 0
+
+    @_retry_db_write
+    def always_locked():
+        nonlocal call_count
+        call_count += 1
+        raise sqlite3.OperationalError("database is locked")
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        always_locked()
+    assert call_count == _LOCKED_RETRIES
+
+
+def test_db_write_does_not_retry_non_lock_error():
+    """Non-lock OperationalErrors must propagate immediately."""
+    from relay_server.core.scheduler import _retry_db_write
+
+    call_count = 0
+
+    @_retry_db_write
+    def other_error():
+        nonlocal call_count
+        call_count += 1
+        raise sqlite3.OperationalError("no such table: foo")
+
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        other_error()
+    assert call_count == 1
