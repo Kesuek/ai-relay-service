@@ -433,6 +433,116 @@ def test_download_artifact_raises_on_http_error(isolated_paths: Path, monkeypatc
         client.download_artifact("artifact_missing")
 
 
+# artifact upload
+
+
+def test_upload_artifact_sends_file(isolated_paths: Path, monkeypatch):
+    """upload_artifact POSTs the file and returns the server response."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    source = base / "data.txt"
+    source.write_text("hello from worker")
+
+    responses: list[dict] = []
+
+    def fake_post(url, **kw):
+        responses.append({"url": url, "kw": kw})
+        class FakeResp:
+            status_code = 200
+            def json(self):
+                return {"artifact_id": "artifact_uploaded", "name": "data.txt", "size_bytes": 17}
+            def raise_for_status(self):
+                pass
+        return FakeResp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    result = client.upload_artifact(source)
+
+    assert result["artifact_id"] == "artifact_uploaded"
+    assert len(responses) == 1
+    assert "/relay/v2/storage/upload" in responses[0]["url"]
+    # Verify the file was attached as multipart
+    files = responses[0]["kw"].get("files", {})
+    assert "file" in files
+
+
+def test_upload_artifact_retries_on_401(isolated_paths: Path, monkeypatch):
+    """upload_artifact retries once after a 401."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    source = base / "data.txt"
+    source.write_text("data")
+
+    call_count = 0
+
+    def fake_post(url, **kw):
+        nonlocal call_count
+        call_count += 1
+        class FakeResp:
+            status_code = 200 if call_count > 1 else 401
+            def json(self):
+                return {"artifact_id": "artifact_retried", "name": "data.txt", "size_bytes": 4}
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise httpx.HTTPStatusError("auth", request=None, response=self)
+        return FakeResp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    # Mock refresh to succeed
+    monkeypatch.setattr(cli.RelayClient, "_refresh_token", lambda self: True)
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    result = client.upload_artifact(source)
+    assert result["artifact_id"] == "artifact_retried"
+    assert call_count == 2
+
+
+def test_upload_artifact_passes_task_and_stage_params(isolated_paths: Path, monkeypatch):
+    """upload_artifact forwards task_id and stage_id as query params."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    source = base / "data.txt"
+    source.write_text("data")
+    captured: dict = {}
+
+    def fake_post(url, **kw):
+        captured["url"] = url
+        captured["params"] = kw.get("params")
+        class FakeResp:
+            status_code = 200
+            def json(self):
+                return {"artifact_id": "a1"}
+            def raise_for_status(self):
+                pass
+        return FakeResp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    client.upload_artifact(source, task_id="task_99", stage_id="stage_88")
+    assert "task_id=task_99" in captured["url"] or captured["params"] == {"task_id": "task_99", "stage_id": "stage_88"}
+
+
 def test_cmd_artifact_download_invokes_client(isolated_paths: Path, monkeypatch, capsys):
     client = _make_client(isolated_paths, monkeypatch)
     payload = b"cli-payload"
