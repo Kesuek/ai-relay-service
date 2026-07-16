@@ -422,6 +422,58 @@ def test_master_seed_login_cookie_is_signed():
     assert body["is_master"] is True
 
 
+def test_master_seed_login_cookie_has_short_ttl():
+    """Master-seed session cookie must use the 1h TTL, not the 7d default (T-025)."""
+    from relay_server.core.auth import init_master_seed
+    from relay_server.core.session import (
+        MASTER_SEED_SESSION_MAX_AGE_SECONDS,
+        SESSION_MAX_AGE_SECONDS,
+        unsign_user_cookie,
+    )
+
+    seed = init_master_seed()
+    assert seed
+    r = client.post(
+        "/relay/v2/dashboard/login",
+        data={"mode": "seed", "seed": seed},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    # The Set-Cookie header must carry the shortened max-age.
+    set_cookie = r.headers.get("set-cookie", "")
+    # relay_user cookie should specify Max-Age=3600 (1h).
+    assert "relay_user=" in set_cookie
+    assert f"Max-Age={MASTER_SEED_SESSION_MAX_AGE_SECONDS}" in set_cookie
+    assert f"Max-Age={SESSION_MAX_AGE_SECONDS}" not in set_cookie
+
+    # The signed payload must embed the shorter max_age so unsign
+    # enforces it independent of the global default.
+    signed_cookie = r.cookies.get("relay_user")
+    assert signed_cookie
+    payload = unsign_user_cookie(signed_cookie)
+    assert payload is not None
+    assert payload.get("_max_age") == MASTER_SEED_SESSION_MAX_AGE_SECONDS
+
+
+def test_human_login_cookie_uses_default_ttl():
+    """Regular human user sessions keep the 7d TTL (T-025 regression guard)."""
+    from relay_server.core.session import SESSION_MAX_AGE_SECONDS
+
+    create_user(
+        username="ttluser",
+        password="strong-passphrase-42",
+        group_names=["viewer"],
+        email=None,
+        created_by="test",
+    )
+    r = _human_login("ttluser", "strong-passphrase-42")
+    assert r.status_code == 303
+    set_cookie = r.headers.get("set-cookie", "")
+    assert "relay_user=" in set_cookie
+    assert f"Max-Age={SESSION_MAX_AGE_SECONDS}" in set_cookie
+
+
 def test_master_seed_login_disabled_after_admin_exists():
     """Master-seed login must be blocked once a human admin exists."""
     from relay_server.core.auth import init_master_seed
