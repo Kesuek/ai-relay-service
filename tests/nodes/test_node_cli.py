@@ -570,6 +570,49 @@ def test_cmd_artifact_download_invokes_client(isolated_paths: Path, monkeypatch,
     assert captured["artifact_id"] == "artifact_cli1"
 
 
+def test_cmd_artifact_upload_invokes_client(isolated_paths: Path, monkeypatch, capsys):
+    """node-cli artifact upload calls RelayClient.upload_artifact()."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    source = base / "upload-me.txt"
+    source.write_text("payload")
+
+    captured: dict = {}
+
+    def fake_upload(file_path, *, name=None, task_id=None, stage_id=None):
+        captured["file_path"] = str(file_path)
+        captured["name"] = name
+        captured["task_id"] = task_id
+        captured["stage_id"] = stage_id
+        return {"artifact_id": "a_cli", "name": name or Path(file_path).name, "size_bytes": 7}
+
+    monkeypatch.setattr(cli.RelayClient, "upload_artifact", staticmethod(fake_upload))
+
+    rc = cli.main(["artifact", "upload", str(source), "--name", "cli-upload.bin"])
+    assert rc == 0
+    assert captured["file_path"] == str(source)
+    assert captured["name"] == "cli-upload.bin"
+
+    out = capsys.readouterr().out
+    assert "a_cli" in out
+
+
+def test_cmd_artifact_upload_missing_file(isolated_paths: Path, monkeypatch, capsys):
+    """node-cli artifact upload exits with code 2 when file is missing."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    rc = cli.main(["artifact", "upload", "/nonexistent/file.bin"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "not found" in err
+
+
 def test_poller_download_artifact_streams_to_disk(isolated_paths: Path, monkeypatch):
     _write_token(isolated_paths)
     _write(isolated_paths / "ai-relay-agent.json", json.dumps({
