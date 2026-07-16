@@ -102,7 +102,7 @@ def test_load_valid_profile_returns_normalized_dicts(isolated_paths: Path):
 
 def test_load_profile_missing_name_raises():
     bad = {"capabilities": [{"version": "1.0.0"}]}
-    with pytest.raises(CapabilityValidationError, match="missing required 'name'"):
+    with pytest.raises(CapabilityValidationError, match="name.*required"):
         validate_profile(bad)
 
 
@@ -123,32 +123,32 @@ def test_load_profile_duplicate_names_raises():
 
 def test_load_profile_missing_capabilities_key_raises(isolated_paths: Path):
     p = _write(isolated_paths / "capabilities.d" / "x.yaml", "foo: bar\n")
-    with pytest.raises(CapabilityValidationError, match="'capabilities' key missing"):
+    with pytest.raises(CapabilityValidationError, match="'capabilities' key is required"):
         validate_profile(p)
 
 
 def test_load_profile_capabilities_not_a_list_raises():
-    with pytest.raises(CapabilityValidationError, match="'capabilities' key missing"):
+    with pytest.raises(CapabilityValidationError, match="'capabilities' must be a list"):
         validate_profile({"capabilities": "not-a-list"})
 
 
 def test_load_profile_max_parallel_not_positive_raises():
     bad = {"capabilities": [{"name": "x", "max_parallel": 0}]}
     with pytest.raises(
-        CapabilityValidationError, match="'max_parallel' must be a positive integer"
+        CapabilityValidationError, match="max_parallel.*>= 1"
     ):
         validate_profile(bad)
 
 
 def test_load_profile_timeout_not_integer_raises():
     bad = {"capabilities": [{"name": "x", "timeout": "abc"}]}
-    with pytest.raises(CapabilityValidationError, match="'timeout' must be a positive integer"):
+    with pytest.raises(CapabilityValidationError, match="timeout.*expected int"):
         validate_profile(bad)
 
 
 def test_load_profile_auto_publish_not_bool_raises():
     bad = {"capabilities": [{"name": "x", "auto_publish": "yes"}]}
-    with pytest.raises(CapabilityValidationError, match="'auto_publish' must be a boolean"):
+    with pytest.raises(CapabilityValidationError, match="auto_publish.*expected bool"):
         validate_profile(bad)
 
 
@@ -166,6 +166,66 @@ def test_load_profile_missing_file_raises(isolated_paths: Path):
 def test_validate_profile_accepts_dict_input():
     caps = validate_profile({"capabilities": [{"name": "ok"}]})
     assert caps[0]["name"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# JSON Schema validation
+# ---------------------------------------------------------------------------
+
+
+def test_schema_rejects_unknown_keys():
+    """Schema catches unknown keys in capability entries."""
+    with pytest.raises(CapabilityValidationError, match="unknown keys"):
+        validate_profile({"capabilities": [{"name": "x", "unknown_field": "bad"}]})
+
+
+def test_schema_rejects_wrong_type_for_version():
+    """Schema catches type errors in optional fields."""
+    with pytest.raises(CapabilityValidationError, match="version.*str"):
+        validate_profile({"capabilities": [{"name": "x", "version": 123}]})
+
+
+def test_schema_rejects_negative_max_parallel():
+    """Schema catches range violations."""
+    with pytest.raises(CapabilityValidationError, match="max_parallel.*>= 1"):
+        validate_profile({"capabilities": [{"name": "x", "max_parallel": 0}]})
+
+
+def test_schema_rejects_negative_timeout():
+    with pytest.raises(CapabilityValidationError, match="timeout.*>= 1"):
+        validate_profile({"capabilities": [{"name": "x", "timeout": -1}]})
+
+
+def test_schema_rejects_capabilities_not_a_list():
+    with pytest.raises(CapabilityValidationError, match="capabilities.*must be a list"):
+        validate_profile({"capabilities": "not-a-list"})
+
+
+def test_schema_rejects_entry_not_a_mapping():
+    with pytest.raises(CapabilityValidationError, match="must be a mapping"):
+        validate_profile({"capabilities": ["string-entry"]})
+
+
+def test_schema_rejects_missing_name():
+    with pytest.raises(CapabilityValidationError, match="name.*required"):
+        validate_profile({"capabilities": [{"version": "1.0.0"}]})
+
+
+def test_schema_rejects_empty_name():
+    with pytest.raises(CapabilityValidationError, match="name.*required"):
+        validate_profile({"capabilities": [{"name": ""}]})
+
+
+def test_schema_passes_valid_profile():
+    """A valid profile passes schema validation without errors."""
+    caps = validate_profile({
+        "capabilities": [
+            {"name": "chat.ai", "version": "1.0.0", "auto_publish": True,
+             "claimable": True, "handler": "/bin/true", "max_parallel": 2, "timeout": 300},
+        ]
+    })
+    assert len(caps) == 1
+    assert caps[0]["name"] == "chat.ai"
 
 
 # ---------------------------------------------------------------------------
