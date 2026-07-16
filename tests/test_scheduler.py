@@ -497,3 +497,101 @@ def test_enforce_timeouts_does_not_touch_pending_stage():
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.json()["task"]["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# T-026: normalized node_capabilities table
+# ---------------------------------------------------------------------------
+
+
+def test_node_capabilities_table_populated_on_registration():
+    """Registering a node populates the node_capabilities index (T-026)."""
+    from relay_server.core.db import get_node_capability_names, nodes_with_capability
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    web_id, _ = _register(
+        secret,
+        "Web Node",
+        [{"name": "web_fetch", "version": "1.0", "type": "io"},
+         {"name": "render", "version": "2.0"}],
+        admin_token=admin_token,
+    )
+
+    # The admin node advertises "admin".
+    assert "admin" in get_node_capability_names(admin_id)
+    # The web node advertises web_fetch and render.
+    web_caps = get_node_capability_names(web_id)
+    assert "web_fetch" in web_caps
+    assert "render" in web_caps
+
+    # nodes_with_capability returns the registered node for web_fetch.
+    nodes = nodes_with_capability("web_fetch")
+    assert web_id in nodes
+
+
+def test_node_capabilities_synced_on_heartbeat_replace():
+    """A heartbeat with replace_capabilities refreshes the index (T-026)."""
+    from relay_server.core.db import get_node_capability_names
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    web_id, web_token = _register(
+        secret, "Web Node", [{"name": "web_fetch", "version": "1.0"}], admin_token=admin_token
+    )
+    assert "web_fetch" in get_node_capability_names(web_id)
+
+    # Replace capabilities via worker heartbeat (replace mode).
+    r = client.post(
+        "/relay/v2/discovery/worker-heartbeat",
+        headers={"Authorization": f"Bearer {web_token}"},
+        json={
+            "node_id": web_id,
+            "load": 0.0,
+            "queue_depth": 0,
+            "available": True,
+            "capabilities": [{"name": "new_cap", "version": "1.0"}],
+        },
+    )
+    assert r.status_code == 200, r.json()
+
+    web_caps = get_node_capability_names(web_id)
+    assert "new_cap" in web_caps
+    assert "web_fetch" not in web_caps
+
+
+def test_claim_stage_uses_normalized_index():
+    """claim_stage without an explicit capability uses node_capabilities (T-026)."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "chat", "version": "1.0"}], admin_token=admin_token
+    )
+
+    # Create a task with a chat stage.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "Chat task",
+            "stages": [{"stage_name": "do-chat", "capability": "chat"}],
+        },
+    )
+    assert r.status_code == 200
+
+    # Worker claims without specifying capability — the scheduler must
+    # derive "chat" from the normalized index.
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={},
+    )
+    assert r.status_code == 200
+    assert r.json()["claimed"] is True
+    assert r.json()["stage"]["capability"] == "chat"
