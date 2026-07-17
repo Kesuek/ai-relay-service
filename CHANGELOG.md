@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Master-seed dashboard login is now disabled automatically once a human admin
   exists. It can only be re-enabled explicitly via `RELAY_ENABLE_MASTER_SEED_LOGIN=true`
   or `--enable-master-seed` (recovery mode).
-- Added recovery flow: `relay-recovery enable-recovery --all` deactivates all
+- Added recovery flow: `relay-recovery --db-path ~/.relay/server.db enable-recovery --all` deactivates all
   human admins; combined with recovery mode, the master seed can log in and
   bootstrap a replacement admin.
 - Removed direct CLI creation of admin accounts (`relay admin create-admin-user`).

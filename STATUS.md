@@ -67,7 +67,7 @@
 - [x] Secrets in Logs vermeiden (T-024)
 - [x] Dashboard-Token TTL verkürzen (T-025)
 - [x] Capabilities normalisieren (T-026)
-- [x] validate_token synchroner DELETE (T-027)
+- [x] validate_token synchroner DELETE → Token-Cleanup-Watchdog (T-027)
 - [x] CRITICAL: Relay stürzt nach ~20s ab — RELAY_SESSION_SECRET fehlte (T-028)
 - [x] LOW: Bootstrap-Seite Copy-Button + Login-Link (T-029)
 

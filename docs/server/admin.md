@@ -36,7 +36,7 @@ After that, master-seed login is automatically disabled.
 If all human admins are locked out, enable recovery from the relay host:
 
 ```bash
-relay-recovery enable-recovery --all
+relay-recovery --db-path ~/.relay/server.db enable-recovery --all
 RELAY_ENABLE_MASTER_SEED_LOGIN=true relay-server server --port 8788
 ```
 

@@ -270,6 +270,7 @@ scheduler actually sends more work. `online` + `available=false` means
   their role.
 - **Keep the relay behind your firewall**; it is designed for private
   networks.
+- **Expired tokens are purged hourly by a background watchdog.**
 
 ## Where to go next
 

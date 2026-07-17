@@ -28,7 +28,7 @@ For node-side usage see [../node/setup.md](../node/setup.md).
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | POST | `/relay/v2/discovery/heartbeat` | `rt_...` | Send heartbeat with capabilities, load, queue_depth |
-| POST | `/relay/v2/discovery/worker-heartbeat` | `rt_...` | Worker heartbeat variant (writes `worker_status`) |
+| POST | `/relay/v2/discovery/worker-heartbeat` | `rt_...` | Worker heartbeat variant — accepts full capability dicts and **replaces** the node's advertised capabilities (`replace_capabilities=True`). Same payload fields as `/heartbeat` (`load`, `queue_depth`, `available`, `endpoint`, `capabilities`), but `capabilities` is an open `List[dict]` of full capability objects rather than status records. Use this when a worker publishes its complete, authoritative capability set on every heartbeat. |
 | GET | `/relay/v2/discovery/nodes` | `rt_...` | List nodes known to the relay |
 | GET | `/relay/v2/discovery/query` | `rt_...` | Query the capability registry |
 | GET | `/relay/v2/discovery/capabilities` | `rt_...` | List all advertised capabilities |

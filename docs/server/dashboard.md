@@ -55,7 +55,7 @@ If all human admins are locked out:
 1. On the relay host, deactivate all admin accounts:
 
    ```bash
-   relay-recovery enable-recovery --all
+   relay-recovery --db-path ~/.relay/server.db enable-recovery --all
    ```
 
 2. Restart the server with recovery mode enabled:

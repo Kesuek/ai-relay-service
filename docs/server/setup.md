@@ -124,7 +124,7 @@ See [dashboard.md](dashboard.md) for the full dashboard guide.
 If all human admin accounts are locked out, enable recovery from the relay host:
 
 ```bash
-relay-recovery enable-recovery --all
+relay-recovery --db-path ~/.relay/server.db enable-recovery --all
 ```
 
 Then restart the server with recovery mode enabled:

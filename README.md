@@ -15,13 +15,15 @@ public v2 API and advertise their own capabilities.
 ## Quick Start
 
 ```bash
-git clone https://github.com/felix/ai-relay-service.git
+git clone https://github.com/Kesuek/ai-relay-service.git
 cd ai-relay-service
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 relay-server admin init-master     # save the adm_... secret
 make dev                           # server with reload
 ```
+
+> **Requirements:** Python 3.11+ (see `pyproject.toml`).
 
 For the full installation, bootstrap, recovery, systemd and node setup see
 **[docs/server/setup.md](docs/server/setup.md)** (server) and
@@ -43,13 +45,24 @@ document is the central reference; everything else links back to it.
 | `node-cli-reference` | `/relay/v2/docs/node-cli-reference` | [docs/node/cli-reference.md](docs/node/cli-reference.md) | Full `node-cli` command reference | Node operator |
 | `node-capabilities` | `/relay/v2/docs/node-capabilities` | [docs/node/capabilities.md](docs/node/capabilities.md) | Capability formats & `node-cli` profiles | Node operator |
 | `node-token-lifecycle` | `/relay/v2/docs/node-token-lifecycle` | [docs/node/token-lifecycle.md](docs/node/token-lifecycle.md) | Token types, refresh, recovery | Node operator |
-| `reference-api` | `/relay/v2/docs/reference-api` | [docs/reference/api.md](docs/reference/api.md) | All API endpoints (Health, Auth, Discovery, Scheduler, Presence, Events, Storage, Dashboard, Admin, Docs) | Developer |
-| `reference-design-board` | `/relay/v2/docs/reference-design-board` | [docs/reference/design-board.md](docs/reference/design-board.md) | Message board design | Developer |
+| `reference-api` | `/relay/v2/docs/reference-api` | [docs/reference/api.md](docs/reference/api.md) | All API endpoints (Health, Auth, Discovery, Scheduler, Storage, Admin, Docs) | Developer |
+| `reference-design-board` | `/relay/v2/docs/reference-design-board` | [docs/reference/design-board.md](docs/reference/design-board.md) | Message-board design | Developer |
 | `readme` | `/relay/v2/docs/readme` | [README.md](README.md) | This document | All |
 
-Legacy short names (`setup`, `admin-setup`, `dashboard`, `node-readme`,
-`nodes-design`, `token-concept`, `token-lifecycle`, `capabilities`,
-`design-board`, `proxmox-worker-setup`) still resolve to the current files.
+Legacy short names still resolve to the current documents:
+
+| Legacy Name | Resolves to |
+|---|---|
+| `setup` | `server-setup` |
+| `admin-setup` | `server-admin` |
+| `dashboard` | `server-dashboard` |
+| `node-readme` | `node-setup` |
+| `nodes-design` | `concepts` |
+| `token-concept` | `concepts` |
+| `token-lifecycle` | `node-token-lifecycle` |
+| `capabilities` | `node-capabilities` |
+| `design-board` | `reference-design-board` |
+| `proxmox-worker-setup` | `node-setup` |
 
 ## Core API
 
@@ -110,6 +123,18 @@ for the auth flow.
 ```bash
 source .venv/bin/activate
 python -m pytest tests/ -q      # server tests in tests/, node tests in tests/nodes/
+```
+
+### Linting
+
+```bash
+ruff check .
+```
+
+### Formatting
+
+```bash
+ruff format .
 ```
 
 ## License

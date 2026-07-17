@@ -1,17 +1,25 @@
 # Token & Credential Lifecycle
 
-The relay uses three credential types per node. This document explains their
-lifetimes, how to refresh them, and how to recover when one is lost.
+The relay uses several credential families, distinguished by their prefix.
+This document explains their lifetimes, how to refresh them, and how to
+recover when one is lost.
 
 ## Token types
 
 | Credential | Prefix | Default TTL | Purpose |
 |---|---|---|---|
+| Master admin seed | `adm_` | Permanent (until rotated) | Bootstrap & recovery — login when no human admin exists |
+| Bootstrap seed | `bs_` | 24 h | One-time bootstrap session after master-seed login |
 | Temporary token | `tp_` | 24 h | Issued on registration, replaced after approval |
 | Runtime token | `rt_` | 7 days | Day-to-day auth for heartbeat, claim, complete |
 | Registration secret | `rs_` | 12 h | Recovery only — rotate the runtime token |
 
 One runtime token per node. Refreshing it invalidates the previous one.
+
+The master admin seed and bootstrap seed are node-admin credentials managed
+on the relay host (see [../concepts.md](../concepts.md) and
+[../server/admin.md](../server/admin.md)); nodes only use the `tp_`, `rt_`,
+and `rs_` credentials.
 
 ## Lifecycle
 
@@ -133,3 +141,11 @@ be rotated without rewriting the state file.
 | Both credentials expired | Re-register the node. |
 | Calling `/auth/status` to rotate | Use `/auth/refresh` for rotation. |
 | Re-registering with the same `node_id` | 409 Conflict — recover the token instead. |
+
+## Automatic token cleanup
+
+The relay runs a background watchdog every hour that deletes expired tokens
+from the database (`DELETE FROM node_tokens WHERE expires_at < ?`). This
+prevents the token table from growing indefinitely. The cleanup is
+transparent to nodes — a token that was already expired would be rejected
+by the auth middleware regardless.
