@@ -66,7 +66,7 @@ def execute_stage(stage):
     return {"status": "completed"}
 ```
 
-See `nodes-design.md` for the full self-care pattern.
+See [../concepts.md](../concepts.md) for the full self-care pattern.
 
 ## node-cli capability profiles
 

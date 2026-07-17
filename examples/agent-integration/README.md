@@ -34,7 +34,7 @@ the local Hermes session, not in the worker code.
 1. Install Hermes CLI and make sure `hermes` is on the worker PATH.
 2. Choose the capabilities the agent should advertise. Common choices are
    `chat.ai`, `code.ai`, `web.ai`, or `terminal.ai`, depending on which
-   toolsets the local Hermes instance has. See `docs/nodes-design.md` for the
+   toolsets the local Hermes instance has. See `docs/concepts.md` for the
    capability naming guidelines.
 3. Register the node with the relay:
 

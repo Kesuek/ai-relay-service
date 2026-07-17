@@ -106,7 +106,7 @@ Owns:
 - Files on NAS mount
 - Posting cleanup decision tasks back to the relay when quota is exceeded
 
-Capabilities follow the execution-mode convention (see `nodes-design.md`). The
+Capabilities follow the execution-mode convention (see [../concepts.md](../concepts.md)). The
 storage-node executes directly, so its capabilities use the `.native` suffix:
 `storage.archive.native`, `storage.delete.native`, `storage.list.native`,
 `storage.quota.native`.
@@ -300,7 +300,7 @@ Dashboard only submits scheduler tasks and renders results. No AI in the dashboa
 
 ## File locations (proposed)
 
-- `docs/design-board.md` — this document
+- `docs/reference/design-board.md` — this document
 - `nodes/db-node/` — KI-less database service node
 - `nodes/board-worker-node/` — KI-capable board worker
 - `nodes/storage-node/` — existing file storage node (verify + keep functional)

@@ -630,8 +630,8 @@ def test_public_docs_index():
     assert "docs" in data
     names = {d["name"] for d in data["docs"]}
     assert "readme" in names
-    assert "node-readme" in names
-    assert "token-concept" in names
+    assert "node-setup" in names
+    assert "concepts" in names
     for doc in data["docs"]:
         assert doc["url"].startswith("/relay/v2/docs/")
         assert "available" in doc
@@ -639,7 +639,7 @@ def test_public_docs_index():
 
 def test_public_docs_render_markdown_as_html():
     """A known document is rendered as HTML and contains expected content."""
-    r = client.get("/relay/v2/docs/node-readme")
+    r = client.get("/relay/v2/docs/node-setup")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
     assert "<html" in r.text
@@ -656,4 +656,4 @@ def test_dashboard_agent_readme_redirects_to_public_docs():
     """The old dashboard agent-readme URL redirects to the new public docs path."""
     r = client.get("/relay/v2/dashboard/agent-readme", follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == "/relay/v2/docs/node-readme"
+    assert r.headers["location"] == "/relay/v2/docs/node-setup"

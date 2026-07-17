@@ -30,7 +30,7 @@ API. They do **not** import any `relay_server` internals.
 
 > For the current flow, a node registers once, saves `ai-relay-agent.json` and
 > `ai-relay-agent.token`, and refreshes/recovers its runtime token via
-> `/relay/v2/auth/refresh`. See `docs/node-readme.md` for details.
+> `/relay/v2/auth/refresh`. See `docs/node/setup.md` for details.
 
 ## Quick manual test
 
@@ -125,4 +125,4 @@ All nodes accept the following environment variables / CLI flags:
 - Example nodes use only the public v2 API and can run on a different host than
   the relay core as long as they can reach `RELAY_BASE_URL`.
 - For the current recommended poller and capability naming guidelines, see
-  `docs/node-readme.md` and `docs/nodes-design.md`.
+  `docs/node/setup.md` and `docs/concepts.md`.

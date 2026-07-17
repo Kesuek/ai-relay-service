@@ -2,7 +2,7 @@
 
 This document explains how an autonomous agent or worker node connects to the
 AI Relay cluster and starts receiving tasks. For a more detailed version see
-`docs/node-readme.md`.
+`docs/node/setup.md`.
 
 ## 1. What is a node?
 
@@ -26,7 +26,7 @@ dashboard HTML pages; use the API endpoints.
 ### 3.1 Worker / service node
 
 Worker nodes do **not** choose their own ID. The cluster assigns an 8-character
-ADR-001 node ID when registration succeeds.
+node ID when registration succeeds (see `docs/concepts.md`).
 
 ```http
 POST /relay/v2/auth/register

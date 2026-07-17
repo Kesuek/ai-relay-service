@@ -7,7 +7,7 @@ tasks back to the relay for AI-capable nodes to decide on.
 ## Capabilities
 
 The storage node executes work directly, so its capabilities use the `.native`
-execution-mode suffix (see `docs/nodes-design.md`):
+execution-mode suffix (see `docs/concepts.md`):
 
 - `storage.archive.native` — move artifacts from the relay to NAS storage
 - `storage.list.native` — list archived files on NAS

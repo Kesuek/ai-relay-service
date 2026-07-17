@@ -9,6 +9,10 @@ http://${RELAY_HOST}:8788/relay/v2/dashboard/
 
 Replace `${RELAY_HOST}` with the relay IP, hostname, or mDNS name.
 
+For the credential concepts behind dashboard login see
+[../concepts.md](../concepts.md). For admin operations see
+[admin.md](admin.md). For server installation see [setup.md](setup.md).
+
 ## 1. First login and bootstrap
 
 Before any human user exists, the cluster must be bootstrapped with a master
@@ -63,6 +67,8 @@ If all human admins are locked out:
 3. Log in with the master seed and bootstrap a new admin
 4. After the new admin changed the temporary password, restart the server
    without `RELAY_ENABLE_MASTER_SEED_LOGIN=true`
+
+See [admin.md](admin.md) for the recovery rationale.
 
 ## 2. Human users
 
@@ -156,7 +162,8 @@ Issuing a new token invalidates the previous runtime token for that node.
 
 Alternatively, if the node still has its `registration_secret`, it can recover
 a new runtime token itself via `POST /relay/v2/auth/refresh`. That call also
-rotates the registration secret; the node must persist the new one.
+rotates the registration secret; the node must persist the new one. See
+[../node/token-lifecycle.md](../node/token-lifecycle.md).
 
 ### 3.3 Delete a node
 
@@ -224,7 +231,8 @@ Click on a node, task, or artifact to see details.
 ## 7. API endpoints used by the dashboard
 
 The dashboard itself is a static HTML page that calls the following endpoints.
-You can also use them from scripts or from KI nodes:
+You can also use them from scripts or from KI nodes. See
+[../reference/api.md](../reference/api.md) for the full endpoint table.
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -294,9 +302,10 @@ curl -X DELETE "http://${RELAY_HOST}:8788/relay/v2/admin/nodes/${NODE_ID}" \
   -H "Authorization: Bearer ${MASTER_TOKEN}"
 ```
 
-## 11. Next steps
+## Next steps
 
-- For installing the relay server, see `setup.md`.
-- For connecting a node, see `node-readme.md`.
-- For understanding tokens, see `token-concept.md`.
-- For node design patterns, see `nodes-design.md`.
+- For installing the relay server, see [setup.md](setup.md).
+- For admin operations, see [admin.md](admin.md).
+- For connecting a node, see [../node/setup.md](../node/setup.md).
+- For understanding tokens, see [../node/token-lifecycle.md](../node/token-lifecycle.md).
+- For node design patterns, see [../concepts.md](../concepts.md).

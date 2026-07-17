@@ -23,27 +23,33 @@ relay-server admin init-master     # save the adm_... secret
 make dev                           # server with reload
 ```
 
-For the full installation, bootstrap, recovery, systemd and storage-node
-setup see **[docs/setup.md](docs/setup.md)**.
+For the full installation, bootstrap, recovery, systemd and node setup see
+**[docs/server/setup.md](docs/server/setup.md)** (server) and
+**[docs/node/setup.md](docs/node/setup.md)** (nodes).
 
 ## Documentation
 
 All public Markdown docs are served live by the relay at
-`/relay/v2/docs/{name}`. Call `/relay/v2/docs` for a JSON index.
+`/relay/v2/docs/{name}`. Call `/relay/v2/docs` for a JSON index. The concepts
+document is the central reference; everything else links back to it.
 
-| Name | URL | Content | Audience |
-|---|---|---|---|
-| `setup` | `/relay/v2/docs/setup` | Server installation & configuration | Admin |
-| `admin-setup` | `/relay/v2/docs/admin-setup` | Node management & admin API | Admin |
-| `node-readme` | `/relay/v2/docs/node-readme` | How to connect a node | Node operator |
-| `token-lifecycle` | `/relay/v2/docs/token-lifecycle` | Token types, refresh, recovery | Node operator |
-| `capabilities` | `/relay/v2/docs/capabilities` | Capability formats & `node-cli` profiles | Node operator |
-| `proxmox-worker-setup` | `/relay/v2/docs/proxmox-worker-setup` | Worker node in a Proxmox LXC | Node operator |
-| `node-cli-reference` | `/relay/v2/docs/node-cli-reference` | Full `node-cli` command reference | Node operator |
-| `token-concept` | `/relay/v2/docs/token-concept` | Token & credential concept | Developer |
-| `dashboard` | `/relay/v2/docs/dashboard` | Dashboard usage & node approval | Admin |
-| `nodes-design` | `/relay/v2/docs/nodes-design` | Node architecture | Developer |
-| `readme` | `/relay/v2/docs/readme` | This document | All |
+| Name | URL | File | Content | Audience |
+|---|---|---|---|---|
+| `concepts` | `/relay/v2/docs/concepts` | [docs/concepts.md](docs/concepts.md) | Architecture, capability & token concepts, node types, self-care pattern | All |
+| `server-setup` | `/relay/v2/docs/server-setup` | [docs/server/setup.md](docs/server/setup.md) | Server installation & configuration | Admin |
+| `server-admin` | `/relay/v2/docs/server-admin` | [docs/server/admin.md](docs/server/admin.md) | Node management & admin API | Admin |
+| `server-dashboard` | `/relay/v2/docs/server-dashboard` | [docs/server/dashboard.md](docs/server/dashboard.md) | Dashboard usage & node approval | Admin |
+| `node-setup` | `/relay/v2/docs/node-setup` | [docs/node/setup.md](docs/node/setup.md) | Node setup from zero to daemon (incl. Proxmox example) | Node operator |
+| `node-cli-reference` | `/relay/v2/docs/node-cli-reference` | [docs/node/cli-reference.md](docs/node/cli-reference.md) | Full `node-cli` command reference | Node operator |
+| `node-capabilities` | `/relay/v2/docs/node-capabilities` | [docs/node/capabilities.md](docs/node/capabilities.md) | Capability formats & `node-cli` profiles | Node operator |
+| `node-token-lifecycle` | `/relay/v2/docs/node-token-lifecycle` | [docs/node/token-lifecycle.md](docs/node/token-lifecycle.md) | Token types, refresh, recovery | Node operator |
+| `reference-api` | `/relay/v2/docs/reference-api` | [docs/reference/api.md](docs/reference/api.md) | All API endpoints (Health, Auth, Discovery, Scheduler, Presence, Events, Storage, Dashboard, Admin, Docs) | Developer |
+| `reference-design-board` | `/relay/v2/docs/reference-design-board` | [docs/reference/design-board.md](docs/reference/design-board.md) | Message board design | Developer |
+| `readme` | `/relay/v2/docs/readme` | [README.md](README.md) | This document | All |
+
+Legacy short names (`setup`, `admin-setup`, `dashboard`, `node-readme`,
+`nodes-design`, `token-concept`, `token-lifecycle`, `capabilities`,
+`design-board`, `proxmox-worker-setup`) still resolve to the current files.
 
 ## Core API
 
@@ -81,8 +87,9 @@ tasks back to the relay so another node can execute them.
   └────────────────────┘                                     └────────────────────┘
 ```
 
-See [docs/nodes-design.md](docs/nodes-design.md) for the full node architecture
-and [docs/token-concept.md](docs/token-concept.md) for the auth flow.
+See [docs/concepts.md](docs/concepts.md) for the full node architecture and
+self-care pattern, and [docs/node/token-lifecycle.md](docs/node/token-lifecycle.md)
+for the auth flow.
 
 ### Key rules
 
@@ -96,7 +103,7 @@ and [docs/token-concept.md](docs/token-concept.md) for the auth flow.
   See `examples/nodes/README.md` and `scripts/manual_node_test.py`.
 - **Storage node** in `nodes/storage-node/` — KI-less NAS archiver, runs as a
   Docker container. See `nodes/storage-node/README.md` and
-  `docs/setup.md` §6.
+  `docs/node/setup.md`.
 
 ## Tests
 

@@ -16,7 +16,7 @@ node-cli <command> [options]
 
 The CLI requires a registered node — `~/.relay/ai-relay-agent.json` and
 `~/.relay/ai-relay-agent.token` must exist (see
-[node-readme.md](../node-readme.md) for registration).
+[setup.md](setup.md) for registration).
 
 ## Global options
 

@@ -1,12 +1,16 @@
 # Admin Guide
 
-Tasks performed by the human or KI agent that **operates the relay**. Nodes
-do not perform these actions.
+Tasks performed by the human or KI agent that **operates the relay**. Nodes do
+not perform these actions.
+
+For the server installation itself see [setup.md](setup.md). For the dashboard
+UI see [dashboard.md](dashboard.md). For the credential concept see
+[../concepts.md](../concepts.md).
 
 ## Install & run the server
 
-The full server installation, bootstrap, recovery, systemd and storage-node
-setup is in **[../setup.md](../setup.md)**. Quick reference:
+The full server installation, bootstrap, recovery, and systemd setup is in
+**[setup.md](setup.md)**. Quick reference:
 
 ```bash
 git clone https://github.com/felix/ai-relay-service.git
@@ -41,7 +45,8 @@ Once a new admin exists and has changed the password, turn recovery off.
 ## Manage nodes
 
 Every new node starts in `pending` state and must be activated before it can
-claim work.
+claim work. See [../node/setup.md](../node/setup.md) for the node side of the
+flow.
 
 ### Approve a node (dashboard)
 
@@ -106,3 +111,10 @@ scheduler actually sends more work; `online` + `available=false` means
 - Keep the relay behind your firewall; it is designed for private networks.
 - Master-seed login is unavailable during normal operation — enable recovery
   mode first if every admin is locked out.
+
+## Next steps
+
+- [dashboard.md](dashboard.md) — dashboard UI guide
+- [../node/setup.md](../node/setup.md) — node connection guide
+- [../node/token-lifecycle.md](../node/token-lifecycle.md) — token refresh and recovery
+- [../reference/api.md](../reference/api.md) — full API endpoint table
