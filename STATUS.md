@@ -9,7 +9,7 @@
 | **Framework** | FastAPI + SQLite (WAL) |
 | **Owner** | Ronny Pietschke |
 | **Tests** | 203/203 passed |
-| **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 → 2222f4b → 7ba5aaf |
+| **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 → 2222f4b → 7ba5aaf → 1fcf787 → 6a9c83e → 09d0a8c → 122dca6 → c96d71e → f4827c4 |
 
 ## Phase Status
 
@@ -70,6 +70,11 @@
 - [x] validate_token synchroner DELETE → Token-Cleanup-Watchdog (T-027)
 - [x] CRITICAL: Relay stürzt nach ~20s ab — RELAY_SESSION_SECRET fehlte (T-028)
 - [x] LOW: Bootstrap-Seite Copy-Button + Login-Link (T-029)
+- [x] Dokumentation: Server + Node-CLI + Node-Setup überarbeitet (T-030)
+- [x] Dokumentation: Komplette Restrukturierung (T-031)
+- [x] GitHub Review Findings behoben (T-032) — 11 Findings
+- [x] Zweiter GitHub-Review behoben (T-033) — 22 Findings
+- [x] `description`-Field in capability_loader ergänzt
 
 ---
 

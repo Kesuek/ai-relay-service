@@ -7,74 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
-
-- Human users must change their password on first login. All new accounts and
-  password resets set `force_password_change=True`. This also applies to the
-  first admin created during bootstrap and to the bootstrap-generated temporary
-  password.
-- Master-seed dashboard login is now disabled automatically once a human admin
-  exists. It can only be re-enabled explicitly via `RELAY_ENABLE_MASTER_SEED_LOGIN=true`
-  or `--enable-master-seed` (recovery mode).
-- Added recovery flow: `relay-recovery --db-path ~/.relay/server.db enable-recovery --all` deactivates all
-  human admins; combined with recovery mode, the master seed can log in and
-  bootstrap a replacement admin.
-- Removed direct CLI creation of admin accounts (`relay admin create-admin-user`).
-  Admin bootstrapping now goes through the running web dashboard, which is the
-  normal path when the server is managed by systemd.
-- bcrypt is now used for master seed hashing instead of plain SHA-256.
-- Registration secrets (`rs_...`) are rotated when `/relay/v2/auth/refresh` is
-  called with a registration secret, preventing replay of the old secret.
-- File upload size is capped at 100 MiB via `max_upload_bytes` in `config.py`.
-- `slowapi` rate limiting is applied to `auth`, `dashboard`, and general API
-  routes.
-- Session cookies are now `HttpOnly`, `Secure`, and `SameSite=Lax`; a session
-  secret of at least 32 characters is enforced.
-- CSRF protection via Double-Submit Cookie pattern is implemented for dashboard
-  mutations.
-- Security headers added: `Content-Security-Policy`, `X-Frame-Options: DENY`,
-  `X-Content-Type-Options: nosniff`.
-- Password policy enforced: minimum length 12 characters and check against a
-  common-password list.
-- Storage-node path traversal hardened with a `_safe_path()` helper that keeps
-  resolved paths inside the configured storage root.
-
 ### Added
 
-- Bootstrap page at `/relay/v2/dashboard/bootstrap` for creating the first human
-  admin after master-seed login.
-- `POST /relay/v2/dashboard/api/bootstrap` endpoint (master-seed session only).
-- `POST /relay/v2/dashboard/api/me/password` endpoint for self-service password
-  changes.
-- Recovery-mode server flag:
-  - CLI: `relay-server server --enable-master-seed`
-  - Environment: `RELAY_ENABLE_MASTER_SEED_LOGIN=true`
-- Middleware that blocks all dashboard access except password-change endpoints
-  while `force_password_change=True`.
+- `docs/getting-started.md` — quick-start guide with 3 scenarios (run a node, relay + node, multi-node cluster) and a decision tree.
+- `docs/reference/api.md` — "Worked examples (cURL)" section with 10 endpoint examples, error-code table, and rate-limit documentation.
+- `docs/concepts.md` — Glossary (20 terms), KI/AI terminology clarification, explicit `.native` suffix rule for all KI-less nodes.
+- `docs/server/setup.md` — HTTPS/TLS section (reverse proxy with Caddy), database persistence & backup, full config-parameter reference table, session-secret rotation guide, performance & scaling notes.
+- `docs/node/capabilities.md` — Handler contract table (exit codes, timeout, SIGKILL, stdout/stderr handling).
+- `docs/node/setup.md` — Token storage alternatives (bind-mount, secret manager), expanded troubleshooting (network, permissions, Python version, systemd, daemon startup).
+- `docs/server/admin.md` — Expanded recovery workflow (what `--all` does, how to disable recovery).
+- `docs/setup.md` and `docs/node-readme.md` — replaced bare redirects with decision-tree templates.
 
 ### Changed
 
-- First-time setup flow in documentation: create master seed (`relay admin
-  init-master`), start server, open dashboard, log in with master seed, create
-  first human admin via bootstrap, change generated password.
-- Dashboard approval and normal administration now require a human admin
-  account, not the master seed.
+- Complete `docs/` restructure: `docs/concepts.md` (central concept doc), `docs/server/` (setup, admin, dashboard), `docs/node/` (setup, cli-reference, capabilities, token-lifecycle), `docs/reference/` (api, design-board). Old files (`admin/`, `node-operator/`, `adr/`, `nodes-design.md`, `token-concept.md`, `design-board.md`, `dashboard.md`, `BUILDING.md`) removed.
+- `README.md` — doc table updated with new structure, legacy name mapping table, Python 3.11+ requirement, linting/formatting commands.
+- `STATUS.md` — Phase 6 completed with all T-001–T-033 tasks, test count updated to 203.
+- `AGENT_README.md` — cross-links updated to new doc paths.
+- All peripheral READMEs (`nodes/common/`, `nodes/storage-node/`, `examples/nodes/`, `examples/agent-integration/`) — cross-links updated.
+- Docs serving layer (`src/relay_server/api/v2/docs.py`) — whitelist updated with new doc names and backward-compat aliases.
+- Dashboard redirect (`/agent-readme`) and login.html link updated to new doc names.
 
 ### Fixed
 
-- Documentation updated to reflect the new bootstrap, forced password change,
-  and recovery-mode behavior.
-- `validate_token` now accepts nodes in `online` status as well as `approved`.
-- `/relay/v2/auth/status` supports unauthenticated pending polling with a
-  `registration_secret`.
-
-### Documentation
-
-- `token-concept.md` and `node-readme.md` updated to describe the
-  `approved → online` lifecycle, the read-only nature of `/auth/status`,
-  and registration-secret rotation during recovery.
-- `nodes-design.md` and `node-readme.md` updated with recommended core
-  capability names, execution-mode suffixes (`.native`, `.ai`, `.relay`),
-  and the rule that capabilities can be changed at runtime via heartbeat.
-- `AGENT_README.md` rewritten to match the current v2 auth flow and
-  capability naming guidelines.
+- `nodes/common/capability_loader.py` — `description` field added to allowed keys and normalized keys (was silently rejected by YAML profile validation).
+- `docs/server/admin.md` — clone URL corrected from `github.com/felix/` to `github.com/Kesuek/`.
+- `docs/server/{setup,admin,dashboard}.md` and `CHANGELOG.md` — `relay-recovery` syntax corrected to include `--db-path ~/.relay/server.db`.
+- `docs/node/token-lifecycle.md` — added missing `adm_` and `bs_` token types, added "Automatic token cleanup" section.
+- `docs/concepts.md` — added token-cleanup watchdog note to security model.
+- `docs/reference/api.md` — `worker-heartbeat` endpoint documented with payload and `replace_capabilities=True`.
+- `docs/reference/design-board.md` — db-node capabilities corrected to use `.native` suffix.
+- `docs/node/cli-reference.md` — env-var table corrected (`RELAY_RUNTIME_TOKEN` is not yet honoured by the CLI; server-only vars clearly marked).
