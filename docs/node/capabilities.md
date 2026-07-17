@@ -79,6 +79,7 @@ defined in external YAML profiles. The daemon reads only
 capabilities:
   - name: chat.ai
     version: "1.0.0"
+    description: "General conversational AI agent"  # optional, human-readable
     auto_publish: true          # include in every heartbeat
     claimable: true             # daemon may claim stages for this capability
     handler: /opt/relay/handlers/chat-ai.sh   # required when claimable: true
@@ -111,7 +112,8 @@ A handler is an external subprocess. Environment variables `RELAY_STAGE_ID`,
 A profile is invalid if: YAML syntax error, `capabilities` missing/not a list,
 any capability missing `name`, duplicate names, `claimable: true` without
 `handler`, `max_parallel`/`timeout` not positive integers, or
-`auto_publish`/`claimable` not boolean. On error the active profile is never
-touched.
+`auto_publish`/`claimable` not boolean. The optional `description` field is
+preserved through the pipeline and forwarded to the relay in heartbeats.
+On error the active profile is never touched.
 
 For the full `node-cli` command reference see [node-cli-reference.md](node-cli-reference.md).
