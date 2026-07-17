@@ -114,5 +114,4 @@ any capability missing `name`, duplicate names, `claimable: true` without
 `auto_publish`/`claimable` not boolean. On error the active profile is never
 touched.
 
-For the full `node-cli` command reference see `nodes/common/README.md` and
-`NODE_CLI_SPEC.md`.
+For the full `node-cli` command reference see [node-cli-reference.md](node-cli-reference.md).

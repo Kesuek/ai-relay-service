@@ -79,7 +79,7 @@ Copy the printed `adm_...` secret and store it in a password manager.
 > admin is created through the dashboard, master-seed login is disabled until
 > recovery mode is explicitly enabled.
 
-## 3. Start the relay server
+## 4. Start the relay server
 
 ### With mDNS enabled (recommended)
 
@@ -98,7 +98,7 @@ The relay is now reachable as:
 relay-server server --port 8788
 ```
 
-## 4. Bootstrap the first human admin
+## 5. Bootstrap the first human admin
 
 When the server starts for the first time, no human admin exists. The dashboard
 login form therefore shows the **Master seed** option.
@@ -114,7 +114,7 @@ login form therefore shows the **Master seed** option.
 After that, master-seed login is automatically disabled. For day-to-day work,
 always use human admin accounts.
 
-## 5. Recovery mode
+## 6. Recovery mode
 
 If all human admin accounts are locked out, enable recovery from the relay host:
 
@@ -132,7 +132,7 @@ Now the master seed can log in again and bootstrap a new admin. Once a new
 admin exists and has changed the temporary password, recovery mode is no longer
 needed and should be turned off.
 
-## 6. Storage node on the NAS
+## 7. Storage node on the NAS
 
 The storage node is a KI-less Docker service that stores files on your NAS. The
 reference implementation is in `nodes/storage-node/`. It uses the generic poller
@@ -151,7 +151,13 @@ curl -fsSL https://raw.githubusercontent.com/Kesuek/ai-relay-service/main/nodes/
 ```
 
 > Or copy the prepared bundle from `dist/storage-node-bundle.tar.gz` in the
-> repository.
+> repository and extract it:
+>
+> ```bash
+> mkdir -p /volume1/ai-relay-storage
+> tar -xzf dist/storage-node-bundle.tar.gz -C /volume1/ai-relay-storage
+> cd /volume1/ai-relay-storage
+> ```
 
 ### Start the container
 
@@ -177,7 +183,7 @@ docker compose run --rm ai-relay-storage python /app/storage_node.py --register
 This writes `~/.relay/ai-relay-agent.json` and `~/.relay/ai-relay-agent.token`
 inside the persistent Docker volume.
 
-## 7. Approve or activate nodes
+## 8. Approve or activate nodes
 
 Every new node starts in `pending` state. An administrator must activate it
 before it can claim work.
@@ -219,7 +225,7 @@ You can find `${NODE_ID}` in the agent JSON file inside the container:
 docker exec ai-relay-storage cat /root/.relay/ai-relay-agent.json
 ```
 
-## 8. Manage tokens
+## 9. Manage tokens
 
 ### Issue a new runtime token
 
@@ -250,7 +256,7 @@ curl -H "Authorization: Bearer *** \
   "http://ai-relay.local:8788/relay/v2/admin/nodes/${NODE_ID}"
 ```
 
-## 9. Verify the setup
+## 10. Verify the setup
 
 ### Health endpoint
 
@@ -297,7 +303,7 @@ curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
 After a few seconds the storage node claims the task and writes the file to
 `/volume1/ai-relay-storage/test.txt`.
 
-## 10. Systemd service for the relay
+## 11. Systemd service for the relay
 
 Create `/etc/systemd/system/ai-relay.service`:
 
@@ -330,7 +336,7 @@ sudo systemctl enable ai-relay.service
 sudo systemctl start ai-relay.service
 ```
 
-## 11. Updating
+## 12. Updating
 
 Pull the latest code, reinstall, and restart:
 

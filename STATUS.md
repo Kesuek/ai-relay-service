@@ -8,8 +8,8 @@
 | **Port** | 8788 |
 | **Framework** | FastAPI + SQLite (WAL) |
 | **Owner** | Ronny Pietschke |
-| **Tests** | 93/93 passed (hard gate) |
-| **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 |
+| **Tests** | 203/203 passed |
+| **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 → 2222f4b → 7ba5aaf |
 
 ## Phase Status
 
@@ -53,24 +53,39 @@
 - [x] Storage Node — archive, delete, list, quota with auto-cleanup task posting
 - [x] Generic Agent Poller — JSON-configurable, credential refresh, 401/403 auto-recovery
 
-### Phase 6 — Open Items ⏳
-- [ ] Artifact upload/download from worker side
-- [ ] Credential-refresh daemon (P0)
-- [ ] YAML schema validation for capabilities.yaml
+### Phase 6 — Hardening & Cleanup ✅
+- [x] Artifact upload/download from worker side (T-001)
+- [x] Worker-seitiger Token-Refresh (T-002)
+- [x] YAML schema validation for capabilities.yaml (T-003)
 - [x] Node README improvement feedback reviewed
+- [x] SQLite Lock Contention (T-016)
+- [x] Task Timeout enforced (T-017)
+- [x] Poller Hard Exit (T-018)
+- [x] Inconsistent Logging Levels (T-019)
+- [x] Dashboard CSRF Policy dokumentiert (T-020)
+- [x] Missing Type Hints (T-021)
+- [x] Secrets in Logs vermeiden (T-024)
+- [x] Dashboard-Token TTL verkürzen (T-025)
+- [x] Capabilities normalisieren (T-026)
+- [x] validate_token synchroner DELETE (T-027)
+- [x] CRITICAL: Relay stürzt nach ~20s ab — RELAY_SESSION_SECRET fehlte (T-028)
+- [x] LOW: Bootstrap-Seite Copy-Button + Login-Link (T-029)
 
 ---
 
-## Code Review Summary (OpenCode)
+## Code Review Summary (historical — all findings resolved)
 
-| # | File | Severity | Finding | Recommendation |
-|---|------|----------|---------|----------------|
-| F1 | `discovery.py:98` | Medium | `config_filter` JSON parse with no try/except | Add `try/except JSONDecodeError` |
-| F2 | `poller.py:211` | Low | `fromisoformat()` fails on `Z`-suffix pre-3.11 | `.replace('Z','+00:00')` or use `dateutil` |
-| F3 | `scheduler.py:205` | Info | `claim_stage` matches only `pending` | Correct per spec — `online` = already running |
-| F4 | `models/capability.py` + `common/capability.py` | Medium | Duplicate `CapabilityInputSchema` (Pydantic vs dataclass) | Consolidate into shared package |
-| F5 | `worker.py` vs `poller.py` | Low | Task-timeout inconsistent (24s vs 600s configurable) | Centralize via config, raise worker default |
-| F6 | All docs | Task | German docs need English translation | In progress — see below |
+> The F1–F6 findings below are historical. All of them have been addressed in
+> later commits; this table is kept only for traceability.
+
+| # | File | Severity | Finding | Resolution |
+|---|------|----------|---------|------------|
+| F1 | `discovery.py:98` | Medium | `config_filter` JSON parse with no try/except | ✅ Fixed |
+| F2 | `poller.py:211` | Low | `fromisoformat()` fails on `Z`-suffix pre-3.11 | ✅ Fixed |
+| F3 | `scheduler.py:205` | Info | `claim_stage` matches only `pending` | ✅ Correct per spec |
+| F4 | `models/capability.py` + `common/capability.py` | Medium | Duplicate `CapabilityInputSchema` | ✅ Consolidated |
+| F5 | `worker.py` vs `poller.py` | Low | Task-timeout inconsistent | ✅ Centralized via config |
+| F6 | All docs | Task | German docs need English translation | ✅ Done |
 
 **Security Audit: PASS** — bcrypt migration, timing-safe compare, CSRF, CORS, rate-limiting, input validation all verified. No critical findings.
 

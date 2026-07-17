@@ -39,6 +39,7 @@ All public Markdown docs are served live by the relay at
 | `token-lifecycle` | `/relay/v2/docs/token-lifecycle` | Token types, refresh, recovery | Node operator |
 | `capabilities` | `/relay/v2/docs/capabilities` | Capability formats & `node-cli` profiles | Node operator |
 | `proxmox-worker-setup` | `/relay/v2/docs/proxmox-worker-setup` | Worker node in a Proxmox LXC | Node operator |
+| `node-cli-reference` | `/relay/v2/docs/node-cli-reference` | Full `node-cli` command reference | Node operator |
 | `token-concept` | `/relay/v2/docs/token-concept` | Token & credential concept | Developer |
 | `dashboard` | `/relay/v2/docs/dashboard` | Dashboard usage & node approval | Admin |
 | `nodes-design` | `/relay/v2/docs/nodes-design` | Node architecture | Developer |
