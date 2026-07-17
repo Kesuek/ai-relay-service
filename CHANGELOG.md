@@ -9,14 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `docs/getting-started.md` — quick-start guide with 3 scenarios (run a node, relay + node, multi-node cluster) and a decision tree.
-- `docs/reference/api.md` — "Worked examples (cURL)" section with 10 endpoint examples, error-code table, and rate-limit documentation.
-- `docs/concepts.md` — Glossary (20 terms), KI/AI terminology clarification, explicit `.native` suffix rule for all KI-less nodes.
-- `docs/server/setup.md` — HTTPS/TLS section (reverse proxy with Caddy), database persistence & backup, full config-parameter reference table, session-secret rotation guide, performance & scaling notes.
-- `docs/node/capabilities.md` — Handler contract table (exit codes, timeout, SIGKILL, stdout/stderr handling).
-- `docs/node/setup.md` — Token storage alternatives (bind-mount, secret manager), expanded troubleshooting (network, permissions, Python version, systemd, daemon startup).
-- `docs/server/admin.md` — Expanded recovery workflow (what `--all` does, how to disable recovery).
-- `docs/setup.md` and `docs/node-readme.md` — replaced bare redirects with decision-tree templates.
+- `node-cli capabilities server` — new subcommand to query all capabilities registered on the relay server (across all nodes), including node names. `RelayClient._get()` added for GET requests. (T-035)
+- Cross-platform load normalisation: `(load_avg / cpu_count) * 100` — load is now reported as a percentage (0–100%) instead of raw load average, making it comparable across Linux, macOS, and Windows. `load_cap` default is now `cpu_count * 100` (dynamically calculated). (T-037)
+
+### Changed
+
+- `src/relay_server/models/__init__.py` — `HeartbeatRequest.load` and `NodeHeartbeatRequest.load` validation range changed from `[0.0, 1.0]` to `[0.0, 100.0]` to match the new percentage-based load reporting.
+- `nodes/common/poller.py` — `load_cap` removed from `DEFAULT_CONFIG` (now calculated from `os.cpu_count()` at runtime).
+
+### Fixed
+
+- `src/relay_server/core/discovery.py` — Capability-Availability-Bug: a node heartbeating with `available: false` no longer overrides the availability for all other nodes sharing the same capability. Now checks if any other node still has the capability available before setting it to false. (T-036)
 
 ### Changed
 

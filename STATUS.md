@@ -76,6 +76,11 @@
 - [x] Zweiter GitHub-Review behoben (T-033) — 22 Findings
 - [x] `description`-Field in capability_loader ergänzt
 
+### Phase 7 — CLI-Erweiterungen & Bugfixes ✅
+- [x] `node-cli capabilities server` — Server-Capability-Query (T-035)
+- [x] Capability-Availability-Bug in `get_capabilities()` gefixt (T-036)
+- [x] Cross-platform load normalisation: `(load_avg / cpu_count) * 100` (T-037)
+
 ---
 
 ## Code Review Summary (historical — all findings resolved)
