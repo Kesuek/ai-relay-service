@@ -21,11 +21,22 @@ in subsequent heartbeats. The scheduler always uses the most recent heartbeat.
 
 ## Naming & suffixes
 
-| Suffix | Meaning | Example |
-|---|---|---|
-| `.native` | Runs on the relay host (storage, archive) | `storage.archive.native` |
-| `.ai` | KI-capable, the node delegates to its local AI | `chat.ai`, `code.ai` |
-| `.relay` | Relay-internal orchestration capability | `llm.decide_cleanup.relay` |
+Capability names are lowercase, dot-separated namespaces. The suffix
+describes *how* the node executes the stage and is **required** for every
+concrete capability a node advertises — a bare core name such as `chat` or
+`storage.archive` is a category, not an executable offer.
+
+| Suffix | Meaning | Required for | Example |
+|---|---|---|---|
+| `.native` | Runs directly on the node, no local AI. | **Every KI-less / service node.** | `storage.archive.native`, `db.board.create.native` |
+| `.ai` | KI-capable; the node delegates to its local AI. | KI-capable worker nodes. | `chat.ai`, `code.ai`, `board.reply.generate.ai` |
+| `.relay` | Relay-internal orchestration capability. | Relay-internal stages only. | `llm.decide_cleanup.relay` |
+
+> **Rule of thumb:** if a node has no local AI, **all** of its capabilities
+> carry the `.native` suffix — including database/service nodes like the
+> db-node (`db.board.create.native`, `db.post.read.native`, …). The relay
+> matches capability names **exactly**, so advertising `db.board.create`
+> when a stage requests `db.board.create.native` will not match.
 
 Capability names are matched **exactly**: a stage requesting `chat.ai` is only
 claimed by a node whose latest heartbeat advertised `chat.ai`.
@@ -104,8 +115,29 @@ Daemon picks up change at next heartbeat (mtime check) or via SIGHUP
 A handler is an external subprocess. Environment variables `RELAY_STAGE_ID`,
 `RELAY_TASK_ID`, `RELAY_CAPABILITY`, `RELAY_NODE_ID`, `RELAY_BASE_URL`,
 `RELAY_TOKEN_FILE` are set. **Stdin** receives the stage payload as JSON;
-**stdout** must be valid JSON (the result dict). Exit 0 → complete, non-zero
-→ `{"error": ...}`, timeout → `{"error": "handler timeout after Ns"}`.
+**stdout** must be valid JSON (the result dict). The daemon captures
+**stderr** and writes it to the daemon log for debugging — it is never sent
+to the relay as the result.
+
+| Outcome | What the daemon does | Result stored on the stage |
+|---|---|---|
+| Exit `0`, stdout is valid JSON | Complete the stage | The parsed stdout dict |
+| Exit `0`, stdout is **not** valid JSON | Fail the stage | `{"error": "handler produced invalid JSON on stdout"}` |
+| Exit non-zero (any code `N`) | Fail the stage | `{"error": "<stderr trimmed>"}` if stderr is non-empty, else `{"error": "handler exited with code N"}` |
+| Timeout exceeded | `SIGTERM` then `SIGKILL` after a short grace | `{"error": "handler timeout after Ns"}` |
+| `SIGKILL` / host shutdown while claimed | The stage stays `claimed` until `claim_ttl_seconds` (default 60 s) elapses, then the scheduler releases it back to `pending` for another node to claim | — |
+
+Key points:
+
+- **stdout is the contract.** Only stdout is interpreted as the result.
+  Write logs/diagnostics to stderr.
+- **Exit codes are meaningful.** `0` = success, anything else = failure.
+- **Timeouts don't hang the daemon.** The handler is killed and the stage
+  is failed with a clear error message; the scheduler re-queues it (up to
+  `max_retries`).
+- **Crash safety.** If the daemon itself is killed mid-claim, the stage is
+  not lost — the relay's claim-TTL watchdog releases it automatically. No
+  manual intervention needed.
 
 ### Validation rules
 

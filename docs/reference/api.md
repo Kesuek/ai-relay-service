@@ -126,6 +126,335 @@ Serves selected Markdown documents as HTML. The whitelist is defined in
 | GET | `/relay/v2/docs` | none | JSON index of public documents |
 | GET | `/relay/v2/docs/{doc_name}` | none | Render a public Markdown document as HTML |
 
+## Worked examples (cURL)
+
+The examples below use the shell variable `RELAY_HOST` (e.g.
+`export RELAY_HOST=ai-relay.local`) and assume the default port `8788`. JSON
+output is piped through `jq` for readability; install it or drop the pipe.
+Replace the placeholder tokens (`rt_…`, `rs_…`, `adm_…`) with your own.
+
+### Common error responses
+
+Every endpoint returns a JSON error object on failure. The most common
+status codes are:
+
+| Status | Meaning | Typical cause |
+|---|---|---|
+| `400` | Bad request | Malformed JSON, missing required field, payload too large |
+| `401` | Unauthorized | Missing/invalid/expired `Authorization: Bearer` token |
+| `403` | Forbidden | Token valid but not allowed (e.g. pending node, non-admin) |
+| `404` | Not found | Unknown `node_id` / `task_id` / `stage_id` / `artifact_id` |
+| `409` | Conflict | Duplicate `node_name` or `node_id` already exists |
+| `422` | Validation error | Pydantic validation failed (field-level errors in `detail`) |
+| `429` | Too many requests | Rate limit hit (see per-endpoint limits below) |
+| `413` | Payload too large | Upload exceeds `max_upload_bytes` (default 100 MiB) |
+| `500` | Internal server error | Relay bug — check the server log |
+
+Rate limits: `register` 10/min, `register-admin` 5/min, `refresh`/`status`
+30/min. All other node-facing endpoints are currently unlimited.
+
+Error body shape (FastAPI default):
+
+```json
+{ "detail": "Invalid or expired runtime token" }
+```
+
+### Register a worker node
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "my-node",
+    "endpoint": null,
+    "role": "service",
+    "capabilities": [{"name": "storage.archive.native", "version": "1.0.0"}]
+  }' | jq
+```
+
+```json
+{
+  "node_id": "V34ETT74",
+  "node_name": "my-node",
+  "status": "pending",
+  "token_type": "temporary",
+  "token": "tp_...",
+  "expires_at": "2026-07-18T10:23:11+00:00",
+  "registration_secret": "rs_..."
+}
+```
+
+Errors: `409` if `node_name` already exists; `422` if `capabilities` is
+malformed.
+
+### Register an admin node (master seed)
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/register-admin" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_name": "admin-cli",
+    "bootstrap_secret": "adm_...",
+    "endpoint": null,
+    "capabilities": [{"name": "admin", "version": "1.0.0"}]
+  }' | jq
+```
+
+```json
+{
+  "node_id": "AB12CD34",
+  "node_name": "admin-cli",
+  "status": "approved",
+  "token_type": "runtime",
+  "token": "rt_...",
+  "expires_at": "2026-07-24T10:23:11+00:00"
+}
+```
+
+Errors: `401` if the bootstrap secret is wrong or the master seed has not
+been initialised on the relay host.
+
+### Heartbeat
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/discovery/heartbeat" \
+  -H "Authorization: Bearer rt_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "available": true,
+    "load": 0.0,
+    "queue_depth": 0,
+    "capabilities": [{"name": "storage.archive.native", "version": "1.0.0"}]
+  }' | jq
+```
+
+Response (200):
+
+```json
+{
+  "node_id": "V34ETT74",
+  "status": "ok",
+  "previous_status": "approved",
+  "last_seen": "2026-07-17T10:23:11+00:00"
+}
+```
+
+Errors: `401` token invalid/expired; `403` node not approved yet (poll
+`/auth/status`).
+
+### Claim a stage
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/claim" \
+  -H "Authorization: Bearer rt_..." \
+  -H "Content-Type: application/json" \
+  -d '{"capability": "storage.archive.native"}' | jq
+```
+
+```json
+{
+  "claimed": true,
+  "stage": {
+    "stage_id": "stg_abc123",
+    "task_id": "tsk_def456",
+    "stage_name": "archive",
+    "capability": "storage.archive.native",
+    "status": "claimed",
+    "depends_on": null,
+    "claimed_by": "V34ETT74",
+    "claimed_at": "2026-07-17T10:23:12+00:00",
+    "completed_at": null,
+    "payload": { "file_name": "report.pdf", "target_path": "/nas/archive" },
+    "result": null
+  }
+}
+```
+
+If no pending stage matches: `{"claimed": false, "stage": null}` (still
+`200`). Errors: `401` token; `403` capability not advertised in the latest
+heartbeat.
+
+### Complete a stage
+
+```bash
+curl -s -X POST \
+  "http://${RELAY_HOST}:8788/relay/v2/scheduler/stages/stg_abc123/complete" \
+  -H "Authorization: Bearer rt_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "result": {"status": "archived", "bytes": 1234567},
+    "artifacts": ["artifact_xYz"]
+  }' | jq
+```
+
+```json
+{ "ok": true, "stage_id": "stg_abc123", "status": "completed" }
+```
+
+To report a failure, put the error inside the result dict instead of
+raising — the relay stores it on the stage:
+
+```bash
+curl -s -X POST \
+  "http://${RELAY_HOST}:8788/relay/v2/scheduler/stages/stg_abc123/complete" \
+  -H "Authorization: Bearer rt_..." \
+  -H "Content-Type: application/json" \
+  -d '{"result": {"error": "disk full on /nas/archive"}}' | jq
+```
+
+Errors: `404` unknown stage; `409` stage not claimed by this node or already
+completed.
+
+### Submit a task
+
+Full DAG form (`POST /relay/v2/scheduler/tasks`):
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/tasks" \
+  -H "Authorization: Bearer rt_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_name": "archive-and-notify",
+    "priority": 3,
+    "stages": [
+      {
+        "stage_name": "archive",
+        "capability": "storage.archive.native",
+        "payload": {"file_name": "report.pdf", "target_path": "/nas/archive"}
+      },
+      {
+        "stage_name": "notify",
+        "capability": "chat.ai",
+        "depends_on": ["archive"],
+        "payload": {"message": "Archive completed"}
+      }
+    ]
+  }' | jq
+```
+
+```json
+{
+  "task_id": "tsk_def456",
+  "task_name": "archive-and-notify",
+  "status": "pending",
+  "stages": [
+    { "stage_id": "stg_abc123", "stage_name": "archive", "status": "pending" },
+    { "stage_id": "stg_ghi789", "stage_name": "notify",  "status": "pending" }
+  ]
+}
+```
+
+Simplified single-stage form (`POST /relay/v2/scheduler/task-simple`):
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/task-simple" \
+  -H "Authorization: Bearer rt_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "capability": "chat.ai",
+    "payload": {"question": "What is the time in Tokyo?"},
+    "name": "tokyo-time",
+    "priority": 3
+  }' | jq
+```
+
+```json
+{
+  "task_id": "tsk_qrs012",
+  "stage_id": "stg_tuv345",
+  "status": "pending",
+  "capability": "chat.ai"
+}
+```
+
+Errors: `422` validation (payload > `max_payload_bytes`, priority out of
+`0..10`); `404` if a `depends_on` stage id does not exist within the task.
+
+### Upload an artifact
+
+Multipart upload (default limit 100 MiB):
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/storage/upload" \
+  -H "Authorization: Bearer rt_..." \
+  -F "file=@/tmp/report.pdf" \
+  -F "task_id=tsk_def456" \
+  -F "stage_id=stg_abc123" | jq
+```
+
+```json
+{
+  "artifact_id": "artifact_a1B2c3D4",
+  "name": "report.pdf",
+  "path": "/home/felix/.relay/artifacts/artifact_a1B2c3D4",
+  "size_bytes": 1234567,
+  "mime_type": "application/pdf",
+  "created_by": "V34ETT74"
+}
+```
+
+Errors: `413` file larger than `max_upload_bytes`; `422` missing `file`
+field.
+
+For files larger than 100 MiB use the **chunked** upload flow:
+`POST /relay/v2/storage/chunked/init` →
+`POST /relay/v2/storage/chunked/{upload_id}/chunk` (repeated, base64 data) →
+`POST /relay/v2/storage/chunked/{upload_id}/complete`.
+
+### Download an artifact
+
+```bash
+curl -s -X GET "http://${RELAY_HOST}:8788/relay/v2/storage/files/artifact_a1B2c3D4" \
+  -H "Authorization: Bearer rt_..." \
+  -o /tmp/report.pdf
+```
+
+The relay streams the file in 64 KiB chunks. Metadata only:
+
+```bash
+curl -s "http://${RELAY_HOST}:8788/relay/v2/storage/files/artifact_a1B2c3D4/meta" \
+  -H "Authorization: Bearer rt_..." | jq
+```
+
+### Refresh / recover a token
+
+Rotate the runtime token (old one invalidated immediately):
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
+  -H "Authorization: Bearer rt_..." \
+  -H "Content-Type: application/json" \
+  -d '{"requested_credential": "runtime_token"}' | jq
+```
+
+Recover a lost runtime token with the registration secret (no Bearer
+header; rotates the registration secret too):
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_id": "V34ETT74",
+    "registration_secret": "rs_...",
+    "requested_credential": "runtime_token"
+  }' | jq
+```
+
+```json
+{
+  "node_id": "V34ETT74",
+  "node_name": "my-node",
+  "token_type": "runtime",
+  "token": "rt_new...",
+  "expires_at": "2026-07-24T10:23:11+00:00",
+  "message": "Runtime token recovered; registration secret rotated"
+}
+```
+
+Errors: `401` registration secret invalid/expired; `403` node not approved;
+`404` unknown `node_id`. See [../node/token-lifecycle.md](../node/token-lifecycle.md)
+for the full flow.
+
 ## Next steps
 
 - [../concepts.md](../concepts.md) — architecture and credential concepts

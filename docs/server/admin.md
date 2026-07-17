@@ -13,7 +13,7 @@ The full server installation, bootstrap, recovery, and systemd setup is in
 **[setup.md](setup.md)**. Quick reference:
 
 ```bash
-git clone https://github.com/felix/ai-relay-service.git
+git clone https://github.com/Kesuek/ai-relay-service.git
 cd ai-relay-service
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -33,14 +33,43 @@ After that, master-seed login is automatically disabled.
 
 ## Recovery mode
 
-If all human admins are locked out, enable recovery from the relay host:
+If all human admins are locked out, enable recovery from the relay host.
+Recovery re-activates master-seed login so the master seed can bootstrap a
+new admin.
 
 ```bash
+# 1. Disable every human admin account (required).
 relay-recovery --db-path ~/.relay/server.db enable-recovery --all
+
+# 2. Restart the relay with master-seed login allowed.
 RELAY_ENABLE_MASTER_SEED_LOGIN=true relay-server server --port 8788
 ```
 
-Once a new admin exists and has changed the password, turn recovery off.
+Now the dashboard login form shows the **Master seed** option again. Use it
+to create a new human admin and change the temporary password.
+
+### What `--all` does and why it is required
+
+`enable-recovery --all` flips the `active` flag to `0` on **every** human
+admin account in the database. The relay refuses to start with
+`RELAY_ENABLE_MASTER_SEED_LOGIN=true` unless **all** human admins are
+disabled — this prevents an attacker who stole the master seed from
+silently hijacking a running cluster. As long as a single human admin is
+still active, master-seed login stays blocked.
+
+### Turning recovery off
+
+Once the new admin exists and has changed the temporary password:
+
+1. Stop the relay.
+2. Restart it **without** `RELAY_ENABLE_MASTER_SEED_LOGIN` (set the env var
+   to `false` or drop it, and ensure `enable_master_seed_login: false` in
+   `config.yaml`).
+3. Re-activate the legitimately needed admin accounts through the dashboard
+   (the new admin you just created can do this).
+
+Master-seed login is now unavailable again until the next explicit
+recovery.
 
 ## Manage nodes
 

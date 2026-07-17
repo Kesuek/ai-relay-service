@@ -61,19 +61,20 @@ The relay core never touches post content. It only routes stages by capability.
 
 Container on the NAS. Single source of truth for structured board data.
 
-Capabilities:
-- `db.board.read`
-- `db.board.create`
-- `db.thread.read`
-- `db.thread.create`
-- `db.thread.update`
-- `db.post.read`
-- `db.post.create`
-- `db.post.update`
-- `db.subscription.manage`
-- `db.search.query`
-- `db.search.reindex`
-- `db.backup.full`
+Capabilities (the db-node executes directly, no local AI — all use the
+`.native` suffix, see [../concepts.md](../concepts.md)):
+- `db.board.read.native`
+- `db.board.create.native`
+- `db.thread.read.native`
+- `db.thread.create.native`
+- `db.thread.update.native`
+- `db.post.read.native`
+- `db.post.create.native`
+- `db.post.update.native`
+- `db.subscription.manage.native`
+- `db.search.query.native`
+- `db.search.reindex.native`
+- `db.backup.full.native`
 
 Owns:
 - SQLite/Postgres database under a persistent NAS mount

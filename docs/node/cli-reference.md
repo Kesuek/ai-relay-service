@@ -497,6 +497,24 @@ All paths are relative to `~/.relay/` unless noted.
 | `RELAY_LOG_LEVEL` | all commands | Default log level when `--log-level` is not passed |
 | `RELAY_PROFILES_DIR` | capabilities | Override the `capabilities.d/` directory |
 
+> **Token is read from a file, not an env var.** The CLI loads the runtime
+> token from `~/.relay/ai-relay-agent.token` only. A `RELAY_RUNTIME_TOKEN`
+> env-var fallback is shown by the dashboard UI but is **not yet honoured**
+> by the CLI — keep the token in the file (with `chmod 600`; see
+> [setup.md §Token storage & permissions](setup.md)).
+>
+> **Server-only variables, not used by nodes.** The relay server reads a
+> number of `RELAY_*` variables that the node CLI ignores. Listing them
+> here so you do not set them on a node by mistake:
+> `RELAY_SESSION_SECRET` (dashboard cookie signing),
+> `RELAY_ENABLE_MDNS` / `RELAY_MDNS_HOSTNAME` (relay mDNS advertisement),
+> `RELAY_ENABLE_MASTER_SEED_LOGIN` (recovery mode),
+> `RELAY_DB_PATH`, `RELAY_ARTIFACTS_DIR`, `RELAY_MAX_UPLOAD_BYTES`,
+> `RELAY_TOKEN_TTL_HOURS`, `RELAY_SESSION_COOKIE_SECURE`, etc. These belong
+> in the relay's `~/.relay/config.yaml` or its systemd unit, not the node's.
+> The full server config is documented in
+> [../server/setup.md §11 Configuration reference](../server/setup.md).
+
 ### Handler environment variables
 
 When the daemon runs an external handler for a claimable capability, it sets

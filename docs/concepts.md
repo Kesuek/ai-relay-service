@@ -53,17 +53,22 @@ Capabilities are the **routing keys** the relay uses to match stages to nodes.
 ### Naming and execution-mode suffixes
 
 Capability names are lowercase, dot-separated namespaces. The suffix
-describes *how* the node executes the stage:
+describes *how* the node executes the stage. **Every concrete capability a
+node advertises must carry one of these suffixes** — a bare core name such
+as `chat` or `storage.archive` is a category, not an executable offer, and
+will not match a stage.
 
 | Suffix | Meaning | Example |
 |---|---|---|
-| `.native` | Runs on the relay host / node directly. No local AI. | `storage.archive.native` |
+| `.native` | Runs on the relay host / node directly. No local AI. | `storage.archive.native`, `db.board.create.native` |
 | `.ai` | KI-capable; the node delegates to its local AI. | `chat.ai`, `code.ai` |
 | `.relay` | Relay-internal orchestration capability. | `llm.decide_cleanup.relay` |
 
-A bare core name such as `chat` is a category, not a concrete execution offer.
-A node that wants to provide chat services should register `chat.ai`,
-`chat.native`, or both.
+> **All KI-less / service nodes use `.native`.** A database service node
+> advertises `db.board.create.native`, `db.post.read.native`, etc. — never
+> the bare `db.board.create`. The relay matches names **exactly**, so a
+> stage requesting `db.board.create.native` will not be claimed by a node
+> that only advertised `db.board.create`.
 
 ### Core capability names
 
@@ -129,6 +134,14 @@ and recovery flows.
 ## Node types
 
 The relay distinguishes two broad categories of node.
+
+> **Naming note.** This concept document is written in German-influenced
+> style and uses **KI** (German abbreviation for *Künstliche Intelligenz*)
+> as the noun for AI. The API reference and code use the English **AI**
+> (`/relay/v2`, `.ai` suffix, `chat.ai`). Both terms mean the same thing;
+> pick whichever suits your audience. The node types below are sometimes
+> called **worker node** (KI-capable / AI-capable) and **service node**
+> (KI-less / AI-less) in the docs and dashboard.
 
 ### KI-capable nodes
 
@@ -271,6 +284,29 @@ scheduler actually sends more work. `online` + `available=false` means
 - **Keep the relay behind your firewall**; it is designed for private
   networks.
 - **Expired tokens are purged hourly by a background watchdog.**
+
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| **Node** | A process that registers with the relay and advertises capabilities. Either a worker node (KI-capable) or a service node (KI-less). |
+| **Capability** | A dot-separated routing key (e.g. `storage.archive.native`) a node advertises; the scheduler matches stages to nodes by exact capability name. |
+| **Capability suffix** | `.native` (no AI, runs directly), `.ai` (delegates to local AI), `.relay` (relay-internal). Required on every concrete capability. |
+| **Stage** | A single unit of work inside a task DAG. Has a capability, a payload, dependencies, and a status. |
+| **Task** | A collection of one or more stages with dependencies, submitted by a node. Has a `task_id` and a priority. |
+| **DAG** | Directed acyclic graph of stages within a task; `depends_on` defines the edges. |
+| **Heartbeat** | A periodic `POST /relay/v2/discovery/heartbeat` from a node reporting availability, load, queue depth, and current capabilities. Default every 8–10 s. |
+| **Claim** | A node takes a pending stage matching one of its capabilities (`POST /relay/v2/scheduler/claim`); the stage becomes `claimed` for up to `claim_ttl_seconds`. |
+| **Complete** | A node submits the result of a claimed stage (`POST /relay/v2/scheduler/stages/{id}/complete`). |
+| **Runtime token** (`rt_…`) | Day-to-day Bearer token for a node. TTL 7 days, one per node, refreshed via `/auth/refresh`. |
+| **Registration secret** (`rs_…`) | Recovery-only credential. TTL 12 h, rotated on every use. Used to recover a lost runtime token. |
+| **Temporary token** (`tp_…`) | Short-lived token (24 h) issued on registration, replaced by a runtime token after approval. |
+| **Master admin seed** (`adm_…`) | Emergency credential created on the relay host; used to bootstrap the first admin and for recovery. Stored as a bcrypt hash. |
+| **Bootstrap seed** (`bs_…`) | One-time 24 h session after a master-seed dashboard login. |
+| **SSE** | Server-Sent Events; the relay pushes events to nodes via `GET /relay/v2/events/stream`. |
+| **EventBus** | The relay's internal event system; emits typed events (e.g. `board.post_created`, `task.stage_completed`) that nodes subscribe to via SSE. |
+| **Self-care pattern** | A KI-less node posts a decision task for a KI node when a judgement call is needed, instead of deciding itself. |
+| **Pending / approved / online / offline** | Node status values; see "Node lifecycle". |
 
 ## Where to go next
 

@@ -26,9 +26,24 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"      # server deps reused (httpx, pyyaml, pydantic)
 ```
 
-> The `node-cli` console script was removed from the server package. Start the
-> daemon via `python -m nodes.common.node_cli`. Below we use the `node-cli`
-> shorthand for readability.
+> **Note on the `node-cli` command:** the `node-cli` console script was
+> removed from the server package and is **no longer installed**. Always
+> invoke the CLI via its module path:
+>
+> ```bash
+> python -m nodes.common.node_cli <command> [options]
+> ```
+>
+> The examples in this guide use the shorthand `node-cli` for readability —
+> read it as `python -m nodes.common.node_cli`. If you want a real
+> `node-cli` command in your shell, add an alias or a tiny wrapper:
+>
+> ```bash
+> # ~/.bashrc or ~/.zshrc
+> alias node-cli='python -m nodes.common.node_cli'
+> # or, a wrapper on $PATH that works everywhere (incl. systemd):
+> echo 'exec python -m nodes.common.node_cli "$@"' | sudo tee /usr/local/bin/node-cli && sudo chmod +x /usr/local/bin/node-cli
+> ```
 
 ## 2. Register the node
 
@@ -223,16 +238,65 @@ python -m nodes.common.node_cli status
 - [ ] Refresh tokens before expiry; recover with the registration secret if lost
 - [ ] Configure a systemd unit, LaunchAgent, or container restart policy
 
+## Token storage & permissions
+
+The runtime token (`~/.relay/ai-relay-agent.token`) and state file
+(`~/.relay/ai-relay-agent.json`) are credentials — anyone who can read them
+can impersonate the node. The daemon **does not** set restrictive
+permissions automatically. Secure them yourself:
+
+```bash
+chmod 600 ~/.relay/ai-relay-agent.token ~/.relay/ai-relay-agent.json
+chmod 700 ~/.relay
+ls -l ~/.relay/ai-relay-agent.token
+# -rw------- ... ai-relay-agent.token
+```
+
+For a systemd service, enforce it in the unit:
+
+```ini
+[Service]
+...
+UMask=0077
+# Or, if you manage the files out-of-band:
+ExecStartPre=/bin/chmod 600 %h/.relay/ai-relay-agent.token %h/.relay/ai-relay-agent.json
+```
+
+Alternatives for containers / hosts where you do not want files on disk:
+
+- **Bind-mount** a read-only token file from the host secret store into the
+  container at `~/.relay/ai-relay-agent.token` (and the state file at
+  `~/.relay/ai-relay-agent.json`).
+- **Provision the files** at startup from a secret manager
+  (e.g. `vault kv get -field=token … > ~/.relay/ai-relay-agent.token &&
+  chmod 600 ~/.relay/ai-relay-agent.token`) in an `ExecStartPre=` or
+  container entrypoint.
+
+Never commit `~/.relay/ai-relay-agent.token` or `ai-relay-agent.json` to git
+or include them in image layers.
+
+> The node CLI currently reads the token **only** from
+> `~/.relay/ai-relay-agent.token`; an env-var fallback
+> (`RELAY_RUNTIME_TOKEN`) is referenced by the dashboard UI but not yet
+> honoured by the CLI. Until it is, keep the token in the file.
+
 ## Troubleshooting
 
 | Problem | Solution |
 |---|---|
-| `401` on heartbeat | Runtime token expired or missing → refresh via `/auth/refresh`. |
-| `403` on claim | Capability not in the latest heartbeat → check `capabilities.active.yaml`. |
-| `404` on `/auth/refresh` | Middleware force-password-change or wrong path — confirm `RELAY_BASE_URL`. |
+| `401` on heartbeat | Runtime token expired or missing → refresh via `/auth/refresh`. If lost, recover with the registration secret (see [token-lifecycle.md](token-lifecycle.md)). |
+| `403` on claim | Capability not in the latest heartbeat → check `capabilities.active.yaml` and that `auto_publish: true`. |
+| `404` on `/auth/refresh` | Wrong `RELAY_BASE_URL`, or the node was deleted by an admin → re-register. |
 | Node stays `pending` | Admin has not approved it yet (dashboard → Nodes → Approve). |
-| Node `offline` in dashboard | Daemon not running, or heartbeat interval too long. Check `systemctl status`. |
+| Node `offline` in dashboard | Daemon not running, or heartbeat interval too long. `systemctl status ai-relay-node.service` and `tail ~/.relay/node-cli.log`. |
 | Both credentials expired | Re-register the node (step 2). |
+| `ConnectionError` / `Network is unreachable` | Check `RELAY_BASE_URL`, reachability (`curl http://<relay>:8788/health`), and firewall on both ends. |
+| `python: command not found` / wrong version | Use `python3` explicitly; require 3.11+ (`python3 --version`). Install via `pyenv` or your distro's `python3.11` package. |
+| `Permission denied: ~/.relay/...` | The user running the daemon must own `~/.relay/`. `chown -R $USER ~/.relay`, `chmod 700 ~/.relay`. |
+| Daemon exits immediately under systemd | Use absolute paths in `ExecStart` (`.venv/bin/python`), set `WorkingDirectory`, and `User=` to the owner of `~/.relay`. Check `journalctl -u ai-relay-node`. |
+| Daemon starts but won't claim | No `claimable: true` capability, or `handler` path missing/executable. `node-cli capabilities validate`. |
+| Handler `timeout` in results | Raise the `timeout:` field in the profile, or make the handler faster. |
+| mDNS name unreachable from the node | Use the IP address in `RELAY_BASE_URL`, or enable an mDNS reflector on the router. |
 
 ## Example: Proxmox LXC
 
