@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docs serving layer (`src/relay_server/api/v2/docs.py`) — whitelist updated with new doc names and backward-compat aliases.
 - Dashboard redirect (`/agent-readme`) and login.html link updated to new doc names.
 
+### Deprecated
+
+- `nodes/worker/worker.py` — removed. Superseded by `nodes/common/node_cli.py` which provides daemon control, capability management, artifact upload/download, and 15+ CLI commands. No code in the repository referenced `worker.py`.
+
 ### Fixed
 
 - `nodes/common/capability_loader.py` — `description` field added to allowed keys and normalized keys (was silently rejected by YAML profile validation).
