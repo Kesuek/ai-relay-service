@@ -595,3 +595,66 @@ def test_claim_stage_uses_normalized_index():
     assert r.status_code == 200
     assert r.json()["claimed"] is True
     assert r.json()["stage"]["capability"] == "chat"
+
+
+# ---------------------------------------------------------------------------
+# T-046: owner_node_id restricts which node may claim a stage
+# ---------------------------------------------------------------------------
+
+
+def test_claim_stage_respects_owner_node_id():
+    """A task with owner_node_id set can only be claimed by that node."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    node_a_id, node_a_token = _register(
+        secret, "Node A", [{"name": "chat", "version": "1.0"}], admin_token=admin_token
+    )
+    node_b_id, node_b_token = _register(
+        secret, "Node B", [{"name": "chat", "version": "1.0"}], admin_token=admin_token
+    )
+
+    # Submit a task pinned to Node A via owner_node_id.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "Pinned",
+            "stages": [{"stage_name": "do-chat", "capability": "chat"}],
+            "owner_node_id": node_a_id,
+        },
+    )
+    assert r.status_code == 200, r.json()
+    task_id = r.json()["task"]["task_id"]
+    stage_id = r.json()["stages"][0]["stage_id"]
+
+    # Node B has the matching capability but must NOT be able to claim.
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {node_b_token}"},
+        json={},
+    )
+    assert r.status_code == 200
+    assert r.json()["claimed"] is False
+
+    # The stage is still pending — Node B was skipped, not claimed.
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT status, claimed_by FROM task_stages WHERE stage_id = ?",
+        (stage_id,),
+    ).fetchone()
+    conn.close()
+    assert row["status"] == "pending"
+    assert row["claimed_by"] is None
+
+    # Node A is the owner and may claim.
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {node_a_token}"},
+        json={},
+    )
+    assert r.status_code == 200
+    assert r.json()["claimed"] is True
+    assert r.json()["stage"]["stage_id"] == stage_id
+    assert r.json()["stage"]["claimed_by"] == node_a_id
