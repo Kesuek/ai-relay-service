@@ -73,6 +73,53 @@ might advertise `chat.ai` (KI-capable, handled by Hermes) and
 The handler for each capability decides how work is executed — the node-cli
 daemon is agnostic to the type.
 
+## chat.ai vs agent.ai
+
+Both are KI-capable (`.ai` suffix), but they serve different purposes:
+
+| | `chat.ai` | `agent.ai` |
+|---|---|---|
+| **Backend** | `hermes -z` (subprocess) | Hermes API Server (HTTP) |
+| **Session** | None — new session every call | Persistent session across calls |
+| **Context** | Only the current prompt | Can maintain multi-turn context |
+| **Tools** | Limited to what `-z` provides | Full Hermes toolset |
+| **Use case** | Simple, stateless queries ("What time is it?") | Complex multi-step workflows ("Update the worker and restart") |
+| **Latency** | Higher (process startup each time) | Lower (server stays running) |
+
+**When to use which:**
+
+- `chat.ai` — quick questions, simple prompts, no tool access needed.
+  The handler runs `hermes -z "<prompt>"` and returns the response.
+
+- `agent.ai` — complex tasks that require planning, tool use, or
+  multi-step execution ("git pull, check capabilities, restart daemon").
+  The handler sends the payload to a local Hermes API Server
+  (`http://localhost:8080/v1/chat/completions`) which keeps a persistent
+  session and has access to all tools.
+
+**Example `agent.ai` capability profile:**
+
+```yaml
+- name: agent.ai
+  type: ai
+  description: "Full Hermes agent with persistent session and all tools."
+  auto_publish: true
+  claimable: true
+  handler: /opt/relay/handlers/agent-handler.sh
+  max_parallel: 1
+  timeout: 600
+  input_schema:
+    fields:
+      task:
+        name: task
+        type: string
+        required: true
+        description: "The task description for the agent to execute."
+```
+
+The `agent-handler.sh` would POST to the local Hermes API Server
+instead of running `hermes -z`:
+
 ## node-cli capability profiles
 
 The generic `node-cli` daemon is **capability-agnostic**: all capabilities are
