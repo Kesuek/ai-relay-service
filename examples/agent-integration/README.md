@@ -4,16 +4,25 @@ This directory contains a reference KI-capable worker that registers as a node
 in the AI Relay cluster and delegates every claimed stage to the local Hermes
 AI.
 
+> **Note:** The legacy `poller.py` has been removed from `nodes/common/`. The
+> recommended worker implementation is now the **node-cli daemon**
+> (`nodes/common/node_cli.py`). See `docs/node/cli-reference.md` for the full
+> command reference.
+>
+> The files in this directory (`ai-relay-agent-poller.py` and its systemd unit)
+> are kept as a reference for custom worker implementations that need the old
+> `Poller` class. If you are setting up a new worker, use `node-cli` instead.
+
 ## Files
 
 | File | Purpose |
-|---|---|
-| `ai-relay-agent-poller.py` | KI-capable delegator worker. Uses `nodes/common/poller.py` for auth, heartbeat, claim, and completion. Hands stage payloads to the local `hermes` CLI. |
+|------|---------|
+| `ai-relay-agent-poller.py` | KI-capable delegator worker (legacy). Uses the old `Poller` class for auth, heartbeat, claim, and completion. Hands stage payloads to the local `hermes` CLI. |
 | `ai-relay-agent-poller.service` | systemd user unit for running the worker permanently. |
 
 ## How it works
 
-1. The poller loads `~/.relay/ai-relay-agent.json` and `~/.relay/relay_config.json`.
+1. The worker loads `~/.relay/ai-relay-agent.json` and `~/.relay/relay_config.json`.
 2. It ensures a valid runtime token is available, refreshing or recovering via
    `/relay/v2/auth/refresh` as needed.
 3. It heartbeats every 8 seconds with the capabilities listed in
@@ -68,7 +77,7 @@ From any client or node:
 
 ```bash
 curl -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/tasks" \
-  -H "Authorization: Bearer <admin-token>" \
+  -H "Authorization: Bearer ***" \
   -H "Content-Type: application/json" \
   -d '{
     "task_name": "ask-local-agent",

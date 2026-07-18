@@ -5,8 +5,8 @@ v2. They run as external processes and talk to the core over the public HTTP/SSE
 API. They do **not** import any `relay_server` internals.
 
 > **Note:** These examples are from an earlier iteration of the node API. For
-> new nodes use the generic poller in `nodes/common/poller.py` or the KI-capable
-> agent wrapper in `examples/agent-integration/ai-relay-agent-poller.py`. Those
+> new nodes use the **node-cli daemon** (`nodes/common/node_cli.py`) or the
+> KI-capable agent wrapper in `examples/agent-integration/`. Those
 > implementations follow the current token lifecycle and capability naming
 > conventions.
 

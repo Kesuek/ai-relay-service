@@ -216,4 +216,5 @@ tasks must reference exactly those names.
 
 Look at `examples/agent-integration/ai-relay-agent-poller.py` in this
 repository for a KI-capable agent that delegates work to the local Hermes AI.
-For a generic base class see `nodes/common/poller.py`.
+For the recommended worker implementation see `nodes/common/node_cli.py`
+and `docs/node/cli-reference.md`.
