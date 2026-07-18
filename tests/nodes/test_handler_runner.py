@@ -35,19 +35,26 @@ def test_run_handler_cat_returns_stdin_as_dict():
     # /bin/cat echoes stdin back; the runner parses it as JSON.
     stage = _stage({"message": "hello"})
     result = run_handler("/bin/cat", stage, context=_context())
-    assert result == {"message": "hello"}
+    assert result["message"] == "hello"
+    # _handler debug block is always attached on success.
+    assert result["_handler"]["exit_code"] == 0
+    assert result["_handler"]["stdout_length"] > 0
+    assert result["_handler"]["stderr"] == ""
 
 
 def test_run_handler_handler_stdout_json_returned_as_dict():
     handler = f"{sys.executable} -c 'import sys,json; print(json.dumps({{\"ok\": True}}))'"
     result = run_handler(handler, _stage(), context=_context())
-    assert result == {"ok": True}
+    assert result["ok"] is True
+    assert result["_handler"]["exit_code"] == 0
 
 
 def test_run_handler_non_dict_json_wrapped_into_result():
     handler = f"{sys.executable} -c 'print(\"[1, 2, 3]\")'"
     result = run_handler(handler, _stage(), context=_context())
-    assert result == {"result": [1, 2, 3]}
+    assert result["result"] == [1, 2, 3]
+    # _handler is attached even for wrapped non-dict JSON.
+    assert result["_handler"]["exit_code"] == 0
 
 
 def test_run_handler_empty_payload_sends_empty_object():
@@ -59,8 +66,9 @@ def test_run_handler_empty_payload_sends_empty_object():
         "'import sys; sys.stdout.write(sys.stdin.read())'"
     )
     result = run_handler(handler, _stage(None), context=_context())
-    # The echoed stdin was {} → parsed as empty dict.
-    assert result == {}
+    # The echoed stdin was {} → parsed as empty dict, with _handler debug.
+    assert result.get("_handler") is not None
+    assert result["_handler"]["exit_code"] == 0
     _ = captured  # silence unused var linters
 
 
@@ -139,6 +147,7 @@ def test_run_handler_inherits_process_env():
     )
     result = run_handler(handler, _stage(), context=_context())
     assert result["p"] == os.environ.get("PATH")
+    assert result["_handler"]["exit_code"] == 0
 
 
 def test_run_handler_missing_context_keys_default_empty():
