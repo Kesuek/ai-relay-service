@@ -114,6 +114,7 @@ def test_all_subcommands_parse_without_errors():
         ["claim", "chat.ai"],
         ["complete", "stage-1", "--task", "task-1", "--result-file", "/tmp/r.json"],
         ["task", "submit", "--name", "n", "--stage", "chat.ai:{\"x\":1}", "--priority", "2"],
+        ["task", "submit", "--name", "n", "--stage", "chat.ai:{\"x\":1}", "--owner", "node_a"],
         ["capabilities", "list"],
         ["capabilities", "validate", "default"],
         ["capabilities", "validate"],
@@ -332,6 +333,78 @@ def test_task_submit_stage_invalid_no_colon():
 def test_task_submit_stage_invalid_json():
     with pytest.raises(SystemExit):
         cli._parse_stage_arg("chat.ai:not-json")
+
+
+def test_task_submit_with_owner(isolated_paths: Path, monkeypatch):
+    """--owner flag is forwarded as owner_node_id in the request body."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    captured: dict = {}
+
+    def fake_post(url, **kw):
+        captured["url"] = url
+        captured["body"] = kw.get("json")
+        class FakeResp:
+            status_code = 200
+            def json(self):
+                return {"task_id": "task_x", "status": "pending", "stage_count": 1}
+            def raise_for_status(self):
+                pass
+        return FakeResp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    result = client.submit_simple_task(
+        "chat.ai",
+        {"x": 1},
+        name="pinned",
+        priority=3,
+        owner_node_id="node_target",
+    )
+
+    assert result["task_id"] == "task_x"
+    assert "/relay/v2/scheduler/task-simple" in captured["url"]
+    body = captured["body"]
+    assert body["owner_node_id"] == "node_target"
+    assert body["capability"] == "chat.ai"
+    assert body["priority"] == 3
+    assert body["name"] == "pinned"
+
+
+def test_task_submit_without_owner_omits_field(isolated_paths: Path, monkeypatch):
+    """When --owner is not given, owner_node_id must not be sent in the body."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    captured: dict = {}
+
+    def fake_post(url, **kw):
+        captured["body"] = kw.get("json")
+        class FakeResp:
+            status_code = 200
+            def json(self):
+                return {"task_id": "t1", "status": "pending", "stage_count": 1}
+            def raise_for_status(self):
+                pass
+        return FakeResp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    client.submit_simple_task("chat.ai", {"x": 1})
+    assert "owner_node_id" not in captured["body"]
 
 
 # ---------------------------------------------------------------------------
