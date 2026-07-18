@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `src/relay_server/api/v2/scheduler.py` — `POST /scheduler/tasks` and `POST /scheduler/task-simple` no longer default `owner_node_id` to the submitting node's ID. `owner_node_id` is now opt-in (only set when the client explicitly provides it). Tasks without an owner remain claimable by any matching node. (T-046)
 - `src/relay_server/models/__init__.py` — `HeartbeatRequest.load` and `NodeHeartbeatRequest.load` validation range changed from `[0.0, 1.0]` to `[0.0, 100.0]` to match the new percentage-based load reporting.
 - `nodes/common/poller.py` — `load_cap` removed from `DEFAULT_CONFIG` (now calculated from `os.cpu_count()` at runtime).
+- `docs/node/capabilities.md` — "Node types" section replaced with "Capability types" table (KI-capable `.ai` vs KI-less `.native`), clarifying that a single node can offer both types side by side.
 
 ### Removed
 

@@ -58,26 +58,20 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/discovery/heartbeat" \
 `endpoint` is set during registration; send it again only if it changed at
 runtime.
 
-## Node types
+## Capability types
 
-**KI-capable node** — claim → understand → execute → complete. Hand the stage
-payload to the local AI rather than hard-coding tool calls; the AI chooses
-tools and how to combine them.
+Every capability has a **type** that describes *how* work is executed:
 
-**KI-less service node** — claim → check → execute directly, or post a
-decision task back to the relay when AI judgment is needed:
+| Type | Suffix | Execution | Example |
+|------|--------|-----------|---------|
+| **KI-capable** | `.ai` | Delegated to a local AI (Hermes, LLM). The AI interprets the payload, chooses tools, and returns a result. | `chat.ai`, `agent.ai`, `code.ai` |
+| **KI-less / tool** | `.native` | Direct execution — a script, binary, or hard-coded handler. No AI involved. | `storage.archive.native`, `image.generate.mflux` |
 
-```python
-def execute_stage(stage):
-    payload = stage["payload"]
-    if not payload.get("target_path"):
-        submit_decision_task(stage)          # KI node claims it later
-        return {"status": "needs_decision"}
-    archive_file(payload["file_name"], payload["target_path"])
-    return {"status": "completed"}
-```
-
-See [../concepts.md](../concepts.md) for the full self-care pattern.
+A single node can offer **both** types side by side. For example, a worker
+might advertise `chat.ai` (KI-capable, handled by Hermes) and
+`image.generate.mflux` (tool, runs FLUX directly) in the same heartbeat.
+The handler for each capability decides how work is executed — the node-cli
+daemon is agnostic to the type.
 
 ## node-cli capability profiles
 
