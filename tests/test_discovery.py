@@ -425,3 +425,97 @@ def test_stale_nodes_marked_offline():
     worker = next(n for n in r.json()["nodes"] if n["node_id"] == worker_id)
     assert worker["status"] == "offline"
     assert worker["status"] == "offline"
+
+
+def test_register_without_capabilities_then_set_via_heartbeat():
+    """Node registered with no capabilities can advertise them via heartbeat (T-047).
+
+    The worker registers with an empty capabilities list (the models default
+    to ``default_factory=list``). After admin approval it sends a
+    ``replace_capabilities`` heartbeat advertising ``chat.ai``; the server
+    must persist and index that capability so the scheduler can find it.
+    """
+    from relay_server.core.db import get_node_capability_names, nodes_with_capability
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+
+    # Register worker WITHOUT capabilities.
+    worker_id, _ = _register_worker("Worker NoCaps", [])
+    assert worker_id
+
+    # The pending node must have no capabilities recorded yet.
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT capabilities FROM nodes WHERE node_id = ?", (worker_id,)
+    ).fetchone()
+    conn.close()
+    assert row["capabilities"] in (None, "", "[]", "null")
+
+    # Approve the node without overriding capabilities (body.capabilities=None).
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    runtime = r.json()["token"]
+
+    # Heartbeat with replace_capabilities advertising the real capability.
+    r = client.post(
+        "/relay/v2/discovery/heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={
+            "available": True,
+            "capabilities": [{"name": "chat.ai", "version": "1.0.0"}],
+        },
+    )
+    assert r.status_code == 200
+
+    # The capability must be persisted on the node row…
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT capabilities FROM nodes WHERE node_id = ?", (worker_id,)
+    ).fetchone()
+    conn.close()
+    caps = json.loads(row["capabilities"]) if row["capabilities"] else []
+    assert any(c.get("name") == "chat.ai" for c in caps)
+
+    # …and mirrored into the normalized node_capabilities index.
+    assert "chat.ai" in get_node_capability_names(worker_id)
+    assert worker_id in nodes_with_capability("chat.ai")
+
+
+def test_heartbeat_with_empty_replace_capabilities_clears_index():
+    """A replace_capabilities heartbeat with [] must clear the index (T-047).
+
+    Guards against stale rows in ``node_capabilities`` when a node drops
+    its last capability. ``sync_node_capabilities`` must accept an empty
+    list without raising.
+    """
+    from relay_server.core.db import get_node_capability_names
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker DropCap", [{"name": "temp.cap", "version": "1.0.0"}])
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "temp.cap", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    runtime = r.json()["token"]
+
+    # Advertise then drop via worker-heartbeat (replace mode).
+    client.post(
+        "/relay/v2/discovery/worker-heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"available": True, "capabilities": [{"name": "temp.cap", "version": "1.0.0"}]},
+    )
+    assert get_node_capability_names(worker_id) == ["temp.cap"]
+
+    client.post(
+        "/relay/v2/discovery/worker-heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"available": True, "capabilities": []},
+    )
+    assert get_node_capability_names(worker_id) == []
