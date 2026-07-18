@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `src/relay_server/core/discovery.py` — Capability-Availability-Bug: a node heartbeating with `available: false` no longer overrides the availability for all other nodes sharing the same capability. Now checks if any other node still has the capability available before setting it to false. (T-036)
 - `nodes/common/node_cli.py` — Heartbeat body was missing `available: True`, causing the server to set the node to `available: false` on every heartbeat. (T-038)
+- `src/relay_server/core/discovery.py` — `endpoint` field removed from `_node_row_to_dict()` to prevent leaking internal network addresses between nodes in the public discovery response. (T-048)
 
 ### Changed
 
