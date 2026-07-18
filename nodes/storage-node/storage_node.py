@@ -18,7 +18,10 @@ import httpx
 try:
     from poller import Poller
 except ImportError:
-    from nodes.common.poller import Poller
+    raise ImportError(
+        "storage_node requires poller.py in the Python path. "
+        "This node runs inside its own Docker container with a bundled poller."
+    )
 
 STORAGE_PATH = Path(os.environ.get("RELAY_STORAGE_PATH", "/storage"))
 QUOTA_THRESHOLD = float(os.environ.get("RELAY_QUOTA_THRESHOLD", "0.85"))

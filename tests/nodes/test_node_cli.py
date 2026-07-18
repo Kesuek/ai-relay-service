@@ -11,7 +11,7 @@ import pytest
 
 from nodes.common import capability_loader as cl
 from nodes.common import node_cli as cli
-from nodes.common import poller
+from nodes.common import node_utils
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -58,12 +58,12 @@ def isolated_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(cli, "LOG_PATH", base / "node-cli.log")
     monkeypatch.setattr(cli, "STATUS_PATH", base / "worker_status.json")
 
-    # poller module globals used by RelayClient.
-    monkeypatch.setattr(poller, "BASE_DIR", base)
-    monkeypatch.setattr(poller, "CONFIG_PATH", base / "relay_config.json")
-    monkeypatch.setattr(poller, "META_PATH", base / "ai-relay-agent.json")
-    monkeypatch.setattr(poller, "TOKEN_PATH", base / "ai-relay-agent.token")
-    monkeypatch.setattr(poller, "STATUS_PATH", base / "worker_status.json")
+    # node_utils module globals used by RelayClient.
+    monkeypatch.setattr(node_utils, "BASE_DIR", base)
+    monkeypatch.setattr(node_utils, "CONFIG_PATH", base / "relay_config.json")
+    monkeypatch.setattr(node_utils, "META_PATH", base / "ai-relay-agent.json")
+    monkeypatch.setattr(node_utils, "TOKEN_PATH", base / "ai-relay-agent.token")
+    monkeypatch.setattr(node_utils, "STATUS_PATH", base / "worker_status.json")
 
     profiles_dir.mkdir(parents=True, exist_ok=True)
     return base
@@ -620,7 +620,7 @@ def test_poller_download_artifact_streams_to_disk(isolated_paths: Path, monkeypa
         "base_url": "http://relay.test",
         "capabilities": [],
     }))
-    poller_obj = poller.Poller()
+    client = _make_client(isolated_paths, monkeypatch)
     payload = b"poller-bytes"
 
     fake = _FakeStreamResponse(
@@ -628,9 +628,9 @@ def test_poller_download_artifact_streams_to_disk(isolated_paths: Path, monkeypa
         chunks=[payload[:3], payload[3:]],
         headers={"content-disposition": 'attachment; filename="poll.bin"'},
     )
-    monkeypatch.setattr(poller.httpx, "stream", lambda *a, **k: _FakeStreamCM(fake))
+    monkeypatch.setattr(cli.httpx, "stream", lambda *a, **k: _FakeStreamCM(fake))
 
-    target = poller_obj.download_artifact("artifact_p1")
+    target = client.download_artifact("artifact_p1")
     assert target.name == "poll.bin"
     assert target.read_bytes() == payload
     target.unlink(missing_ok=True)
