@@ -370,6 +370,26 @@ curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/task-simple" \
 Errors: `422` validation (payload > `max_payload_bytes`, priority out of
 `0..10`); `404` if a `depends_on` stage id does not exist within the task.
 
+#### Pin a task to a specific node (`owner_node_id`)
+
+Both `POST /scheduler/tasks` and `POST /scheduler/task-simple` accept an
+optional `owner_node_id` field. When set, only that node may claim the
+task's stages; other nodes with matching capabilities will skip them.
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/scheduler/task-simple" \
+  -H "Authorization: Bearer rt_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "capability": "chat.ai",
+    "payload": {"question": "hi"},
+    "owner_node_id": "node_a1b2c3d4"
+  }' | jq
+```
+
+When `owner_node_id` is omitted, any approved node with a matching
+capability may claim the stage.
+
 ### Upload an artifact
 
 Multipart upload (default limit 100 MiB):

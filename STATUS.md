@@ -8,8 +8,8 @@
 | **Port** | 8788 |
 | **Framework** | FastAPI + SQLite (WAL) |
 | **Owner** | Ronny Pietschke |
-| **Tests** | 203/203 passed |
-| **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 → 2222f4b → 7ba5aaf → 1fcf787 → 6a9c83e → 09d0a8c → 122dca6 → c96d71e → f4827c4 |
+| **Tests** | 205/205 passed |
+| **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 → 2222f4b → 7ba5aaf → 1fcf787 → 6a9c83e → 09d0a8c → 122dca6 → c96d71e → f4827c4 → bc70188 → 85a7971 |
 
 ## Phase Status
 
@@ -80,6 +80,10 @@
 - [x] `node-cli capabilities server` — Server-Capability-Query (T-035)
 - [x] Capability-Availability-Bug in `get_capabilities()` gefixt (T-036)
 - [x] Cross-platform load normalisation: `(load_avg / cpu_count) * 100` (T-037)
+
+### Phase 8 — Routing & Adressierung ✅
+- [x] `owner_node_id` in `claim_stage()` respektieren — Tasks lassen sich an einen bestimmten Node pinnen (T-046)
+- [x] `node-cli task submit --owner <node_id>` — Owner-Flag im Client (T-046)
 
 ---
 

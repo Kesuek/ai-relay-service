@@ -219,7 +219,7 @@ Submit a single-stage task to the relay. The stage is given inline as
 ### Syntax
 
 ```
-node-cli task submit --stage <capability>:<json-payload> [--name <name>] [--priority <0-10>]
+node-cli task submit --stage <capability>:<json-payload> [--name <name>] [--priority <0-10>] [--owner <node_id>]
 ```
 
 ### Arguments
@@ -229,6 +229,7 @@ node-cli task submit --stage <capability>:<json-payload> [--name <name>] [--prio
 | `--stage` | yes | — | Stage as `<capability>:<json-payload>` (payload must be a JSON object) |
 | `--name` | no | `""` | Task name |
 | `--priority` | no | `0` | Task priority, integer 0–10 (higher = more important) |
+| `--owner` | no | — | Node ID that must claim this task (`owner_node_id`). When omitted, any node with a matching capability may claim. |
 
 ### Examples
 
@@ -243,6 +244,14 @@ Submit with an empty payload:
 
 ```bash
 node-cli task submit --stage 'storage.archive:{}'
+```
+
+Pin a task to a specific node (only that node will be able to claim it):
+
+```bash
+node-cli task submit \
+  --stage 'chat.ai:{"q":"hi"}' \
+  --owner node_a1b2c3d4
 ```
 
 ### Exit codes
