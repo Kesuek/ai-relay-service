@@ -116,6 +116,6 @@
 │  · users · groups · permissions · seeds      │
 ├──────────────────────────────────────────────┤
 │  Node Clients                                │
-│  worker (typer) · storage-node · poller      │
+│  node-cli · storage-node                    │
 └──────────────────────────────────────────────┘
 ```

@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `src/relay_server/models/__init__.py` — `HeartbeatRequest.load` and `NodeHeartbeatRequest.load` validation range changed from `[0.0, 1.0]` to `[0.0, 100.0]` to match the new percentage-based load reporting.
 - `nodes/common/poller.py` — `load_cap` removed from `DEFAULT_CONFIG` (now calculated from `os.cpu_count()` at runtime).
 
+### Removed
+
+- `nodes/common/poller.py` — legacy Poller class removed. All utility functions (load_config, load_meta, load_token, save_token, etc.) extracted to `nodes/common/node_utils.py`. The node-cli daemon (`node_cli.py`) has fully replaced the old poller as the recommended worker implementation. (T-039)
+
+### Added
+
+- `nodes/common/node_utils.py` — shared utility functions extracted from the legacy poller. Used by `node_cli.py` and `RelayClient` for config/meta/token file I/O.
+- `node-cli task result <id>` — query task status, stages, and linked artifacts.
+- `node-cli task wait <id> [--interval N]` — poll until task completion, then show result. (T-040)
+
 ### Fixed
 
 - `src/relay_server/core/discovery.py` — Capability-Availability-Bug: a node heartbeating with `available: false` no longer overrides the availability for all other nodes sharing the same capability. Now checks if any other node still has the capability available before setting it to false. (T-036)
