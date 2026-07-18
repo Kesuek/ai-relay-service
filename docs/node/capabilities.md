@@ -90,12 +90,25 @@ defined in external YAML profiles. The daemon reads only
 capabilities:
   - name: chat.ai
     version: "1.0.0"
-    description: "General conversational AI agent"  # optional, human-readable
-    auto_publish: true          # include in every heartbeat
-    claimable: true             # daemon may claim stages for this capability
+    type: ai                              # optional: ai | tool | script | workflow | resource
+    description: "General conversational AI — accepts a prompt, question, or message and returns a text response."
+    auto_publish: true                    # include in every heartbeat
+    claimable: true                       # daemon may claim stages for this capability
     handler: /opt/relay/handlers/chat-ai.sh   # required when claimable: true
-    max_parallel: 2            # in-flight handler limit (default: 1)
-    timeout: 300                # handler timeout in seconds (default: 300)
+    max_parallel: 2                       # in-flight handler limit (default: 1)
+    timeout: 300                          # handler timeout in seconds (default: 300)
+    input_schema:                         # optional, documents expected payload fields
+      fields:
+        prompt:
+          name: prompt
+          type: string
+          required: false
+          description: "The main instruction or request for the AI."
+        message:
+          name: message
+          type: string
+          required: false
+          description: "Alternative to prompt — a short message or greeting."
 ```
 
 Publish flow:
