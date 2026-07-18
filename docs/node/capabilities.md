@@ -150,7 +150,36 @@ capabilities:
           type: string
           required: false
           description: "Alternative to prompt — a short message or greeting."
+    dashboard_page: false                 # optional, default false — see "Dashboard pages" below
 ```
+
+### Capability dashboard pages (T-048)
+
+A capability can provide its own HTML dashboard page that operators and
+admins see in the relay dashboard's **Capabilities** tab. The page is
+embedded in an `<iframe>` and served from
+`GET /relay/v2/capabilities/<name>/dashboard-page`.
+
+To enable it:
+
+1. Set `dashboard_page: true` in the capability's YAML profile.
+2. Publish the profile (`node-cli capabilities publish <profile>`).
+3. Build the HTML page locally and upload it:
+
+   ```bash
+   node-cli artifact upload ./dashboard.html --capability <capability-name>
+   ```
+
+The server stores the file at
+`~/.relay/capability-pages/<name>/dashboard.html` — **separate from the
+artifact store**, no artifact DB entry is created. Re-uploading
+overwrites the previous page. The path is deterministically derived
+from the capability name, so there is no `dashboard_artifact_id` to
+track.
+
+The dashboard lists all capabilities whose `dashboard_page: true` and
+that have at least one available node. Clicking a card loads the
+capability page in a same-origin iframe.
 
 Publish flow:
 
@@ -197,9 +226,10 @@ Key points:
 
 A profile is invalid if: YAML syntax error, `capabilities` missing/not a list,
 any capability missing `name`, duplicate names, `claimable: true` without
-`handler`, `max_parallel`/`timeout` not positive integers, or
-`auto_publish`/`claimable` not boolean. The optional `description` field is
-preserved through the pipeline and forwarded to the relay in heartbeats.
+`handler`, `max_parallel`/`timeout` not positive integers,
+`auto_publish`/`claimable`/`dashboard_page` not boolean, or `version` not
+a non-empty string. The optional `description` field is preserved through
+the pipeline and forwarded to the relay in heartbeats.
 On error the active profile is never touched.
 
 For the full `node-cli` command reference see [node-cli-reference.md](node-cli-reference.md).

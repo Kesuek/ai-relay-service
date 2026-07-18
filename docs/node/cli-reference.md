@@ -398,7 +398,7 @@ Upload a local file as an artifact to the relay.
 #### Syntax
 
 ```
-node-cli artifact upload <file> [--name <name>] [--task-id <id>] [--stage-id <id>]
+node-cli artifact upload <file> [--name <name>] [--task-id <id>] [--stage-id <id>] [--capability <name>]
 ```
 
 #### Arguments
@@ -409,12 +409,18 @@ node-cli artifact upload <file> [--name <name>] [--task-id <id>] [--stage-id <id
 | `--name` | no | filename | Artifact name |
 | `--task-id` | no | — | Optional task ID to associate with |
 | `--stage-id` | no | — | Optional stage ID to associate with |
+| `--capability` | no | — | If set, store the file as the dashboard page for this capability (in `~/.relay/capability-pages/<name>/dashboard.html` on the server). No artifact DB entry is created. The capability must set `dashboard_page: true` in its YAML profile. |
 
 #### Example
 
 ```bash
 node-cli artifact upload /tmp/image.png --task-id tsk_abc --stage-id stg_answer
 # -> {"artifact_id": "artifact_...", "name": "image.png", "size_bytes": 123456}
+
+# Upload a capability dashboard page (no artifact entry, separate storage):
+node-cli artifact upload ./dashboard.html --capability image.generate.mflux
+# -> {"status": "ok", "path": "capability-pages/image.generate.mflux/dashboard.html",
+#     "capability": "image.generate.mflux", "size_bytes": 4321}
 ```
 
 #### Exit codes

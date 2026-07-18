@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- T-048: Capability-eigene Dashboard-Seiten — `dashboard_page`-Feld im Capability-YAML-Profil, `node-cli artifact upload --capability <name>` lädt die HTML-Seite auf den Server hoch (Speicher unter `~/.relay/capability-pages/<name>/dashboard.html`, kein Artifact-DB-Eintrag), `GET /relay/v2/capabilities/<name>/dashboard-page` servt die Seite, Dashboard-Tab "Capabilities" zeigt klickbare Karten und bettet die Seite in einem same-origin iFrame ein.
 - `owner_node_id` routing — tasks with `owner_node_id` set can only be claimed by that specific node. `Scheduler.claim_stage()` skips stages whose task owner does not match the claiming node. (T-046)
 - `node-cli task submit --owner <node_id>` — new flag pins a task to a specific node by setting `owner_node_id` in the request body. The field is omitted from the body when the flag is not used. (T-046)
 - `node-cli capabilities server` — new subcommand to query all capabilities registered on the relay server (across all nodes), including node names. `RelayClient._get()` added for GET requests. (T-035)

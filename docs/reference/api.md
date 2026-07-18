@@ -76,6 +76,20 @@ For node-side usage see [../node/setup.md](../node/setup.md).
 | POST | `/relay/v2/storage/chunked/{upload_id}/chunk` | `rt_...` | Upload one chunk |
 | POST | `/relay/v2/storage/chunked/{upload_id}/complete` | `rt_...` | Finalise a chunked upload |
 
+## Capability pages — `/relay/v2/capabilities`
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/relay/v2/capabilities/{name}/dashboard-page` | none (same-origin iframe) | Serve a capability's operator-supplied HTML dashboard page |
+
+These pages are uploaded via
+`POST /relay/v2/storage/upload?capability=<name>` and stored at
+`~/.relay/capability-pages/<name>/dashboard.html`. They are meant to be
+embedded in the relay dashboard's **Capabilities** tab; the response sets
+`X-Frame-Options: SAMEORIGIN` so only the dashboard itself can frame
+them. Returns `404` when no page exists for the capability, `400` for an
+invalid capability name.
+
 ## Dashboard — `/relay/v2/dashboard`
 
 Pages and JSON API used by the dashboard UI. Session-cookie auth unless noted.
@@ -420,6 +434,33 @@ For files larger than 100 MiB use the **chunked** upload flow:
 `POST /relay/v2/storage/chunked/init` →
 `POST /relay/v2/storage/chunked/{upload_id}/chunk` (repeated, base64 data) →
 `POST /relay/v2/storage/chunked/{upload_id}/complete`.
+
+#### Capability dashboard pages (`?capability=<name>`)
+
+Adding the `capability=<name>` query parameter stores the uploaded file as
+the dashboard page for that capability, **separate from the artifact
+store** — no artifact DB entry is created. The file is written to
+`~/.relay/capability-pages/<name>/dashboard.html` (overwriting any
+existing page) and served by
+`GET /relay/v2/capabilities/<name>/dashboard-page`.
+
+```bash
+curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/storage/upload?capability=image.generate.mflux" \
+  -H "Authorization: Bearer rt_..." \
+  -F "file=@dashboard.html" | jq
+```
+
+```json
+{
+  "status": "ok",
+  "path": "capability-pages/image.generate.mflux/dashboard.html",
+  "capability": "image.generate.mflux",
+  "size_bytes": 4321
+}
+```
+
+The capability name must not contain path separators or dot-segment
+traversal forms (`..`); violations are rejected with `400`.
 
 ### Download an artifact
 
