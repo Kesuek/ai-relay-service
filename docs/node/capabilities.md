@@ -99,8 +99,8 @@ Both are KI-capable (`.ai` suffix), but they serve different purposes:
 
 **What is the Hermes API Server?**
 
-The Hermes API Server is an OpenAI-compatible HTTP server started via
-`hermes serve` (or `hermes gateway`). It exposes the full Hermes agent
+The Hermes API Server is an OpenAI-compatible HTTP server that is part of
+`hermes gateway` (not `hermes serve`). It exposes the full Hermes agent
 as a REST API — tools, skills, memory, cron, and multi-turn sessions.
 
 - **Default port:** `8642`
@@ -109,6 +109,11 @@ as a REST API — tools, skills, memory, cron, and multi-turn sessions.
   `/v1/models`, `/v1/capabilities`, `/health`
 - **Auth:** Bearer token (`API_SERVER_KEY`)
 - **Config:** `API_SERVER_ENABLED=true` in `.env` or config.yaml
+- **Start:** `hermes gateway` (not `hermes serve`)
+
+> **Note:** `hermes serve` is a different service — the JSON-RPC/WebSocket
+> backend server (port `9119`) used by the desktop app and remote clients.
+> It does **not** expose an OpenAI-compatible API.
 
 Any frontend that speaks the OpenAI API format (Open WebUI, LobeChat,
 LibreChat, etc.) can connect to it.
