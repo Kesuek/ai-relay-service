@@ -39,6 +39,9 @@ capabilities validate/publish/diff). Pure-local subcommands
 | [`claim`](#claim) | Claim one stage for a capability |
 | [`complete`](#complete) | Complete a claimed stage |
 | [`task submit`](#task-submit) | Submit a single-stage task |
+| [`task result`](#task-result) | Show a task's status, stages, artifacts, and notes |
+| [`task wait`](#task-wait) | Poll until a task completes, streaming new notes live |
+| [`task note`](#task-note) | Append a free-form note to a task (mini-chat) |
 | [`capabilities`](#capabilities) | Capability profile management |
 | [`status`](#status) | Print `worker_status.json` |
 | [`reload`](#reload) | Send SIGHUP to running daemon |
@@ -154,9 +157,20 @@ node-cli claim <capability>
 ```bash
 node-cli claim chat.ai
 # -> {"claimed": true, "stage": {"stage_id": "stg_...", ...}}
+# -> 
+# ->   Capability: chat.ai
+# ->   Description: General conversational AI — accepts a prompt, question, or message and returns a text response.
+# ->   Type:        ai
+# ->   Input Schema: { "fields": { ... } }
 # or
 # -> {"claimed": false}
 ```
+
+When the server has stored capability metadata for the claimed capability
+(`description` / `type` / `input_schema` advertised via heartbeat), it is
+returned inline as `capability_details` on the stage and printed by the CLI
+under the JSON stage block (T-053). This lets a handler see the expected
+payload shape without an extra discovery round-trip.
 
 ### Exit codes
 
@@ -261,6 +275,133 @@ node-cli task submit \
 | 0 | Task submitted |
 | 1 | HTTP / network error, or invalid `--stage` syntax |
 | 2 | (reserved) |
+
+---
+
+## task result
+
+Show a task's status, stages (with resolved capability metadata),
+linked artifacts, and any notes attached to it. The task is fetched
+once and printed; it does **not** wait for completion.
+
+### Syntax
+
+```
+node-cli task result <task_id>
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|---|---|---|
+| `task_id` | yes | Task ID to query |
+
+### Example
+
+```bash
+node-cli task result tsk_abc123
+# ->   Task:    tokyo-time (tsk_abc123)
+# ->   Status:  completed
+# ->   ...
+# ->   Stages:
+# ->     ✅ fetch [web_fetch.native] — completed
+# ->       description: Fetch a URL and return raw HTML.
+# ->       type:        tool
+# ->     ✅ summarize [chat.ai] — completed
+# ->   Artifacts:
+# ->     📄 answer.txt (artifact_...) — 1 KB
+# ->   Notes (2):
+# ->     💬 [node_x] starting fetch (2026-07-20T10:23:11+00:00)
+# ->     💬 [node_y] done (2026-07-20T10:23:45+00:00)
+```
+
+Each stage line may print a `description`, `type`, and `input_schema`
+underneath it when the server has stored capability metadata for that
+capability (T-053).
+
+### Exit codes
+
+| Code | Condition |
+|---|---|
+| 0 | Task fetched and printed |
+| 1 | HTTP / network error, or task not found |
+
+---
+
+## task wait
+
+Poll a task until it reaches a terminal status (`completed`, `failed`,
+`timed_out`), then print the full result (same output as
+[`task result`](#task-result)). New notes that arrive between polls are
+streamed live to stdout (T-052).
+
+### Syntax
+
+```
+node-cli task wait <task_id> [--interval N]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+|---|---|---|---|
+| `task_id` | yes | — | Task ID to wait for |
+| `--interval` | no | `5` | Poll interval in seconds |
+
+### Example
+
+```bash
+node-cli task wait tsk_abc123 --interval 2
+# -> ⏳ running — 1/2 stages completed...
+# -> 💬 [node_x] starting fetch (2026-07-20T10:23:11+00:00)
+# -> ⏳ running — 1/2 stages completed...
+# -> ✅ Task tsk_abc123 — completed
+# -> ...
+```
+
+### Exit codes
+
+| Code | Condition |
+|---|---|
+| 0 | Task reached `completed` |
+| 1 | Task reached `failed` / `timed_out`, or HTTP / network error |
+
+---
+
+## task note
+
+Append a free-form text note to a task (T-052 mini-chat between
+collaborating nodes). Any approved node can add a note; every node that
+subsequently queries the task sees it. Notes are ordered by
+`created_at` and kept indefinitely (they are deleted with the task).
+
+### Syntax
+
+```
+node-cli task note <task_id> <message>
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|---|---|---|
+| `task_id` | yes | Task ID to add a note to |
+| `message` | yes | Note text (1..2000 characters) |
+
+### Example
+
+```bash
+node-cli task note tsk_abc123 "starting fetch, ETA ~5s"
+# -> ✅ Note added to task tsk_abc123
+# ->    starting fetch, ETA ~5s (2026-07-20T10:23:11+00:00)
+```
+
+### Exit codes
+
+| Code | Condition |
+|---|---|
+| 0 | Note appended |
+| 1 | HTTP / network error, or task not found (404) |
 
 ---
 

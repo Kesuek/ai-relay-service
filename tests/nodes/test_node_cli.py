@@ -115,6 +115,10 @@ def test_all_subcommands_parse_without_errors():
         ["complete", "stage-1", "--task", "task-1", "--result-file", "/tmp/r.json"],
         ["task", "submit", "--name", "n", "--stage", "chat.ai:{\"x\":1}", "--priority", "2"],
         ["task", "submit", "--name", "n", "--stage", "chat.ai:{\"x\":1}", "--owner", "node_a"],
+        ["task", "result", "tsk_abc"],
+        ["task", "wait", "tsk_abc"],
+        ["task", "wait", "tsk_abc", "--interval", "3"],
+        ["task", "note", "tsk_abc", "starting fetch"],
         ["capabilities", "list"],
         ["capabilities", "validate", "default"],
         ["capabilities", "validate"],
@@ -737,3 +741,175 @@ def test_poller_download_artifact_streams_to_disk(isolated_paths: Path, monkeypa
     assert target.name == "poll.bin"
     assert target.read_bytes() == payload
     target.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# task note (T-052)
+# ---------------------------------------------------------------------------
+
+
+def test_add_task_note_posts_to_notes_endpoint(isolated_paths: Path, monkeypatch):
+    """RelayClient.add_task_note POSTs to /scheduler/tasks/{id}/notes."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    captured: dict = {}
+
+    def fake_post(url, **kw):
+        captured["url"] = url
+        captured["body"] = kw.get("json")
+        class FakeResp:
+            status_code = 200
+            def json(self):
+                return {
+                    "id": 42,
+                    "task_id": "tsk_abc",
+                    "node_id": "n1",
+                    "message": captured["body"]["message"],
+                    "created_at": "2026-07-20T10:00:00+00:00",
+                }
+            def raise_for_status(self):
+                pass
+        return FakeResp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    result = client.add_task_note("tsk_abc", "starting fetch")
+    assert result["id"] == 42
+    assert "/relay/v2/scheduler/tasks/tsk_abc/notes" in captured["url"]
+    assert captured["body"] == {"message": "starting fetch"}
+
+
+def test_cmd_task_note_invokes_client(isolated_paths: Path, monkeypatch, capsys):
+    """`node-cli task note <id> <msg>` calls RelayClient.add_task_note."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    captured: dict = {}
+
+    def fake_add_note(self, task_id, message):
+        captured["task_id"] = task_id
+        captured["message"] = message
+        return {
+            "id": 7,
+            "task_id": task_id,
+            "node_id": "n1",
+            "message": message,
+            "created_at": "2026-07-20T10:23:11+00:00",
+        }
+
+    monkeypatch.setattr(cli.RelayClient, "add_task_note", fake_add_note)
+    monkeypatch.setattr(cli, "load_meta", lambda: {"node_id": "n1", "base_url": "http://relay.test"})
+    monkeypatch.setattr(cli, "_effective_config", lambda: {"base_url": "http://relay.test", "request_timeout": 5})
+
+    rc = cli.main(["task", "note", "tsk_abc", "starting fetch"])
+    assert rc == 0
+    assert captured["task_id"] == "tsk_abc"
+    assert captured["message"] == "starting fetch"
+    out = capsys.readouterr().out
+    assert "Note added to task tsk_abc" in out
+    assert "starting fetch" in out
+
+
+def test_cmd_task_note_404_returns_nonzero(isolated_paths: Path, monkeypatch, capsys):
+    """`node-cli task note` returns 1 when the server responds 404."""
+    import httpx as _httpx
+
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    class FakeResp:
+        status_code = 404
+        text = "Task not found"
+        def raise_for_status(self):
+            raise _httpx.HTTPStatusError("not found", request=None, response=self)
+
+    monkeypatch.setattr(
+        cli.RelayClient,
+        "add_task_note",
+        lambda self, tid, msg: (_ for _ in ()).throw(_httpx.HTTPStatusError("404", request=None, response=FakeResp())),
+    )
+    monkeypatch.setattr(cli, "load_meta", lambda: {"node_id": "n1", "base_url": "http://relay.test"})
+    monkeypatch.setattr(cli, "_effective_config", lambda: {"base_url": "http://relay.test", "request_timeout": 5})
+
+    rc = cli.main(["task", "note", "tsk_missing", "hello"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "not found" in err.lower()
+
+
+# ---------------------------------------------------------------------------
+# T-053: heartbeat forwards capability metadata (description/type/input_schema)
+# ---------------------------------------------------------------------------
+
+
+def test_heartbeat_forwards_capability_metadata(isolated_paths: Path, monkeypatch):
+    """RelayClient.heartbeat includes description/type/input_schema when present."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+
+    caps = [
+        {
+            "name": "chat.ai",
+            "version": "1.0.0",
+            "type": "ai",
+            "description": "General conversational AI.",
+            "input_schema": {"fields": {"prompt": {"type": "string"}}},
+            "auto_publish": True,
+            "claimable": True,
+            "max_parallel": 1,
+        },
+        {
+            "name": "bare.cap",
+            "version": "1.0.0",
+            "auto_publish": True,
+            "max_parallel": 1,
+        },
+    ]
+
+    captured: dict = {}
+
+    def fake_post(url, **kw):
+        captured["body"] = kw.get("json")
+        class FakeResp:
+            status_code = 200
+            def json(self):
+                return {"status": "ok", "node_id": "n1"}
+            def raise_for_status(self):
+                pass
+        return FakeResp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    client.heartbeat(caps, {})
+
+    cap_status = captured["body"]["capabilities"]
+    by_name = {c["name"]: c for c in cap_status}
+
+    # chat.ai must carry the metadata fields.
+    chat = by_name["chat.ai"]
+    assert chat["type"] == "ai"
+    assert chat["description"] == "General conversational AI."
+    assert chat["input_schema"] == {"fields": {"prompt": {"type": "string"}}}
+
+    # bare.cap has no metadata — those fields must be absent, not null.
+    bare = by_name["bare.cap"]
+    assert "type" not in bare
+    assert "description" not in bare
+    assert "input_schema" not in bare

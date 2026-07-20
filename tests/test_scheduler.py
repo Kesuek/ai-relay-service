@@ -658,3 +658,515 @@ def test_claim_stage_respects_owner_node_id():
     assert r.json()["claimed"] is True
     assert r.json()["stage"]["stage_id"] == stage_id
     assert r.json()["stage"]["claimed_by"] == node_a_id
+
+
+# ---------------------------------------------------------------------------
+# T-052: task notes (mini-chat between nodes)
+# ---------------------------------------------------------------------------
+
+
+def test_add_note_and_get_task_returns_notes():
+    """POST /tasks/{id}/notes adds a note; GET /tasks/{id} returns it."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    # Create a task.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"task_name": "With notes", "stages": [{"stage_name": "s1", "capability": "x"}]},
+    )
+    assert r.status_code == 200
+    task_id = r.json()["task"]["task_id"]
+
+    # Initial GET has no notes.
+    r = client.get(
+        f"/relay/v2/scheduler/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    assert r.json()["notes"] == []
+
+    # Add a note.
+    r = client.post(
+        f"/relay/v2/scheduler/tasks/{task_id}/notes",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"message": "starting work"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["task_id"] == task_id
+    assert body["node_id"] == admin_id
+    assert body["message"] == "starting work"
+    assert body["created_at"]
+    note_id = body["id"]
+    assert isinstance(note_id, int)
+
+    # GET now includes the note.
+    r = client.get(
+        f"/relay/v2/scheduler/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    notes = r.json()["notes"]
+    assert len(notes) == 1
+    assert notes[0]["id"] == note_id
+    assert notes[0]["node_id"] == admin_id
+    assert notes[0]["message"] == "starting work"
+
+    # Add a second note — ordering must be preserved (asc by created_at).
+    r = client.post(
+        f"/relay/v2/scheduler/tasks/{task_id}/notes",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"message": "done"},
+    )
+    assert r.status_code == 200
+
+    r = client.get(
+        f"/relay/v2/scheduler/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    notes = r.json()["notes"]
+    assert len(notes) == 2
+    assert notes[0]["message"] == "starting work"
+    assert notes[1]["message"] == "done"
+
+
+def test_add_note_to_unknown_task_returns_404():
+    """POST /tasks/{id}/notes returns 404 for a missing task."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    r = client.post(
+        "/relay/v2/scheduler/tasks/task_does_not_exist/notes",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"message": "hello"},
+    )
+    assert r.status_code == 404
+
+
+def test_add_note_rejects_empty_and_oversize_message():
+    """Empty messages are rejected (422); over-2000-char messages too."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"task_name": "n", "stages": [{"stage_name": "s1", "capability": "x"}]},
+    )
+    task_id = r.json()["task"]["task_id"]
+
+    # Empty message -> 422 (pydantic min_length=1).
+    r = client.post(
+        f"/relay/v2/scheduler/tasks/{task_id}/notes",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"message": ""},
+    )
+    assert r.status_code == 422
+
+    # Over limit -> 422.
+    r = client.post(
+        f"/relay/v2/scheduler/tasks/{task_id}/notes",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"message": "x" * 2001},
+    )
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# T-053: capability_details on claim and task-view
+# ---------------------------------------------------------------------------
+
+
+def _register_worker_with_meta(secret, admin_token, name, cap_dict):
+    """Register + approve a worker with a full capability dict (description/type/input_schema)."""
+    worker_id, worker_token = _register(
+        secret, name, [cap_dict], admin_token=admin_token
+    )
+    return worker_id, worker_token
+
+
+def test_claim_response_includes_capability_details():
+    """claim_stage attaches capability_details from the claiming node's heartbeat."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register_worker_with_meta(
+        secret,
+        admin_token,
+        "Worker With Schema",
+        {
+            "name": "chat.ai",
+            "version": "1.0.0",
+            "type": "ai",
+            "description": "General conversational AI.",
+            "input_schema": {"fields": {"prompt": {"type": "string"}}},
+        },
+    )
+
+    # Heartbeat so the metadata lands in node_capabilities.
+    r = client.post(
+        "/relay/v2/discovery/worker-heartbeat",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={
+            "node_id": worker_id,
+            "available": True,
+            "capabilities": [
+                {
+                    "name": "chat.ai",
+                    "version": "1.0.0",
+                    "type": "ai",
+                    "description": "General conversational AI.",
+                    "input_schema": {"fields": {"prompt": {"type": "string"}}},
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200
+
+    # Submit a task with a chat.ai stage.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "chat-task",
+            "stages": [{"stage_name": "do-chat", "capability": "chat.ai"}],
+        },
+    )
+    assert r.status_code == 200
+    task_id = r.json()["task"]["task_id"]
+
+    # Worker claims — capability_details must be present.
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={},
+    )
+    assert r.status_code == 200
+    assert r.json()["claimed"] is True
+    stage = r.json()["stage"]
+    assert stage["capability"] == "chat.ai"
+    cd = stage.get("capability_details")
+    assert cd is not None, "capability_details missing on claim response"
+    assert cd["name"] == "chat.ai"
+    assert cd["type"] == "ai"
+    assert cd["description"] == "General conversational AI."
+    assert cd["input_schema"] == {"fields": {"prompt": {"type": "string"}}}
+
+
+def test_task_view_includes_capability_details_per_stage():
+    """GET /tasks/{id} resolves capability_details for each stage."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register_worker_with_meta(
+        secret,
+        admin_token,
+        "Worker For View",
+        {
+            "name": "render.native",
+            "version": "1.0.0",
+            "type": "tool",
+            "description": "Render a template.",
+            "input_schema": {"fields": {"template": {"type": "string"}}},
+        },
+    )
+
+    # Heartbeat with the metadata.
+    r = client.post(
+        "/relay/v2/discovery/worker-heartbeat",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={
+            "node_id": worker_id,
+            "available": True,
+            "capabilities": [
+                {
+                    "name": "render.native",
+                    "version": "1.0.0",
+                    "type": "tool",
+                    "description": "Render a template.",
+                    "input_schema": {"fields": {"template": {"type": "string"}}},
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200
+
+    # Submit a task with a render.native stage.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "render-task",
+            "stages": [{"stage_name": "render-it", "capability": "render.native"}],
+        },
+    )
+    task_id = r.json()["task"]["task_id"]
+
+    # GET task view — capability_details must be on the stage even before claim.
+    r = client.get(
+        f"/relay/v2/scheduler/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    stages = r.json()["stages"]
+    assert len(stages) == 1
+    cd = stages[0].get("capability_details")
+    assert cd is not None
+    assert cd["name"] == "render.native"
+    assert cd["type"] == "tool"
+    assert cd["description"] == "Render a template."
+    assert cd["input_schema"] == {"fields": {"template": {"type": "string"}}}
+
+
+def test_task_view_capability_details_absent_for_unknown_capability():
+    """When no node advertises the capability, capability_details is absent."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    # Submit a task for a capability no node offers.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "unknown-cap",
+            "stages": [{"stage_name": "s1", "capability": "no.such.cap"}],
+        },
+    )
+    task_id = r.json()["task"]["task_id"]
+
+    r = client.get(
+        f"/relay/v2/scheduler/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    stages = r.json()["stages"]
+    assert len(stages) == 1
+    # capability_details is optional; it must simply be absent, not malformed.
+    assert stages[0].get("capability_details") is None
+
+
+def test_db_migration_adds_node_capability_schema_columns(tmp_path):
+    """A pre-existing DB without description/input_schema columns is migrated.
+
+    Regression guard for the ALTER TABLE migration added in T-053.
+    """
+    import sqlite3
+
+    from relay_server.config import settings
+    from relay_server.core.db import init_db_for_path
+
+    db = tmp_path / "legacy.db"
+    # Create a full schema first (as _schema would), then drop the two columns
+    # to simulate a pre-T-053 database.
+    conn = sqlite3.connect(str(db))
+    conn.execute("""
+        CREATE TABLE nodes (
+            node_id TEXT PRIMARY KEY,
+            capabilities TEXT,
+            status TEXT DEFAULT 'approved',
+            role TEXT DEFAULT 'worker',
+            node_name TEXT,
+            endpoint TEXT,
+            last_seen TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE tasks (
+            task_id TEXT PRIMARY KEY,
+            task_name TEXT,
+            status TEXT DEFAULT 'pending',
+            priority INTEGER DEFAULT 0,
+            owner_node_id TEXT,
+            timeout_seconds INTEGER,
+            created_at TEXT,
+            updated_at TEXT,
+            completed_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE task_stages (
+            stage_id TEXT PRIMARY KEY,
+            task_id TEXT,
+            stage_name TEXT,
+            capability TEXT,
+            status TEXT DEFAULT 'pending',
+            depends_on TEXT,
+            sequence INTEGER DEFAULT 0,
+            timeout_seconds INTEGER,
+            payload TEXT,
+            claimed_by TEXT,
+            claimed_at TEXT,
+            claim_expires_at TEXT,
+            completed_at TEXT,
+            result TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE audit_logs (
+            log_id TEXT PRIMARY KEY,
+            actor_id TEXT,
+            action TEXT,
+            target_type TEXT,
+            target_id TEXT,
+            details TEXT,
+            created_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE node_tokens (
+            token_id TEXT PRIMARY KEY,
+            node_id TEXT,
+            token_type TEXT,
+            token_hash TEXT,
+            credential_type TEXT,
+            expires_at TEXT,
+            created_at TEXT,
+            revoked INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE users (
+            user_id TEXT PRIMARY KEY,
+            username TEXT UNIQUE,
+            password_hash TEXT,
+            created_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE user_groups (
+            user_id TEXT,
+            group_name TEXT,
+            PRIMARY KEY (user_id, group_name)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE group_permissions (
+            group_id TEXT,
+            permission_id TEXT,
+            granted_at TEXT,
+            PRIMARY KEY (group_id, permission_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE permissions (
+            permission_id TEXT PRIMARY KEY,
+            permission_name TEXT,
+            description TEXT,
+            created_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE seeds (
+            seed_id TEXT PRIMARY KEY,
+            seed_hash TEXT,
+            created_by TEXT,
+            created_at TEXT,
+            expires_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE artifacts (
+            artifact_id TEXT PRIMARY KEY,
+            name TEXT,
+            mime_type TEXT,
+            size_bytes INTEGER,
+            storage_path TEXT,
+            task_id TEXT,
+            stage_id TEXT,
+            created_by TEXT,
+            created_at TEXT
+        )
+    """)
+    # Create node_capabilities WITHOUT description/input_schema (pre-T-053 state)
+    conn.execute("""
+        CREATE TABLE node_capabilities (
+            node_id TEXT NOT NULL,
+            capability_name TEXT NOT NULL,
+            capability_type TEXT,
+            capability_version TEXT DEFAULT '1.0.0',
+            available BOOLEAN DEFAULT 1,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (node_id, capability_name),
+            FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_node_capabilities_name "
+        "ON node_capabilities(capability_name)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_node_capabilities_name_type "
+        "ON node_capabilities(capability_name, capability_type)"
+    )
+    conn.commit()
+    conn.close()
+
+    # Run init_db_for_path on the legacy DB — migration must add columns.
+    init_db_for_path(str(db))
+
+    conn = sqlite3.connect(str(db))
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(node_capabilities)").fetchall()]
+    conn.close()
+    assert "description" in cols
+    assert "input_schema" in cols
+
+
+def test_db_migration_creates_task_notes_table(tmp_path):
+    """A pre-existing DB without task_notes gets the table on init (T-052)."""
+    import sqlite3
+
+    from relay_server.core.db import init_db_for_path
+
+    db = tmp_path / "legacy_no_notes.db"
+    # Create a full schema (as _schema would) but WITHOUT task_notes.
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE nodes (node_id TEXT PRIMARY KEY, capabilities TEXT, status TEXT DEFAULT 'approved', role TEXT DEFAULT 'worker', node_name TEXT, endpoint TEXT, last_seen TEXT, created_at TEXT, updated_at TEXT)")
+    conn.execute("CREATE TABLE tasks (task_id TEXT PRIMARY KEY, task_name TEXT, status TEXT DEFAULT 'pending', priority INTEGER DEFAULT 0, owner_node_id TEXT, timeout_seconds INTEGER, created_at TEXT, updated_at TEXT, completed_at TEXT)")
+    conn.execute("CREATE TABLE task_stages (stage_id TEXT PRIMARY KEY, task_id TEXT, stage_name TEXT, capability TEXT, status TEXT DEFAULT 'pending', depends_on TEXT, sequence INTEGER DEFAULT 0, timeout_seconds INTEGER, payload TEXT, claimed_by TEXT, claimed_at TEXT, claim_expires_at TEXT, completed_at TEXT, result TEXT, created_at TEXT, updated_at TEXT)")
+    conn.execute("CREATE TABLE audit_logs (log_id TEXT PRIMARY KEY, actor_id TEXT, action TEXT, target_type TEXT, target_id TEXT, details TEXT, created_at TEXT)")
+    conn.execute("CREATE TABLE node_tokens (token_id TEXT PRIMARY KEY, node_id TEXT, token_type TEXT, token_hash TEXT, credential_type TEXT, expires_at TEXT, created_at TEXT, revoked INTEGER DEFAULT 0)")
+    conn.execute("CREATE TABLE users (user_id TEXT PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, created_at TEXT)")
+    conn.execute("CREATE TABLE user_groups (user_id TEXT, group_name TEXT, PRIMARY KEY (user_id, group_name))")
+    conn.execute("CREATE TABLE group_permissions (group_id TEXT, permission_id TEXT, granted_at TEXT, PRIMARY KEY (group_id, permission_id))")
+    conn.execute("CREATE TABLE permissions (permission_id TEXT PRIMARY KEY, permission_name TEXT, description TEXT, created_at TEXT)")
+    conn.execute("CREATE TABLE seeds (seed_id TEXT PRIMARY KEY, seed_hash TEXT, created_by TEXT, created_at TEXT, expires_at TEXT)")
+    conn.execute("CREATE TABLE artifacts (artifact_id TEXT PRIMARY KEY, name TEXT, mime_type TEXT, size_bytes INTEGER, storage_path TEXT, task_id TEXT, stage_id TEXT, created_by TEXT, created_at TEXT)")
+    conn.execute("CREATE TABLE node_capabilities (node_id TEXT NOT NULL, capability_name TEXT NOT NULL, capability_type TEXT, capability_version TEXT DEFAULT '1.0.0', description TEXT, input_schema TEXT, available BOOLEAN DEFAULT 1, updated_at TEXT NOT NULL, PRIMARY KEY (node_id, capability_name))")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_node_capabilities_name ON node_capabilities(capability_name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_node_capabilities_name_type ON node_capabilities(capability_name, capability_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_artifacts_task_id ON artifacts(task_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_node_tokens_node_id ON node_tokens(node_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_node_tokens_expires ON node_tokens(expires_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_task_stages_task_id ON task_stages(task_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_task_stages_status ON task_stages(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_task_stages_capability ON task_stages(capability)")
+    conn.commit()
+    conn.close()
+
+    init_db_for_path(str(db))
+
+    conn = sqlite3.connect(str(db))
+    tables = [
+        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    ]
+    conn.close()
+    assert "task_notes" in tables

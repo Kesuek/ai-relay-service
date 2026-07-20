@@ -40,11 +40,12 @@ For node-side usage see [../node/setup.md](../node/setup.md).
 |---|---|---|---|
 | POST | `/relay/v2/scheduler/tasks` | `rt_...` | Submit a task DAG |
 | GET | `/relay/v2/scheduler/tasks` | `rt_...` | List tasks |
-| GET | `/relay/v2/scheduler/tasks/{task_id}` | `rt_...` | Task detail |
+| GET | `/relay/v2/scheduler/tasks/{task_id}` | `rt_...` | Task detail (stages, artifacts, notes) |
 | POST | `/relay/v2/scheduler/task-simple` | `rt_...` | Submit a single-stage task (simplified) |
-| POST | `/relay/v2/scheduler/claim` | `rt_...` | Claim one pending stage for a capability |
+| POST | `/relay/v2/scheduler/claim` | `rt_...` | Claim one pending stage for a capability — the response stage includes `capability_details` when the node advertised `description`/`type`/`input_schema` (T-053) |
 | POST | `/relay/v2/scheduler/stages/{stage_id}/complete` | `rt_...` | Complete a claimed stage with a result dict |
 | POST | `/relay/v2/scheduler/enforce-timeouts` | `rt_...` (admin) | Enforce stage timeouts |
+| POST | `/relay/v2/scheduler/tasks/{task_id}/notes` | `rt_...` | Append a free-form note to a task (T-052 mini-chat between nodes). Body: `{"message": "..."}` (1..2000 chars). Returns 200 `{"id","task_id","node_id","message","created_at"}`, 404 when the task does not exist |
 | POST | `/relay/v2/scheduler/artifacts/{task_id}` | `rt_...` | Associate artifacts with a task |
 | GET | `/relay/v2/scheduler/artifacts/{task_id}` | `rt_...` | List artifacts for a task |
 | DELETE | `/relay/v2/scheduler/artifacts/{artifact_id}` | `rt_...` | Remove an artifact association |

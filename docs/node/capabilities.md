@@ -232,4 +232,33 @@ a non-empty string. The optional `description` field is preserved through
 the pipeline and forwarded to the relay in heartbeats.
 On error the active profile is never touched.
 
+### Capability metadata forwarded to the server (T-053)
+
+The daemon's heartbeat includes the following fields for each advertised
+capability, when they are present in the YAML profile:
+
+| Field | Purpose |
+|---|---|
+| `name`, `version` | Capability identity (always sent) |
+| `available` | Computed from `max_parallel` vs. in-flight stages |
+| `dashboard_page` | Whether a dashboard page was uploaded |
+| `type` | Capability type (`ai`, `tool`, `script`, `workflow`, `resource`) |
+| `description` | Human-readable description |
+| `input_schema` | Expected payload fields (documented below) |
+
+The server stores `description`, `type` and `input_schema` in the
+normalized `node_capabilities` index. When a node claims a stage or
+queries a task, the scheduler resolves `capability_details` inline so
+the claiming handler sees the expected payload shape without an extra
+discovery round-trip:
+
+```json
+"capability_details": {
+  "name": "chat.ai",
+  "type": "ai",
+  "description": "General conversational AI — accepts a prompt, ...",
+  "input_schema": { "fields": { "prompt": { "type": "string", "required": false } } }
+}
+```
+
 For the full `node-cli` command reference see [node-cli-reference.md](node-cli-reference.md).
