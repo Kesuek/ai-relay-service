@@ -94,8 +94,26 @@ Both are KI-capable (`.ai` suffix), but they serve different purposes:
 - `agent.ai` — complex tasks that require planning, tool use, or
   multi-step execution ("git pull, check capabilities, restart daemon").
   The handler sends the payload to a local Hermes API Server
-  (`http://localhost:8080/v1/chat/completions`) which keeps a persistent
+  (`http://localhost:8642/v1/chat/completions`) which keeps a persistent
   session and has access to all tools.
+
+**What is the Hermes API Server?**
+
+The Hermes API Server is an OpenAI-compatible HTTP server started via
+`hermes serve` (or `hermes gateway`). It exposes the full Hermes agent
+as a REST API — tools, skills, memory, cron, and multi-turn sessions.
+
+- **Default port:** `8642`
+- **Base URL:** `http://localhost:8642/v1`
+- **Endpoints:** `/v1/chat/completions`, `/v1/responses`, `/v1/runs`,
+  `/v1/models`, `/v1/capabilities`, `/health`
+- **Auth:** Bearer token (`API_SERVER_KEY`)
+- **Config:** `API_SERVER_ENABLED=true` in `.env` or config.yaml
+
+Any frontend that speaks the OpenAI API format (Open WebUI, LobeChat,
+LibreChat, etc.) can connect to it.
+
+> **Full documentation:** [Hermes API Server](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server)
 
 **Example `agent.ai` capability profile:**
 
