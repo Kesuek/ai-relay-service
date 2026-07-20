@@ -126,6 +126,8 @@ def test_all_subcommands_parse_without_errors():
         ["capabilities", "diff", "default"],
         ["capabilities", "diff"],
         ["capabilities", "current"],
+        ["capabilities", "server"],
+        ["capabilities", "info", "chat.ai"],
         ["status"],
         ["reload"],
         ["artifact", "download", "artifact_123"],
@@ -913,3 +915,146 @@ def test_heartbeat_forwards_capability_metadata(isolated_paths: Path, monkeypatc
     assert "type" not in bare
     assert "description" not in bare
     assert "input_schema" not in bare
+
+
+# ---------------------------------------------------------------------------
+# T-055: capabilities server (always shows description/schema) + info <name>
+# ---------------------------------------------------------------------------
+
+
+def _client_stub(isolated_paths: Path, monkeypatch: pytest.MonkeyPatch):
+    """Build a RelayClient stub with valid token + meta/config on disk."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_test")
+    return base
+
+
+def test_capabilities_server_always_shows_description_and_schema(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """`capabilities server` prints description + input_schema without --verbose."""
+    _client_stub(isolated_paths, monkeypatch)
+
+    payload = {
+        "capabilities": [
+            {
+                "name": "chat.ai",
+                "version": "1.0.0",
+                "available": True,
+                "description": "General conversational AI.",
+                "input_schema": {"fields": {"prompt": {"type": "string"}}},
+                "nodes": [{"node_id": "n1", "node_name": "node-1"}],
+            },
+            {
+                "name": "bare.cap",
+                "version": "2.0.0",
+                "available": False,
+                "nodes": [],
+            },
+        ]
+    }
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return payload
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(cli.httpx, "get", lambda url, **kw: FakeResp())
+    monkeypatch.setattr(cli, "load_meta", lambda: {"node_id": "n1", "base_url": "http://relay.test"})
+    monkeypatch.setattr(cli, "_effective_config", lambda: {"base_url": "http://relay.test", "request_timeout": 5})
+
+    rc = cli.main(["capabilities", "server"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "chat.ai" in out
+    assert "General conversational AI." in out
+    assert "Input:" in out
+    assert '"fields"' in out
+    # bare.cap has no description/schema — only the summary line is printed.
+    assert "bare.cap" in out
+
+
+def test_capabilities_server_has_no_verbose_flag():
+    """The --verbose flag from T-054 was removed in T-055."""
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["capabilities", "server", "--verbose"])
+
+
+def test_capabilities_info_prints_details(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """`capabilities info <name>` queries the detail endpoint and prints fields."""
+    _client_stub(isolated_paths, monkeypatch)
+
+    payload = {
+        "name": "chat.ai",
+        "type": "ai",
+        "description": "General conversational AI.",
+        "version": "1.0.0",
+        "available": True,
+        "input_schema": {"fields": {"prompt": {"type": "string"}}},
+        "nodes": [
+            {"node_id": "n1", "node_name": "node-1", "load": 12.3, "queue_depth": 2},
+        ],
+    }
+
+    captured: dict = {}
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return payload
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kw):
+        captured["url"] = url
+        return FakeResp()
+
+    monkeypatch.setattr(cli.httpx, "get", fake_get)
+    monkeypatch.setattr(cli, "load_meta", lambda: {"node_id": "n1", "base_url": "http://relay.test"})
+    monkeypatch.setattr(cli, "_effective_config", lambda: {"base_url": "http://relay.test", "request_timeout": 5})
+
+    rc = cli.main(["capabilities", "info", "chat.ai"])
+    assert rc == 0
+    assert captured["url"].endswith("/relay/v2/discovery/capabilities/chat.ai")
+    out = capsys.readouterr().out
+    assert "Name:        chat.ai" in out
+    assert "Type:        ai" in out
+    assert "Version:     1.0.0" in out
+    assert "Available:   yes" in out
+    assert "Description: General conversational AI." in out
+    assert "Input Schema:" in out
+    assert "Nodes (1):" in out
+    assert "node-1" in out
+    assert "load=12.3" in out
+    assert "queue=2" in out
+
+
+def test_capabilities_info_404_returns_nonzero(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """`capabilities info <name>` returns 1 when the capability is not found."""
+    _client_stub(isolated_paths, monkeypatch)
+
+    class FakeResp:
+        status_code = 404
+        def json(self):
+            return {"detail": "not found"}
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(cli.httpx, "get", lambda url, **kw: FakeResp())
+    monkeypatch.setattr(cli, "load_meta", lambda: {"node_id": "n1", "base_url": "http://relay.test"})
+    monkeypatch.setattr(cli, "_effective_config", lambda: {"base_url": "http://relay.test", "request_timeout": 5})
+
+    rc = cli.main(["capabilities", "info", "does.not.exist"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "not found" in out.lower()
+    assert "does.not.exist" in out

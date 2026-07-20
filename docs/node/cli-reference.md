@@ -42,7 +42,7 @@ capabilities validate/publish/diff). Pure-local subcommands
 | [`task result`](#task-result) | Show a task's status, stages, artifacts, and notes |
 | [`task wait`](#task-wait) | Poll until a task completes, streaming new notes live |
 | [`task note`](#task-note) | Append a free-form note to a task (mini-chat) |
-| [`capabilities`](#capabilities) | Capability profile management |
+| [`capabilities`](#capabilities) | Capability profile management & server discovery |
 | [`status`](#status) | Print `worker_status.json` |
 | [`reload`](#reload) | Send SIGHUP to running daemon |
 | [`artifact`](#artifact) | Artifact upload / download |
@@ -476,12 +476,63 @@ node-cli capabilities current
 # -> default
 ```
 
+#### `server`
+
+Query the capabilities registered on the relay server (across all nodes).
+For each capability it prints the status icon, name, version, and the nodes
+advertising it, followed by the capability `description` and `input_schema`
+when the server has them stored (T-055: these are always shown — no
+`--verbose` flag is needed).
+
+```bash
+node-cli capabilities server
+# -> Server capabilities (2 total):
+# ->
+# ->   ✅ chat.ai              v1.0.0    [node-1]
+# ->      General conversational AI — accepts a prompt, question, or message and returns a text response.
+# ->      Input: {
+# ->             "fields": {
+# ->               "prompt": {"type": "string"}
+# ->             }
+# ->           }
+# ->
+# ->   ❌ bare.cap              v2.0.0    [(no nodes)]
+# ->
+```
+
+Exit `1` when the request fails (auth / network error).
+
+#### `info <name>`
+
+Show detailed info for a single capability registered on the relay. Fetches
+`GET /relay/v2/discovery/capabilities/{name}` and prints the name, type,
+version, availability, description, input schema, and the list of nodes
+advertising the capability (with their current load and queue depth).
+
+```bash
+node-cli capabilities info chat.ai
+# -> Name:        chat.ai
+# -> Type:        ai
+# -> Version:     1.0.0
+# -> Available:   yes
+# -> Description: General conversational AI.
+# -> Input Schema:
+# -> {
+# ->   "fields": {
+# ->     "prompt": {"type": "string"}
+# ->   }
+# -> }
+# ->
+# -> Nodes (1):
+# ->   - node-1 (load=12.3, queue=2)
+```
+
 ### Exit codes
 
 | Code | Condition |
 |---|---|
 | 0 | Action succeeded |
-| 1 | Validation error, profile not found, no active profile, or invalid active profile |
+| 1 | Validation error, profile not found, no active profile, invalid active profile, capability not found (`info`), or HTTP / network error |
 
 ---
 
