@@ -46,6 +46,7 @@ capabilities validate/publish/diff). Pure-local subcommands
 | [`status`](#status) | Print `worker_status.json` |
 | [`reload`](#reload) | Send SIGHUP to running daemon |
 | [`artifact`](#artifact) | Artifact upload / download |
+| [`docs`](#docs) | Read relay documentation from the server |
 
 ---
 
@@ -655,6 +656,67 @@ node-cli artifact download artifact_a1B2c3D4 -o /tmp/out.png
 |---|---|
 | 0 | Download succeeded |
 | 1 | HTTP / network error, or auth refresh failed |
+
+---
+
+## docs
+
+Read the relay's public documentation directly from the server — no browser
+needed (T-059). Headless nodes (e.g. on a CT server without a GUI) can browse
+the same docs that the dashboard serves under `/relay/v2/docs`.
+
+### Syntax
+
+```
+node-cli docs [<name>]
+```
+
+### Arguments
+
+| Argument | Required | Default | Description |
+|---|---|---|---|
+| `name` | no | — | Document name. Omit to list all available documents. |
+
+### Behaviour
+
+- **Without `name`:** calls `GET /relay/v2/docs` and prints the document index —
+  each entry's name, its `/relay/v2/docs/<name>` URL, and availability. The list
+  mirrors the `ALLOWED_DOCS` whitelist on the server (readme, concepts,
+  node-setup, node-cli-reference, …).
+- **With `name`:** calls `GET /relay/v2/docs/<name>` and prints the document
+  content. The server renders the Markdown as HTML; the CLI converts that HTML
+  to terminal-friendly text (tags stripped, block elements expanded to
+  newlines, entities decoded). If the server ever returns a JSON object with a
+  `content`/`markdown` field, that field is printed verbatim instead.
+
+### Examples
+
+```bash
+# List every available document
+node-cli docs
+# -> Relay documentation (13 pages):
+# ->
+# ->   📄 readme
+# ->      /relay/v2/docs/readme
+# ->
+# ->   📄 node-setup
+# ->      /relay/v2/docs/node-setup
+# -> ...
+
+# Print a single document
+node-cli docs node-cli-reference
+# -> Node Setup
+# ->
+# -> Install the runtime token at ~/.relay/ai-relay-agent.token.
+# -> ...
+```
+
+### Exit codes
+
+| Code | Condition |
+|---|---|
+| 0 | Document list fetched and printed, or document fetched and rendered |
+| 1 | Document not found (404), or HTTP / network error |
 
 ---
 

@@ -89,6 +89,7 @@ EXPECTED_SUBCOMMANDS = {
     "status",
     "reload",
     "artifact",
+    "docs",
 }
 
 
@@ -133,6 +134,8 @@ def test_all_subcommands_parse_without_errors():
         ["artifact", "download", "artifact_123"],
         ["artifact", "download", "artifact_123", "--output", "/tmp/out.bin"],
         ["artifact", "download", "artifact_123", "-o", "/tmp/out.bin"],
+        ["docs"],
+        ["docs", "node-setup"],
     ]
     for argv in cases:
         ns = parser.parse_args(argv)
@@ -1058,3 +1061,181 @@ def test_capabilities_info_404_returns_nonzero(
     out = capsys.readouterr().out
     assert "not found" in out.lower()
     assert "does.not.exist" in out
+
+
+# ---------------------------------------------------------------------------
+# T-059: node-cli docs
+# ---------------------------------------------------------------------------
+
+# Minimal stand-in for an httpx.Response used by the docs subcommand tests.
+class _FakeDocsResp:
+    def __init__(self, *, status_code: int, text_body: str = "", json_data=None,
+                 headers: dict | None = None) -> None:
+        self.status_code = status_code
+        self._text = text_body
+        self._json = json_data
+        self.headers = headers or {}
+        if "content-type" not in self.headers and json_data is not None:
+            self.headers["content-type"] = "application/json"
+        if "content-type" not in self.headers and text_body:
+            self.headers["content-type"] = "text/html; charset=utf-8"
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    def json(self):
+        if self._json is None:
+            raise ValueError("no JSON body")
+        return self._json
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"{self.status_code}", request=None, response=self  # type: ignore[arg-type]
+            )
+
+
+def _docs_client_stub(isolated_paths: Path, monkeypatch: pytest.MonkeyPatch, responses: dict):
+    """Patch httpx.get so the docs subcommand gets canned responses by URL suffix.
+
+    ``responses`` maps a trailing path (e.g. "/relay/v2/docs") to a
+    _FakeDocsResp. The meta/config/RelayClient are stubbed to avoid disk I/O.
+    """
+    _write(isolated_paths / "relay_config.json",
+           json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(isolated_paths / "ai-relay-agent.json",
+           json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(isolated_paths / "ai-relay-agent.token", "rt_test")
+
+    def fake_get(url, **kw):
+        for suffix, resp in responses.items():
+            if url.endswith(suffix):
+                return resp
+        # Default: 404
+        return _FakeDocsResp(status_code=404, text_body="not found",
+                             headers={"content-type": "text/plain"})
+
+    monkeypatch.setattr(cli.httpx, "get", fake_get)
+    monkeypatch.setattr(cli, "load_meta",
+                        lambda: {"node_id": "n1", "base_url": "http://relay.test"})
+    monkeypatch.setattr(cli, "_effective_config",
+                        lambda: {"base_url": "http://relay.test", "request_timeout": 5})
+
+
+def test_docs_list_shows_all_documents(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """`node-cli docs` lists all available documents with name and URL."""
+    payload = {
+        "docs": [
+            {"name": "readme", "url": "/relay/v2/docs/readme", "available": True,
+             "title": "README"},
+            {"name": "node-setup", "url": "/relay/v2/docs/node-setup", "available": True,
+             "title": "setup"},
+            {"name": "missing-doc", "url": "/relay/v2/docs/missing-doc", "available": False,
+             "title": "missing"},
+        ]
+    }
+    _docs_client_stub(isolated_paths, monkeypatch, {
+        "/relay/v2/docs": _FakeDocsResp(status_code=200, json_data=payload),
+    })
+
+    rc = cli.main(["docs"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Relay documentation (3 pages)" in out
+    assert "readme" in out
+    assert "/relay/v2/docs/readme" in out
+    assert "node-setup" in out
+    assert "/relay/v2/docs/node-setup" in out
+    # Unavailable docs are still listed but marked differently.
+    assert "missing-doc" in out
+
+
+def test_docs_single_renders_html_as_text(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """`node-cli docs <name>` fetches the HTML page and prints readable text."""
+    html = """<!DOCTYPE html>
+<html><head><title>setup — AI Relay Docs</title>
+<style>body { color: red; }</style></head>
+<body>
+<h1>Node Setup</h1>
+<p>Install the runtime token at <code>~/.relay/ai-relay-agent.token</code>.</p>
+<ul><li>Step one</li><li>Step two</li></ul>
+</body></html>"""
+    _docs_client_stub(isolated_paths, monkeypatch, {
+        "/relay/v2/docs/node-setup": _FakeDocsResp(
+            status_code=200, text_body=html,
+            headers={"content-type": "text/html; charset=utf-8"},
+        ),
+    })
+
+    rc = cli.main(["docs", "node-setup"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Tag content is gone, text content survives.
+    assert "<html" not in out
+    assert "<style" not in out
+    assert "Node Setup" in out
+    assert "Install the runtime token" in out
+    assert "ai-relay-agent.token" in out
+    assert "Step one" in out
+    assert "Step two" in out
+
+
+def test_docs_single_accepts_json_with_content(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """If the server returns JSON with a `content`/`markdown` field, print it."""
+    payload = {"name": "concepts", "content": "# Concepts\n\nNodes are capability-driven."}
+    _docs_client_stub(isolated_paths, monkeypatch, {
+        "/relay/v2/docs/concepts": _FakeDocsResp(
+            status_code=200, json_data=payload,
+            headers={"content-type": "application/json"},
+        ),
+    })
+
+    rc = cli.main(["docs", "concepts"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "capability-driven" in out
+
+
+def test_docs_not_found_returns_nonzero(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """`node-cli docs nonexistent` exits 1 and reports the missing document."""
+    _docs_client_stub(isolated_paths, monkeypatch, {
+        "/relay/v2/docs/unknown-doc": _FakeDocsResp(
+            status_code=404, text_body="Document not found",
+            headers={"content-type": "text/plain"},
+        ),
+    })
+
+    rc = cli.main(["docs", "unknown-doc"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "unknown-doc" in err
+    assert "not found" in err.lower()
+
+
+def test_docs_list_handles_bare_list_payload(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """The list endpoint sometimes returns a bare list instead of {docs: [...]}."""
+    payload = [
+        {"name": "readme", "url": "/relay/v2/docs/readme"},
+        {"name": "changelog", "url": "/relay/v2/docs/changelog"},
+    ]
+    _docs_client_stub(isolated_paths, monkeypatch, {
+        "/relay/v2/docs": _FakeDocsResp(status_code=200, json_data=payload),
+    })
+
+    rc = cli.main(["docs"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Relay documentation (2 pages)" in out
+    assert "readme" in out
+    assert "changelog" in out
