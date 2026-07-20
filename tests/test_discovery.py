@@ -486,6 +486,101 @@ def test_register_without_capabilities_then_set_via_heartbeat():
     assert worker_id in nodes_with_capability("chat.ai")
 
 
+def test_get_capabilities_drops_stale_caps_after_replace_heartbeat():
+    """T-058: capabilities that were only in the registration/approval JSON
+    column but never re-confirmed by a replace_capabilities heartbeat must
+    not surface in ``get_capabilities()``.
+
+    Reproduces the original bug: a node registers with ``vault`` and
+    ``image.generate.ai``, then worker-heartbeats advertising only ``vault``.
+    The legacy JSON column is replaced, but the more important guarantee is
+    that ``get_capabilities`` reads from the normalized ``node_capabilities``
+    index (rebuilt via DELETE+INSERT on every replace), so the stale
+    ``image.generate.ai`` entry disappears.
+    """
+    from relay_server.core.discovery import get_capabilities
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+
+    # Register with two capabilities, approve with both.
+    worker_id, _ = _register_worker(
+        "Worker StaleCap",
+        [
+            {"name": "vault", "version": "1.0.0"},
+            {"name": "image.generate.ai", "version": "1.0.0"},
+        ],
+    )
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={
+            "role": "service",
+            "capabilities": [
+                {"name": "vault", "version": "1.0.0"},
+                {"name": "image.generate.ai", "version": "1.0.0"},
+            ],
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    runtime = r.json()["token"]
+
+    # First heartbeat so the node is considered online.
+    client.post(
+        "/relay/v2/discovery/worker-heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={
+            "available": True,
+            "capabilities": [{"name": "vault", "version": "1.0.0"}],
+        },
+    )
+
+    caps = {c["name"]: c for c in get_capabilities()}
+    assert "vault" in caps
+    # Stale capability must no longer be advertised.
+    assert "image.generate.ai" not in caps
+
+    # Also via the public API.
+    r = client.get(
+        "/relay/v2/discovery/capabilities",
+        headers={"Authorization": f"Bearer {runtime}"},
+    )
+    assert r.status_code == 200
+    names = {c["name"] for c in r.json()["capabilities"]}
+    assert "vault" in names
+    assert "image.generate.ai" not in names
+
+
+def test_get_capabilities_fallback_to_json_when_index_empty():
+    """T-058: when a node has no ``node_capabilities`` rows yet (e.g. a
+    legacy node that predates the index and has not heartbeated since),
+    ``get_capabilities`` falls back to the JSON column so the capability
+    is not invisible until the next heartbeat arrives.
+    """
+    from relay_server.core.discovery import get_capabilities
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker(
+        "Worker LegacyJson", [{"name": "vault", "version": "1.0.0"}]
+    )
+    client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "vault", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    # Pretend the index was never populated (simulates a pre-T-026 node
+    # that has not heartbeated since the migration backfill ran).
+    conn = get_conn()
+    conn.execute("DELETE FROM node_capabilities WHERE node_id = ?", (worker_id,))
+    conn.commit()
+    conn.close()
+
+    # JSON column still carries the capability → fallback must surface it.
+    caps = {c["name"]: c for c in get_capabilities()}
+    assert "vault" in caps
+
+
 def test_heartbeat_with_empty_replace_capabilities_clears_index():
     """A replace_capabilities heartbeat with [] must clear the index (T-047).
 
