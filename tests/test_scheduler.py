@@ -1364,3 +1364,44 @@ def test_stage_row_to_dict_exposes_retry_count():
     stages = r.json()["stages"]
     assert len(stages) == 1
     assert stages[0]["retry_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# T-063: orphaned-stage watchdog integration
+# ---------------------------------------------------------------------------
+
+
+def test_fail_orphaned_stages_integration():
+    """End-to-end: a pending stage with no advertising node gets failed."""
+    from relay_server.core.scheduler import Scheduler
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    # Create a task for a capability no node offers. The admin node only
+    # advertises "admin", so "ghost.cap" is uncovered.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "orphan-integration",
+            "stages": [{"stage_name": "ghost", "capability": "ghost.cap"}],
+        },
+    )
+    assert r.status_code == 200
+    task_id = r.json()["task"]["task_id"]
+    stage_id = r.json()["stages"][0]["stage_id"]
+
+    result = Scheduler.fail_orphaned_stages()
+    assert stage_id in result["stages_failed"]
+    assert task_id in result["tasks_failed"]
+
+    # Verify via the public task endpoint that the task ended as failed.
+    r = client.get(
+        f"/relay/v2/scheduler/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    assert r.json()["task"]["status"] == "failed"
