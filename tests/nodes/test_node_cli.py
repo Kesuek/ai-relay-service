@@ -1239,3 +1239,160 @@ def test_docs_list_handles_bare_list_payload(
     assert "Relay documentation (2 pages)" in out
     assert "readme" in out
     assert "changelog" in out
+
+
+# ---------------------------------------------------------------------------
+# T-060: daemon _failed_tasks tracking + claim loop skip
+# ---------------------------------------------------------------------------
+
+
+def _make_daemon(isolated_paths: Path, cfg: dict | None = None):
+    """Build a Daemon with a stub RelayClient (no real network/token I/O)."""
+    base = isolated_paths
+    _write(base / "ai-relay-agent.token", "rt_test")
+    meta = {"node_id": "n1", "base_url": "http://relay.test"}
+    full_cfg = {
+        "base_url": "http://relay.test",
+        "request_timeout": 5,
+        "heartbeat_interval": 999,
+        "claim_interval": 999,
+        "max_retries": 2,
+    }
+    if cfg:
+        full_cfg.update(cfg)
+
+    class _StubClient:
+        def __init__(self):
+            self.meta = meta
+            self.base_url = meta["base_url"]
+            self.token = "rt_test"
+            # Placeholder callables so monkeypatch.setattr can replace them.
+            self.claim = lambda name: None
+            self.complete = lambda task_id, stage_id, result: {}
+
+    stub = _StubClient()
+    return cli.Daemon(stub, full_cfg), stub
+
+
+def test_daemon_failed_tasks_default_empty(isolated_paths: Path):
+    """Daemon starts with an empty _failed_tasks dict."""
+    daemon, _ = _make_daemon(isolated_paths)
+    assert daemon._failed_tasks == {}
+
+
+def test_daemon_run_stage_increments_failed_tasks_on_error_result(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A handler result with an 'error' key bumps the per-task failure counter."""
+    daemon, client = _make_daemon(isolated_paths)
+
+    cap = {"name": "chat.ai", "handler": "true", "max_parallel": 1, "timeout": 5}
+    stage = {"stage_id": "s1", "task_id": "t1", "capability": "chat.ai", "payload": {}}
+
+    # Force run_handler to return an error result, and complete() to succeed
+    # so the failure-counting path under the complete() branch is exercised.
+    monkeypatch.setattr(cli, "run_handler", lambda *a, **k: {"error": "boom"})
+    completed: list[dict] = []
+
+    def fake_complete(task_id, stage_id, result):
+        completed.append({"task_id": task_id, "stage_id": stage_id, "result": result})
+
+    daemon.client.complete = fake_complete  # type: ignore[attr-defined]
+
+    daemon._run_stage(cap, stage)
+
+    assert daemon._failed_tasks.get("t1") == 1
+    assert daemon.tasks_failed == 1
+    assert completed and completed[0]["result"] == {"error": "boom"}
+
+
+def test_daemon_run_stage_increments_failed_tasks_on_handler_exception(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A handler exception bumps the per-task failure counter."""
+    daemon, client = _make_daemon(isolated_paths)
+
+    cap = {"name": "chat.ai", "handler": "true", "max_parallel": 1, "timeout": 5}
+    stage = {"stage_id": "s2", "task_id": "t2", "capability": "chat.ai", "payload": {}}
+
+    def raise_exc(*a, **k):
+        raise RuntimeError("handler crashed")
+
+    monkeypatch.setattr(cli, "run_handler", raise_exc)
+    daemon._run_stage(cap, stage)
+
+    assert daemon._failed_tasks.get("t2") == 1
+    assert daemon.tasks_failed == 1
+
+
+def test_daemon_claim_loop_skips_task_after_max_retries(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A claimed stage for a task with failures >= max_retries is skipped (not run)."""
+    daemon, client = _make_daemon(isolated_paths, cfg={"claim_interval": 999, "max_retries": 2})
+
+    # Pre-seed the failure counter so the task is already over budget.
+    daemon._failed_tasks["t_bad"] = 2
+
+    claimed_stage = {"stage_id": "s_bad", "task_id": "t_bad", "capability": "chat.ai", "payload": {}}
+    cap = {"name": "chat.ai", "handler": "true", "claimable": True, "max_parallel": 1, "timeout": 5}
+
+    monkeypatch.setattr(cli, "load_active_profile", lambda: [cap])
+    monkeypatch.setattr(daemon.client, "claim", lambda name: claimed_stage)
+
+    # run_stage must NOT be called — patch it to fail the test if it is.
+    def fail_if_called(*a, **k):
+        raise AssertionError("run_stage should not be called for a skipped task")
+
+    monkeypatch.setattr(daemon, "_run_stage", fail_if_called)
+
+    # Stop the loop after one iteration so the test terminates.
+    iterations = {"n": 0}
+
+    def stop_after_one(*a, **k):
+        iterations["n"] += 1
+        if iterations["n"] >= 1:
+            daemon._stop_event.set()
+        return 0
+
+    monkeypatch.setattr(cli.time, "sleep", stop_after_one)
+
+    daemon._claim_loop()
+    # If we got here without AssertionError, the skip path worked.
+
+
+def test_daemon_claim_loop_runs_stage_within_budget(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A claimed stage for a task below the failure budget is run normally."""
+    daemon, client = _make_daemon(isolated_paths, cfg={"claim_interval": 999, "max_retries": 2})
+
+    claimed_stage = {"stage_id": "s_ok", "task_id": "t_ok", "capability": "chat.ai", "payload": {}}
+    cap = {"name": "chat.ai", "handler": "true", "claimable": True, "max_parallel": 1, "timeout": 5}
+
+    monkeypatch.setattr(cli, "load_active_profile", lambda: [cap])
+    monkeypatch.setattr(daemon.client, "claim", lambda name: claimed_stage)
+
+    run_called = {"v": False}
+
+    def fake_run_stage(c, s):
+        run_called["v"] = True
+        daemon._stop_event.set()
+
+    monkeypatch.setattr(daemon, "_run_stage", fake_run_stage)
+    monkeypatch.setattr(cli.time, "sleep", lambda *a, **k: None)
+
+    daemon._claim_loop()
+    assert run_called["v"] is True
+
+
+def test_daemon_status_file_includes_failed_tasks(isolated_paths: Path, monkeypatch: pytest.MonkeyPatch):
+    """_write_status surfaces failed_tasks so `node-cli daemon status` can show it."""
+    daemon, _ = _make_daemon(isolated_paths)
+    daemon._failed_tasks["t_x"] = 3
+
+    daemon._write_status()
+
+    import json as _json
+    data = _json.loads((isolated_paths / "worker_status.json").read_text())
+    assert data["failed_tasks"] == {"t_x": 3}

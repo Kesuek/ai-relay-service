@@ -614,3 +614,198 @@ def test_heartbeat_with_empty_replace_capabilities_clears_index():
         json={"available": True, "capabilities": []},
     )
     assert get_node_capability_names(worker_id) == []
+
+
+# ---------------------------------------------------------------------------
+# T-061: mark_offline_nodes fails claimed stages of the offline node
+# ---------------------------------------------------------------------------
+
+
+def test_mark_offline_fails_claimed_stages():
+    """When a node goes offline its claimed stages are failed (T-061)."""
+    from relay_server.core.db import get_conn
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Claimed", [{"name": "vault", "version": "1.0.0"}])
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "vault", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    runtime = r.json()["token"]
+
+    # Create a single-stage task and claim it.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"task_name": "orphan", "stages": [{"stage_name": "s1", "capability": "vault"}]},
+    )
+    assert r.status_code == 200
+    task_id = r.json()["task"]["task_id"]
+    stage_id = r.json()["stages"][0]["stage_id"]
+
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={},
+    )
+    assert r.json()["claimed"] is True
+
+    # Simulate the node going silent: backdate last_seen past the timeout.
+    from datetime import datetime, timedelta, timezone
+
+    old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
+    conn = get_conn()
+    conn.execute("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, worker_id))
+    conn.commit()
+    conn.close()
+
+    offline = mark_offline_nodes()
+    assert worker_id in offline
+
+    conn = get_conn()
+    stage_row = conn.execute(
+        "SELECT status, claimed_by FROM task_stages WHERE stage_id = ?", (stage_id,)
+    ).fetchone()
+    task_row = conn.execute(
+        "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
+    ).fetchone()
+    conn.close()
+    assert stage_row["status"] == "failed"
+    assert stage_row["claimed_by"] is None
+    # Single-stage task with all stages failed → task failed.
+    assert task_row["status"] == "failed"
+
+
+def test_mark_offline_does_not_fail_other_nodes_stages():
+    """Failing a node's claims must not touch stages claimed by another node."""
+    from relay_server.core.db import get_conn
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+    dying_id, _ = _register_worker("Dying", [{"name": "vault", "version": "1.0.0"}])
+    healthy_id, _ = _register_worker("Healthy", [{"name": "vault", "version": "1.0.0"}])
+    dying_approval = client.post(
+        f"/relay/v2/admin/nodes/{dying_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "vault", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ).json()["token"]
+    healthy_approval = client.post(
+        f"/relay/v2/admin/nodes/{healthy_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "vault", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ).json()["token"]
+
+    # Create two tasks; each node claims one.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"task_name": "dying-task", "stages": [{"stage_name": "s1", "capability": "vault"}]},
+    )
+    dying_task_id = r.json()["task"]["task_id"]
+    dying_stage_id = r.json()["stages"][0]["stage_id"]
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"task_name": "healthy-task", "stages": [{"stage_name": "s1", "capability": "vault"}]},
+    )
+    healthy_stage_id = r.json()["stages"][0]["stage_id"]
+
+    client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {dying_approval}"},
+        json={},
+    )
+    client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {healthy_approval}"},
+        json={},
+    )
+
+    # Refresh the healthy node's heartbeat so it is NOT considered stale.
+    client.post(
+        "/relay/v2/discovery/heartbeat",
+        headers={"Authorization": f"Bearer {healthy_approval}"},
+        json={"available": True},
+    )
+
+    # Backdate only the dying node.
+    from datetime import datetime, timedelta, timezone
+
+    old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
+    conn = get_conn()
+    conn.execute("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, dying_id))
+    conn.commit()
+    conn.close()
+
+    mark_offline_nodes()
+
+    conn = get_conn()
+    dying_row = conn.execute(
+        "SELECT status FROM task_stages WHERE stage_id = ?", (dying_stage_id,)
+    ).fetchone()
+    healthy_row = conn.execute(
+        "SELECT status FROM task_stages WHERE stage_id = ?", (healthy_stage_id,)
+    ).fetchone()
+    conn.close()
+    assert dying_row["status"] == "failed"
+    # Healthy node's claim must remain untouched.
+    assert healthy_row["status"] == "claimed"
+
+
+def test_mark_offline_task_not_failed_when_other_stages_pending():
+    """A task with another still-pending stage is not failed when one node goes offline."""
+    from relay_server.core.db import get_conn
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+    dying_id, _ = _register_worker("Dying Multi", [{"name": "vault", "version": "1.0.0"}])
+    dying_approval = client.post(
+        f"/relay/v2/admin/nodes/{dying_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "vault", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ).json()["token"]
+
+    # Two-stage task; only the first is claimable by the dying node.
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "task_name": "multi",
+            "stages": [
+                {"stage_name": "s1", "capability": "vault"},
+                {"stage_name": "s2", "capability": "no.such.cap"},
+            ],
+        },
+    )
+    task_id = r.json()["task"]["task_id"]
+    stage_id = r.json()["stages"][0]["stage_id"]
+
+    client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {dying_approval}"},
+        json={},
+    )
+
+    from datetime import datetime, timedelta, timezone
+
+    old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
+    conn = get_conn()
+    conn.execute("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, dying_id))
+    conn.commit()
+    conn.close()
+
+    mark_offline_nodes()
+
+    conn = get_conn()
+    stage_row = conn.execute(
+        "SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,)
+    ).fetchone()
+    task_row = conn.execute(
+        "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
+    ).fetchone()
+    conn.close()
+    assert stage_row["status"] == "failed"
+    # s2 is still pending → task must NOT be failed.
+    assert task_row["status"] != "failed"

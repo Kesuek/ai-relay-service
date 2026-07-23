@@ -224,8 +224,8 @@ to the relay as the result.
 | Outcome | What the daemon does | Result stored on the stage |
 |---|---|---|
 | Exit `0`, stdout is valid JSON | Complete the stage | The parsed stdout dict |
-| Exit `0`, stdout is **not** valid JSON | Fail the stage | `{"error": "handler produced invalid JSON on stdout"}` |
-| Exit non-zero (any code `N`) | Fail the stage | `{"error": "<stderr trimmed>"}` if stderr is non-empty, else `{"error": "handler exited with code N"}` |
+| Exit `0`, stdout is **not** valid JSON | Fail the stage (counted against `max_retries`) | `{"error": "handler stdout is not valid JSON: ..."}` |
+| Exit non-zero (any code `N`) | Fail the stage (counted against `max_retries`) | `{"error": "handler exited with code N", "stderr": ...}` |
 | Timeout exceeded | `SIGTERM` then `SIGKILL` after a short grace | `{"error": "handler timeout after Ns"}` |
 | `SIGKILL` / host shutdown while claimed | The stage stays `claimed` until `claim_ttl_seconds` (default 60 s) elapses, then the scheduler releases it back to `pending` for another node to claim | — |
 
@@ -234,12 +234,25 @@ Key points:
 - **stdout is the contract.** Only stdout is interpreted as the result.
   Write logs/diagnostics to stderr.
 - **Exit codes are meaningful.** `0` = success, anything else = failure.
+  A handler MUST exit with a non-zero code whenever it could not produce
+  a valid result. Returning exit `0` with non-JSON or an `error`-keyed
+  payload is a contract violation: the daemon treats exit `0` as
+  success, completes the stage with the (broken) result, and the
+  scheduler will not retry it — the failed work is silently lost.
+- **exit `0` requires valid JSON on stdout.** Handlers may only write a
+  valid JSON result object to stdout when they exit `0`. Any other
+  output (empty, prose, error text) is a contract violation and is
+  recorded as an error result on the stage.
 - **Timeouts don't hang the daemon.** The handler is killed and the stage
   is failed with a clear error message; the scheduler re-queues it (up to
-  `max_retries`).
+  `max_retries`, default 2 → 3 attempts total). Once the budget is
+  exhausted the stage is marked `failed` permanently and the owning task
+  is failed too when all its stages are terminal.
 - **Crash safety.** If the daemon itself is killed mid-claim, the stage is
   not lost — the relay's claim-TTL watchdog releases it automatically. No
-  manual intervention needed.
+  manual intervention needed. If the node stays offline, the heartbeat
+  watchdog eventually fails the orphaned `claimed` stage so it does not
+  stay pending forever (T-061).
 
 ### Validation rules
 

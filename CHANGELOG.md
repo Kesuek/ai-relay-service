@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- T-060: Claim-Retry-Schutz — `release_expired_claims()` → `release_or_fail_claims()` mit `retry_count`-Tracking. Stages werden nach `max_retries` (default 2 → 3 Versuche) endgültig als `failed` markiert statt auf `pending` zurückgesetzt. Verhindert Endlos-Reclaim bei Handler-Fehlern (RAM-Overflow). (Phase 11)
+- T-061: Offline-Erkennung für claimed Stages — `mark_offline_nodes()` failt alle claimed Stages eines offline Nodes sofort. Tasks werden auf `failed` gesetzt wenn alle Stages terminal sind. Events: `stage_failed`, `task_failed`. (Phase 11)
+- Daemon `_failed_tasks`-Tracking — `node_cli.py` zählt Fehlversuche pro Task und überspringt Tasks nach `max_retries`. (T-060)
+- `StageSummary`-Modelle um `retry_count`-Feld ergänzt — wird in API-Responses und CLI-Output angezeigt. (T-060)
+- Handler-Contract geschärft: Handler MUSS bei Fehlern exit != 0 returnen, DARF bei exit 0 nur valides JSON auf stdout schreiben. (T-060)
+
 - T-052: Task notes — nodes can leave free-form text notes on a task while it is being worked on (mini-chat between collaborating nodes). New table `task_notes`, new endpoint `POST /relay/v2/scheduler/tasks/{task_id}/notes` (body `{"message": "..."}`, 1..2000 chars), `GET /relay/v2/scheduler/tasks/{task_id}` now includes a `notes` array ordered by `created_at`. New CLI subcommand `node-cli task note <task_id> <message>` and `node-cli task wait` streams new notes live as they arrive.
 - T-059: `node-cli docs [<name>]` — new subcommand to read the relay's public documentation from a headless node. Without an argument lists all available documents (`GET /relay/v2/docs`), with a name fetches a single page (`GET /relay/v2/docs/<name>`) and renders the server's HTML response as terminal-friendly text. Eliminates the need for `curl` on nodes without a browser.
 - T-053: Capability details on claim and task-view — `POST /relay/v2/scheduler/claim` and `GET /relay/v2/scheduler/tasks/{task_id}` now include `capability_details` (description, type, input_schema) on each stage, resolved from the node's heartbeat-advertised metadata. The `node-cli` daemon now forwards `description`, `type` and `input_schema` from the YAML profile in every heartbeat; `node-cli claim`, `task result` and `task wait` print the resolved metadata.

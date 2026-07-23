@@ -1170,3 +1170,197 @@ def test_db_migration_creates_task_notes_table(tmp_path):
     ]
     conn.close()
     assert "task_notes" in tables
+
+
+# ---------------------------------------------------------------------------
+# T-060 / T-061: retry_count migration + release_or_fail_claims + offline
+# ---------------------------------------------------------------------------
+
+
+def test_db_migration_adds_retry_count_column(tmp_path):
+    """A pre-existing task_stages table without retry_count gets it on init."""
+    import sqlite3
+
+    from relay_server.core.db import init_db_for_path
+
+    db = tmp_path / "legacy_no_retry.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE nodes (node_id TEXT PRIMARY KEY, capabilities TEXT, status TEXT DEFAULT 'approved', role TEXT DEFAULT 'worker', node_name TEXT, endpoint TEXT, last_seen TEXT, created_at TEXT, updated_at TEXT)")
+    conn.execute("CREATE TABLE tasks (task_id TEXT PRIMARY KEY, task_name TEXT, status TEXT DEFAULT 'pending', priority INTEGER DEFAULT 0, owner_node_id TEXT, timeout_seconds INTEGER, created_at TEXT, updated_at TEXT, completed_at TEXT)")
+    # task_stages WITHOUT retry_count (pre-T-060 state).
+    conn.execute("CREATE TABLE task_stages (stage_id TEXT PRIMARY KEY, task_id TEXT, stage_name TEXT, capability TEXT, status TEXT DEFAULT 'pending', depends_on TEXT, sequence INTEGER DEFAULT 0, timeout_seconds INTEGER, payload TEXT, claimed_by TEXT, claimed_at TEXT, claim_expires_at TEXT, completed_at TEXT, result TEXT, created_at TEXT, updated_at TEXT)")
+    conn.execute("CREATE TABLE audit_logs (log_id TEXT PRIMARY KEY, actor_id TEXT, action TEXT, created_at TEXT)")
+    conn.execute("CREATE TABLE node_tokens (token_id TEXT PRIMARY KEY, node_id TEXT, token_type TEXT, token_hash TEXT, expires_at TEXT, created_at TEXT)")
+    conn.execute("CREATE TABLE users (user_id TEXT PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, created_at TEXT)")
+    conn.execute("CREATE TABLE user_groups (user_id TEXT, group_name TEXT, PRIMARY KEY (user_id, group_name))")
+    conn.execute("CREATE TABLE group_permissions (group_id TEXT, permission_id TEXT, granted_at TEXT, PRIMARY KEY (group_id, permission_id))")
+    conn.execute("CREATE TABLE permissions (permission_id TEXT PRIMARY KEY, permission_name TEXT, description TEXT, created_at TEXT)")
+    conn.execute("CREATE TABLE artifacts (artifact_id TEXT PRIMARY KEY, name TEXT, mime_type TEXT, size_bytes INTEGER, storage_path TEXT, task_id TEXT, stage_id TEXT, created_by TEXT, created_at TEXT)")
+    conn.execute("CREATE TABLE node_capabilities (node_id TEXT NOT NULL, capability_name TEXT NOT NULL, capability_type TEXT, capability_version TEXT DEFAULT '1.0.0', description TEXT, input_schema TEXT, available BOOLEAN DEFAULT 1, updated_at TEXT NOT NULL, PRIMARY KEY (node_id, capability_name))")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_node_capabilities_name ON node_capabilities(capability_name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_node_capabilities_name_type ON node_capabilities(capability_name, capability_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_task_stages_task_id ON task_stages(task_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_task_stages_status ON task_stages(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_task_stages_capability ON task_stages(capability)")
+    conn.commit()
+    conn.close()
+
+    init_db_for_path(str(db))
+
+    conn = sqlite3.connect(str(db))
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(task_stages)").fetchall()]
+    conn.close()
+    assert "retry_count" in cols
+
+
+def _claim_a_stage(admin_token: str, worker_token: str) -> tuple[str, str, str]:
+    """Helper: create a single-stage task and claim it. Returns (task_id, stage_id, worker_id_from_claim)."""
+    r = client.post(
+        "/relay/v2/scheduler/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"task_name": "retry-test", "stages": [{"stage_name": "s1", "capability": "test_ai"}]},
+    )
+    assert r.status_code == 200, r.json()
+    task_id = r.json()["task"]["task_id"]
+    stage_id = r.json()["stages"][0]["stage_id"]
+
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={},
+    )
+    assert r.json()["claimed"] is True
+    assert r.json()["stage"]["stage_id"] == stage_id
+    return task_id, stage_id, r.json()["stage"]["claimed_by"]
+
+
+def _backdate_claim_expiry(stage_id: str) -> None:
+    """Force claim_expires_at into the past so release_or_fail_claims picks it up."""
+    import datetime
+
+    past = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).isoformat()
+    conn = get_conn()
+    conn.execute(
+        "UPDATE task_stages SET claim_expires_at = ? WHERE stage_id = ?",
+        (past, stage_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_release_or_fail_claims_releases_within_budget():
+    """First TTL expiry within max_retries puts the stage back to pending and bumps retry_count."""
+    from relay_server.core.scheduler import Scheduler
+
+    settings.max_retries = 2
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "test_ai", "version": "1.0"}], admin_token=admin_token
+    )
+
+    task_id, stage_id, _ = _claim_a_stage(admin_token, worker_token)
+    _backdate_claim_expiry(stage_id)
+
+    result = Scheduler.release_or_fail_claims()
+    assert stage_id in result["released"]
+    assert result["failed"] == []
+    assert result["tasks_failed"] == []
+
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT status, retry_count FROM task_stages WHERE stage_id = ?", (stage_id,)
+    ).fetchone()
+    conn.close()
+    assert row["status"] == "pending"
+    assert row["retry_count"] == 1
+
+
+def test_release_or_fail_claims_fails_after_max_retries():
+    """Once retry_count exceeds max_retries the stage is marked failed, not pending."""
+    from relay_server.core.scheduler import Scheduler
+
+    settings.max_retries = 2
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "test_ai", "version": "1.0"}], admin_token=admin_token
+    )
+
+    task_id, stage_id, _ = _claim_a_stage(admin_token, worker_token)
+
+    # Pre-set retry_count so the next release exceeds max_retries (2):
+    # new_count = 3 > 2 → stage failed.
+    conn = get_conn()
+    conn.execute(
+        "UPDATE task_stages SET retry_count = 2 WHERE stage_id = ?", (stage_id,)
+    )
+    conn.commit()
+    conn.close()
+
+    _backdate_claim_expiry(stage_id)
+
+    result = Scheduler.release_or_fail_claims()
+    assert result["released"] == []
+    assert stage_id in result["failed"]
+    # Single-stage task with all stages failed → task failed.
+    assert task_id in result["tasks_failed"]
+
+    conn = get_conn()
+    stage_row = conn.execute(
+        "SELECT status, retry_count FROM task_stages WHERE stage_id = ?", (stage_id,)
+    ).fetchone()
+    task_row = conn.execute(
+        "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
+    ).fetchone()
+    conn.close()
+    assert stage_row["status"] == "failed"
+    assert stage_row["retry_count"] == 3
+    assert task_row["status"] == "failed"
+
+
+def test_release_or_fail_claims_noop_when_none_expired():
+    """No expired claims → empty result."""
+    from relay_server.core.scheduler import Scheduler
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    result = Scheduler.release_or_fail_claims()
+    assert result == {"released": [], "failed": [], "tasks_failed": []}
+
+
+def test_stage_row_to_dict_exposes_retry_count():
+    """_stage_row_to_dict surfaces retry_count so clients can see retry state."""
+    from relay_server.core.scheduler import _stage_row_to_dict
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "test_ai", "version": "1.0"}], admin_token=admin_token
+    )
+    task_id, stage_id, _ = _claim_a_stage(admin_token, worker_token)
+
+    # Bump retry_count directly and read the stage back via get_task.
+    conn = get_conn()
+    conn.execute("UPDATE task_stages SET retry_count = 2 WHERE stage_id = ?", (stage_id,))
+    conn.commit()
+    conn.close()
+
+    r = client.get(
+        f"/relay/v2/scheduler/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    stages = r.json()["stages"]
+    assert len(stages) == 1
+    assert stages[0]["retry_count"] == 2
