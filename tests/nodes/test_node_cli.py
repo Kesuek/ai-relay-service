@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import textwrap
 from pathlib import Path
 
@@ -90,6 +91,7 @@ EXPECTED_SUBCOMMANDS = {
     "reload",
     "artifact",
     "docs",
+    "update",
 }
 
 
@@ -136,6 +138,9 @@ def test_all_subcommands_parse_without_errors():
         ["artifact", "download", "artifact_123", "-o", "/tmp/out.bin"],
         ["docs"],
         ["docs", "node-setup"],
+        ["update", "check"],
+        ["update", "apply"],
+        ["update", "apply", "--service-unit", "custom.service"],
     ]
     for argv in cases:
         ns = parser.parse_args(argv)
@@ -1396,3 +1401,175 @@ def test_daemon_status_file_includes_failed_tasks(isolated_paths: Path, monkeypa
     import json as _json
     data = _json.loads((isolated_paths / "worker_status.json").read_text())
     assert data["failed_tasks"] == {"t_x": 3}
+
+
+# ---------------------------------------------------------------------------
+# T-062: update check / update apply
+# ---------------------------------------------------------------------------
+
+from nodes.common import node_utils  # noqa: E402 — alias for clarity below
+
+
+def _make_repo(tmp_path: Path) -> Path:
+    """Create a real throwaway git repo with one commit and an origin remote."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=str(repo), check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(repo), check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(repo), check=True)
+    (repo / "README.md").write_text("hello\n")
+    subprocess.run(["git", "add", "."], cwd=str(repo), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=str(repo), check=True)
+    return repo
+
+
+def _add_commit(repo: Path, msg: str = "change") -> str:
+    """Add another commit to ``repo`` and return its SHA."""
+    (repo / "README.md").write_text(f"{msg}\n")
+    subprocess.run(["git", "add", "."], cwd=str(repo), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", msg], cwd=str(repo), check=True)
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(repo), capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def test_update_check_no_updates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    """When local == upstream, `update check` reports 'up to date' and rc=0."""
+    repo = _make_repo(tmp_path)
+    # Configure a bogus upstream pointing at the repo itself so rev-list HEAD..@{u} == 0
+    subprocess.run(["git", "remote", "add", "origin", str(repo)], cwd=str(repo), check=True)
+    subprocess.run(["git", "fetch", "-q", "origin"], cwd=str(repo), check=True)
+    subprocess.run(
+        ["git", "branch", "--set-upstream-to=origin/main", "main"], cwd=str(repo), check=True
+    )
+
+    monkeypatch.setattr(node_utils, "REPO_DIR", repo)
+    monkeypatch.setattr(cli, "REPO_DIR", repo)
+
+    rc = cli.main(["update", "check"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "up to date" in out
+    assert "Upstream:       yes" in out
+
+
+def test_update_check_with_updates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    """When local is behind upstream, `update check` reports the count and rc=0."""
+    repo = _make_repo(tmp_path)
+    # Create a separate "origin" repo that has an extra commit, then point
+    # the working repo at it so the working clone is behind by 1.
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "-b", "main", "--bare", str(origin)], cwd=str(tmp_path), check=True)
+    # Push the initial commit to origin.
+    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=str(repo), check=True)
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=str(repo), check=True)
+    subprocess.run(
+        ["git", "branch", "--set-upstream-to=origin/main", "main"], cwd=str(repo), check=True
+    )
+    # Now add a commit directly to the bare origin (clone, commit, push back).
+    work = tmp_path / "work"
+    subprocess.run(["git", "clone", "-q", str(origin), str(work)], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(work), check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(work), check=True)
+    _add_commit(work, "new-on-origin")
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=str(work), check=True)
+
+    monkeypatch.setattr(node_utils, "REPO_DIR", repo)
+    monkeypatch.setattr(cli, "REPO_DIR", repo)
+
+    rc = cli.main(["update", "check"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "behind" in out
+    assert "update available" in out
+
+
+def test_update_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    """`update apply` pulls and restarts the service, reporting success."""
+    repo = _make_repo(tmp_path)
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "-b", "main", "--bare", str(origin)], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=str(repo), check=True)
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=str(repo), check=True)
+    subprocess.run(
+        ["git", "branch", "--set-upstream-to=origin/main", "main"], cwd=str(repo), check=True
+    )
+    before = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(repo), capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    # Add a new commit on origin via a working clone, then push.
+    work = tmp_path / "work"
+    subprocess.run(["git", "clone", "-q", str(origin), str(work)], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(work), check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(work), check=True)
+    new_sha = _add_commit(work, "new-on-origin")
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=str(work), check=True)
+
+    monkeypatch.setattr(node_utils, "REPO_DIR", repo)
+    monkeypatch.setattr(cli, "REPO_DIR", repo)
+
+    # Stub systemctl so no real service is touched, but let real git through.
+    real_run = node_utils.subprocess.run
+
+    def fake_run(cmd, **kw):
+        if "systemctl" in cmd:
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+        return real_run(cmd, **kw)
+
+    monkeypatch.setattr(node_utils.subprocess, "run", fake_run)
+
+    rc = cli.main(["update", "apply", "--service-unit", "test.service"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Restarted: yes" in out
+    assert new_sha in out
+    assert before in out
+
+
+def test_update_apply_no_upstream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    """Without a configured upstream, `update apply` still runs git pull (which
+    may succeed or fail) — here we just assert the command does not crash and
+    reports a result. We stub git pull via a fake subprocess to simulate the
+    no-upstream case cleanly."""
+    repo = _make_repo(tmp_path)
+    monkeypatch.setattr(node_utils, "REPO_DIR", repo)
+    monkeypatch.setattr(cli, "REPO_DIR", repo)
+
+    # Stub subprocess.run so git pull fails (no upstream) but systemctl is fine.
+    calls = {"pull": False, "restart": False}
+
+    class _R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, **kw):
+        if "pull" in cmd:
+            calls["pull"] = True
+            raise subprocess.CalledProcessError(returncode=1, cmd=cmd, output="", stderr="no upstream")
+        if "restart" in cmd:
+            calls["restart"] = True
+            return _R()
+        return _R()
+
+    monkeypatch.setattr(node_utils.subprocess, "run", fake_run)
+
+    rc = cli.main(["update", "apply"])
+    assert rc == 1  # pull failed -> success=False -> rc=1
+    out = capsys.readouterr().out
+    assert "git pull failed" in out
+    # Restart must not be attempted when pull failed.
+    assert calls["restart"] is False
+
+
+def test_get_repo_info_no_git_repo(tmp_path: Path):
+    """get_repo_info returns a zeroed dict when the dir is not a git repo."""
+    info = node_utils.get_repo_info(repo_dir=tmp_path / "does-not-exist")
+    assert info["local_commit"] is None
+    assert info["has_upstream"] is False
+    assert info["behind_count"] == 0
