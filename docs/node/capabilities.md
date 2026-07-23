@@ -201,10 +201,8 @@ that have at least one available node. Clicking a card loads the
 capability page in a same-origin iframe.
 
 **Important:** The HTML page must submit new tasks via
-`POST /relay/v2/dashboard/api/task-submit` (session-cookie auth), not
-`POST /relay/v2/scheduler/task-simple` (node-token auth). The dashboard
-uses session cookies, so the task-submit endpoint must accept them.
-The request body must use `{capability, payload}`, **not** `{name, stage}`:
+`POST /relay/v2/dashboard/api/task-submit` (session-cookie auth). The
+request body uses `{capability, payload}`:
 
 ```javascript
 fetch('/relay/v2/dashboard/api/task-submit', {
