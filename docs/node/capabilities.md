@@ -201,18 +201,26 @@ that have at least one available node. Clicking a card loads the
 capability page in a same-origin iframe.
 
 **Important:** The HTML page must submit new tasks via
-`POST /relay/v2/dashboard/api/task-submit` (session-cookie auth). The
-request body uses `{capability, payload}`:
+`POST /relay/v2/dashboard/api/task-submit` (session-cookie auth) and poll
+task status via `GET /relay/v2/dashboard/api/tasks/{task_id}` (session-cookie
+auth). The request body uses `{capability, payload}`:
 
 ```javascript
-fetch('/relay/v2/dashboard/api/task-submit', {
+// Submit a new task
+const resp = await fetch('/relay/v2/dashboard/api/task-submit', {
   method: 'POST',
   headers: {'Content-Type': 'application/json'},
   body: JSON.stringify({
     capability: 'image.generate.mflux',
     payload: {prompt: 'Ein roter Fuchs im Schnee'}
   }),
-})
+});
+const data = await resp.json();
+const taskId = data.task_id;
+
+// Poll task status
+const poll = await fetch('/relay/v2/dashboard/api/tasks/' + taskId);
+const task = await poll.json();
 ```
 
 Publish flow:
