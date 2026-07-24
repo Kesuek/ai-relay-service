@@ -853,3 +853,50 @@ def test_dashboard_ssn_page_proxy_rejects_path_traversal(_reset_ssn_pages_cache,
             assert r.status_code == 404, bad
     finally:
         settings.ssn_pages_dir = original
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for the SSN page modal visibility bug (T-070 follow-up).
+#
+# Bug: `.ssn-box { display:flex }` was defined AFTER `.hidden { display:none }`
+# in dashboard.html. Both selectors have equal specificity (0,1,0), so the
+# later rule wins and the modal is permanently visible — the `.hidden` class
+# has no effect and the close button appears to "do nothing" even though the
+# JS handlers are wired correctly.
+# Fix: `.hidden` uses `!important` so it always wins, and the static + index
+# endpoints send `Cache-Control: no-cache, must-revalidate` so deploys are
+# picked up immediately.
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_hidden_class_overrides_ssn_box_display():
+    """`.hidden` must win over `.ssn-box { display:flex }` regardless of order."""
+    from relay_server.api.v2.dashboard import STATIC_DIR
+
+    html = (STATIC_DIR / "dashboard.html").read_text(encoding="utf-8")
+    # The utility class must use !important to beat any later `display` rule.
+    assert ".hidden { display:none !important; }" in html
+    # Sanity: the conflicting rule is still present (this is what caused the bug).
+    assert ".ssn-box" in html and "display:flex" in html
+
+
+def test_dashboard_static_file_has_no_cache_headers():
+    """Static assets must not be cached aggressively so JS/CSS fixes propagate."""
+    r = client.get("/relay/v2/dashboard/static/dashboard.js")
+    assert r.status_code == 200
+    cc = r.headers.get("Cache-Control", "")
+    assert "no-cache" in cc
+    assert "must-revalidate" in cc
+
+
+def test_dashboard_index_has_no_cache_headers():
+    """The dashboard HTML must not be cached aggressively so fixes propagate."""
+    create_user(
+        "viewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False,
+    )
+    r = _human_login("viewer", "strong-passphrase-42")
+    r = client.get("/relay/v2/dashboard/", cookies={"relay_user": r.cookies.get("relay_user")})
+    assert r.status_code == 200
+    cc = r.headers.get("Cache-Control", "")
+    assert "no-cache" in cc
+    assert "must-revalidate" in cc
