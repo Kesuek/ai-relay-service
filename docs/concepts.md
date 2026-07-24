@@ -133,7 +133,7 @@ and recovery flows.
 
 ## Node types
 
-The relay distinguishes three broad categories of node.
+The relay distinguishes two broad categories of node.
 
 > **Naming note.** This concept document is written in German-influenced
 > style and uses **KI** (German abbreviation for *Künstliche Intelligenz*)
@@ -196,29 +196,7 @@ Intentionally "dumb" workers. They have no reasoning capability. They:
 | Simplicity | Small code base, easy to audit, easy to replace. |
 | Reliability | Fewer moving parts, deterministic behaviour. |
 | Network placement | Can run on constrained devices (NAS, IoT, Docker). |
-|| Cost | No GPU or large model required. |
-
-### Server-side nodes (SSN)
-
-A server-side node runs on the **same host as the relay server** — either
-in the same process, as a sidecar, or as a `node-cli` daemon on the same
-machine. It has no external network port; it communicates with the relay
-over localhost.
-
-SSNs fill the gap between the relay core and external worker nodes. They
-provide services that need low latency, direct access to the relay's
-internal API, or the ability to orchestrate other nodes without exposing
-a public endpoint.
-
-| Capability | Node | Responsibility |
-|---|---|---|
-| `ssn.capability-pages` | SSN | Host dashboard HTML pages for other capabilities, proxy task-submit and artifact-download requests from the browser. |
-
-Because an SSN runs on the relay host, it can use `node-cli task submit`,
-`node-cli artifact download`, and every other CLI command without
-network overhead. External worker nodes push HTML pages to the relay as
-artifacts and send an `ssn.capability-pages` task to register them; the
-SSN downloads the artifact and serves it.
+| Cost | No GPU or large model required. |
 
 ## Self-care pattern
 
