@@ -25,12 +25,17 @@ def _reset_limiters():
 @pytest.fixture(autouse=True)
 def _fresh_db(monkeypatch):
     _reset_limiters()
+    # T-068: Reset the module-level token pepper cache so the test's
+    # session_secret is picked up instead of a stale value from a
+    # previous test run.
+    import relay_server.core.auth as auth_mod
+    auth_mod._TOKEN_PEPPER = None
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
         artifacts_dir = Path(tmp) / "artifacts"
         monkeypatch.setattr(settings, "db_path", db_path)
         monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-        monkeypatch.setattr(settings, "session_secret", "test-secret-for-rate-limiting")
+        monkeypatch.setattr(settings, "session_secret", "test-secret-for-rate-limiting-tests")
         init_db()
         yield
     _reset_limiters()
