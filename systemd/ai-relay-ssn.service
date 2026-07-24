@@ -1,0 +1,19 @@
+[Unit]
+Description=AI Relay SSN — Server-Side Node
+After=ai-relay-service.service
+BindsTo=ai-relay-service.service
+
+[Service]
+Type=simple
+ExecStart=%h/projects/ai-relay-service/.venv/bin/python -m nodes.common.node_cli daemon foreground
+WorkingDirectory=%h/projects/ai-relay-service
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=RELAY_BASE_URL=http://127.0.0.1:8788
+# The SSN node token is stored in ~/.relay/<node_id>.json after registration.
+# Set RELAY_SSN_TOKEN_FILE if you want the daemon to use a specific node
+# identity instead of the default auto-discovered one.
+
+[Install]
+WantedBy=default.target

@@ -152,22 +152,6 @@ def test_load_profile_auto_publish_not_bool_raises():
         validate_profile(bad)
 
 
-def test_load_profile_dashboard_page_default_false():
-    caps = validate_profile({"capabilities": [{"name": "x"}]})
-    assert caps[0]["dashboard_page"] is False
-
-
-def test_load_profile_dashboard_page_true_preserved():
-    caps = validate_profile({"capabilities": [{"name": "x", "dashboard_page": True}]})
-    assert caps[0]["dashboard_page"] is True
-
-
-def test_load_profile_dashboard_page_not_bool_raises():
-    bad = {"capabilities": [{"name": "x", "dashboard_page": "yes"}]}
-    with pytest.raises(CapabilityValidationError, match="dashboard_page.*must be a boolean"):
-        validate_profile(bad)
-
-
 def test_load_profile_yaml_syntax_error_includes_file(isolated_paths: Path):
     p = _write(isolated_paths / "capabilities.d" / "bad.yaml", "capabilities: [unclosed\n")
     with pytest.raises(CapabilityValidationError, match="YAML syntax error"):

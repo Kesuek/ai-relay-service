@@ -169,59 +169,16 @@ capabilities:
           type: string
           required: false
           description: "Alternative to prompt — a short message or greeting."
-    dashboard_page: false                 # optional, default false — see "Dashboard pages" below
 ```
 
-### Capability dashboard pages (T-048)
+### Capability dashboard pages (SSN)
 
-A capability can provide its own HTML dashboard page that operators and
-admins see in the relay dashboard's **Capabilities** tab. The page is
-embedded in an `<iframe>` and served from
-`GET /relay/v2/capabilities/<name>/dashboard-page`.
-
-To enable it:
-
-1. Set `dashboard_page: true` in the capability's YAML profile.
-2. Publish the profile (`node-cli capabilities publish <profile>`).
-3. Build the HTML page locally and upload it:
-
-   ```bash
-   node-cli artifact upload ./dashboard.html --capability <capability-name>
-   ```
-
-The server stores the file at
-`~/.relay/capability-pages/<name>/dashboard.html` — **separate from the
-artifact store**, no artifact DB entry is created. Re-uploading
-overwrites the previous page. The path is deterministically derived
-from the capability name, so there is no `dashboard_artifact_id` to
-track.
-
-The dashboard lists all capabilities whose `dashboard_page: true` and
-that have at least one available node. Clicking a card loads the
-capability page in a same-origin iframe.
-
-**Important:** The HTML page must submit new tasks via
-`POST /relay/v2/dashboard/api/task-submit` (session-cookie auth) and poll
-task status via `GET /relay/v2/dashboard/api/tasks/{task_id}` (session-cookie
-auth). The request body uses `{capability, payload}`:
-
-```javascript
-// Submit a new task
-const resp = await fetch('/relay/v2/dashboard/api/task-submit', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({
-    capability: 'image.generate.mflux',
-    payload: {prompt: 'Ein roter Fuchs im Schnee'}
-  }),
-});
-const data = await resp.json();
-const taskId = data.task_id;
-
-// Poll task status
-const poll = await fetch('/relay/v2/dashboard/api/tasks/' + taskId);
-const task = await poll.json();
-```
+A capability can have its own HTML dashboard page. Since T-069 these pages
+are **hosted by a Server-Side Node (SSN)** that advertises the
+`ssn.capability-pages` capability — the relay no longer stores or serves
+capability pages itself. Workers manage their pages by sending tasks to
+`ssn.capability-pages` (`add`/`update`/`delete`/`list`). See
+[ssn.md](ssn.md) for the full flow, payload formats and deployment.
 
 Publish flow:
 
@@ -282,7 +239,7 @@ Key points:
 A profile is invalid if: YAML syntax error, `capabilities` missing/not a list,
 any capability missing `name`, duplicate names, `claimable: true` without
 `handler`, `max_parallel`/`timeout` not positive integers,
-`auto_publish`/`claimable`/`dashboard_page` not boolean, or `version` not
+`auto_publish`/`claimable` not boolean, or `version` not
 a non-empty string. The optional `description` field is preserved through
 the pipeline and forwarded to the relay in heartbeats.
 On error the active profile is never touched.
@@ -296,7 +253,6 @@ capability, when they are present in the YAML profile:
 |---|---|
 | `name`, `version` | Capability identity (always sent) |
 | `available` | Computed from `max_parallel` vs. in-flight stages |
-| `dashboard_page` | Whether a dashboard page was uploaded |
 | `type` | Capability type (`ai`, `tool`, `script`, `workflow`, `resource`) |
 | `description` | Human-readable description |
 | `input_schema` | Expected payload fields (documented below) |

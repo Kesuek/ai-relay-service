@@ -2,7 +2,7 @@
 
 This document is the central concept reference for the AI Relay Service. It
 explains what the relay is, the architecture it follows, how capabilities and
-tokens work, the two node types, and the self-care pattern that ties them
+tokens work, the three node types, and the self-care pattern that ties them
 together. All other documents link back here for the underlying mental model.
 
 ## What is the AI Relay?
@@ -133,7 +133,7 @@ and recovery flows.
 
 ## Node types
 
-The relay distinguishes two broad categories of node.
+The relay distinguishes three broad categories of node.
 
 > **Naming note.** This concept document is written in German-influenced
 > style and uses **KI** (German abbreviation for *Künstliche Intelligenz*)
@@ -141,7 +141,8 @@ The relay distinguishes two broad categories of node.
 > (`/relay/v2`, `.ai` suffix, `chat.ai`). Both terms mean the same thing;
 > pick whichever suits your audience. The node types below are sometimes
 > called **worker node** (KI-capable / AI-capable) and **service node**
-> (KI-less / AI-less) in the docs and dashboard.
+> (KI-less / AI-less) in the docs and dashboard. The third category is
+> the **server-side node (SSN)**.
 
 ### KI-capable nodes
 
@@ -187,6 +188,26 @@ Intentionally "dumb" workers. They have no reasoning capability. They:
 | `switch.toggle` | IoT relay node | Toggle smart-home switches |
 | `fs.read`, `fs.write` | File-system node | Read or write local files |
 | `camera.capture` | Camera node | Take a photo |
+
+### Server-side nodes (SSN)
+
+A **Server-Side Node (SSN)** is a normal `node-cli` daemon that runs on
+the **same host as the relay server**. It registers, heartbeats, claims
+and completes like any other worker — the relay has no special-case
+code for it. The only difference is placement: it talks to the relay
+over `localhost` instead of the public network, so it needs no external
+port.
+
+SSNs fill the gap between the relay core and external workers. They
+host services that need low latency, access to relay-internal APIs, or
+the ability to orchestrate other nodes without exposing a public
+endpoint. The reference SSN advertises `ssn.capability-pages` and hosts
+HTML dashboard pages for other capabilities — see [ssn.md](node/ssn.md)
+for details.
+
+| Capability | Node | Responsibility |
+|---|---|---|
+| `ssn.capability-pages` | Relay-host SSN | Host/add/update/delete HTML dashboard pages for other capabilities |
 
 ### Why KI-less nodes?
 

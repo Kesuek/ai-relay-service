@@ -691,32 +691,6 @@ def test_cmd_artifact_upload_invokes_client(isolated_paths: Path, monkeypatch, c
     assert "a_cli" in out
 
 
-def test_cmd_artifact_upload_capability_passes_through(isolated_paths: Path, monkeypatch, capsys):
-    """node-cli artifact upload --capability forwards the capability name."""
-    base = isolated_paths
-    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
-    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
-    _write(base / "ai-relay-agent.token", "rt_test")
-
-    source = base / "dashboard.html"
-    source.write_text("<html></html>")
-
-    captured: dict = {}
-
-    def fake_upload(file_path, *, name=None, task_id=None, stage_id=None, capability=None):
-        captured["capability"] = capability
-        return {"status": "ok", "path": f"capability-pages/{capability}/dashboard.html"}
-
-    monkeypatch.setattr(cli.RelayClient, "upload_artifact", staticmethod(fake_upload))
-
-    rc = cli.main(["artifact", "upload", str(source), "--capability", "image.generate.mflux"])
-    assert rc == 0
-    assert captured["capability"] == "image.generate.mflux"
-
-    out = capsys.readouterr().out
-    assert "capability-pages/image.generate.mflux/dashboard.html" in out
-
-
 def test_cmd_artifact_upload_missing_file(isolated_paths: Path, monkeypatch, capsys):
     """node-cli artifact upload exits with code 2 when file is missing."""
     base = isolated_paths

@@ -314,6 +314,11 @@ max_chunk_size: 10485760              # 10 MiB  — per chunked-upload chunk
 # Scheduler
 default_timeout_seconds: 300
 max_retries: 2
+
+# SSN (Server-Side Node) — T-069
+ssn_enabled: false               # set true to start/stop the SSN unit with the server
+ssn_auto_approve: true           # auto-approve the SSN's pending registration
+ssn_service_unit: "ai-relay-ssn.service"
 ```
 
 The same keys can be set as `RELAY_PORT`, `RELAY_ENABLE_MDNS`,
@@ -397,6 +402,35 @@ sudo systemctl daemon-reload
 sudo systemctl enable ai-relay.service
 sudo systemctl start ai-relay.service
 ```
+
+### Server-Side Node (SSN)
+
+The repo ships a systemd user unit for the SSN at
+`systemd/ai-relay-ssn.service`. To enable the SSN:
+
+1. Install the unit into your user systemd directory:
+
+   ```bash
+   cp systemd/ai-relay-ssn.service ~/.config/systemd/user/
+   systemctl --user daemon-reload
+   ```
+
+2. Enable SSN in the server config (`~/.relay/config.yaml`):
+
+   ```yaml
+   ssn_enabled: true
+   ssn_auto_approve: true
+   ssn_service_unit: "ai-relay-ssn.service"
+   ```
+
+3. The relay server starts/stops the SSN unit in its `lifespan()` hook.
+   With `ssn_auto_approve: true` the maintenance loop approves the SSN's
+   pending registration automatically so it comes online without a
+   manual admin action.
+
+4. The SSN needs a capabilities profile that advertises
+   `ssn.capability-pages` (see [node/ssn.md](../node/ssn.md) for the
+   YAML example and the handler path).
 
 ## 14. Updating
 

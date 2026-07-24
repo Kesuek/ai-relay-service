@@ -602,7 +602,6 @@ node-cli artifact upload <file> [--name <name>] [--task-id <id>] [--stage-id <id
 | `--name` | no | filename | Artifact name |
 | `--task-id` | no | — | Optional task ID to associate with |
 | `--stage-id` | no | — | Optional stage ID to associate with |
-| `--capability` | no | — | If set, store the file as the dashboard page for this capability (in `~/.relay/capability-pages/<name>/dashboard.html` on the server). No artifact DB entry is created. The capability must set `dashboard_page: true` in its YAML profile. |
 
 #### Example
 
