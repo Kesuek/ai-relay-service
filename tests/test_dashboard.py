@@ -657,3 +657,199 @@ def test_dashboard_agent_readme_redirects_to_public_docs():
     r = client.get("/relay/v2/dashboard/agent-readme", follow_redirects=False)
     assert r.status_code == 303
     assert r.headers["location"] == "/relay/v2/docs/node-setup"
+
+
+# ---------------------------------------------------------------------------
+# T-070: SSN capability-pages overview in the dashboard
+# ---------------------------------------------------------------------------
+
+from relay_server.core.auth import generate_secret, hash_secret  # noqa: E402
+from relay_server.core.db import get_conn  # noqa: E402
+
+
+@pytest.fixture(autouse=False)
+def _reset_ssn_pages_cache():
+    """Clear the module-level SSN pages cache before and after each test."""
+    from relay_server.api.v2 import dashboard as dash_mod
+
+    dash_mod._ssn_pages_cache["value"] = None
+    dash_mod._ssn_pages_cache["expires_at"] = 0.0
+    yield
+    dash_mod._ssn_pages_cache["value"] = None
+    dash_mod._ssn_pages_cache["expires_at"] = 0.0
+
+
+def _ssn_pages_login():
+    """Log in as an admin human and return cookies for dashboard calls."""
+    create_user(
+        "adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False,
+    )
+    r = _human_login("adminuser", "strong-passphrase-42")
+    assert r.status_code == 303
+    return r.cookies
+
+
+def _register_ssn_node(admin_token: str, ssn_token_for_heartbeat: bool = True) -> tuple[str, str]:
+    """Register & approve a service node advertising ``ssn.capability-pages``."""
+    r = client.post(
+        "/relay/v2/auth/register",
+        json={
+            "node_name": "SSN",
+            "endpoint": "http://localhost:9001",
+            "capabilities": [{"name": "ssn.capability-pages", "version": "1.0.0"}],
+            "role": "service",
+        },
+    )
+    assert r.status_code == 200
+    ssn_id = r.json()["node_id"]
+
+    r = client.post(
+        f"/relay/v2/admin/nodes/{ssn_id}/approve",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"role": "service", "capabilities": [{"name": "ssn.capability-pages", "version": "1.0.0"}]},
+    )
+    assert r.status_code == 200
+    runtime = r.json()["token"]
+
+    # Heartbeat so the node is online and the capability is available.
+    if ssn_token_for_heartbeat:
+        client.post(
+            "/relay/v2/discovery/heartbeat",
+            headers={"Authorization": f"Bearer {runtime}"},
+            json={"available": True},
+        )
+    return ssn_id, runtime
+
+
+def _seed_admin_token() -> str:
+    conn = get_conn()
+    secret = generate_secret("adm_")
+    conn.execute(
+        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
+        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+    )
+    conn.commit()
+    conn.close()
+    r = client.post(
+        "/relay/v2/auth/register-admin",
+        json={
+            "node_name": "Admin Node",
+            "bootstrap_secret": secret,
+            "capabilities": [{"name": "admin", "version": "1.0.0"}],
+        },
+    )
+    assert r.status_code == 200
+    return r.json()["token"]
+
+
+def test_dashboard_ssn_pages_requires_auth():
+    """The SSN-pages endpoint requires a dashboard session cookie."""
+    client.cookies.clear()
+    r = client.get("/relay/v2/dashboard/api/ssn-pages")
+    assert r.status_code == 401
+
+
+def test_dashboard_ssn_pages_empty_when_ssn_offline(_reset_ssn_pages_cache):
+    """With no SSN heartbeating, the list is empty and online is False."""
+    cookies = _ssn_pages_login()
+    r = client.get("/relay/v2/dashboard/api/ssn-pages", cookies=cookies)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["capabilities"] == []
+    assert body["online"] is False
+
+
+def test_dashboard_ssn_pages_returns_list(_reset_ssn_pages_cache, monkeypatch):
+    """The endpoint asks the SSN for its page list and returns the capabilities.
+
+    The SSN task round-trip is stubbed by monkeypatching ``_fetch_ssn_pages``
+    so the test does not depend on a running SSN handler. The ``online``
+    flag still reflects the real discovery state (an SSN node is registered
+    and heartbeated).
+    """
+    admin_token = _seed_admin_token()
+    _register_ssn_node(admin_token)
+
+    # Stub the task round-trip: pretend the SSN hosts two capability pages.
+    from relay_server.api.v2 import dashboard as dash_mod
+
+    async def fake_fetch():
+        return ["image.generate.mflux", "code.ai"]
+
+    monkeypatch.setattr(dash_mod, "_fetch_ssn_pages", fake_fetch)
+
+    cookies = _ssn_pages_login()
+    r = client.get("/relay/v2/dashboard/api/ssn-pages", cookies=cookies)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["online"] is True
+    assert set(body["capabilities"]) == {"image.generate.mflux", "code.ai"}
+
+    # Second call is served from cache without re-invoking the fetch.
+    call_count = {"n": 0}
+
+    async def counting_fetch():
+        call_count["n"] += 1
+        return ["image.generate.mflux", "code.ai"]
+
+    monkeypatch.setattr(dash_mod, "_fetch_ssn_pages", counting_fetch)
+    r = client.get("/relay/v2/dashboard/api/ssn-pages", cookies=cookies)
+    assert r.status_code == 200
+    assert call_count["n"] == 0  # cached, fetch not called
+
+
+def test_dashboard_ssn_page_proxy_serves_html(_reset_ssn_pages_cache, tmp_path):
+    """The proxy reads the SSN-hosted HTML directly from ssn_pages_dir."""
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    (pages / "image.generate.mflux.html").write_bytes(b"<html><body>mflux page</body></html>")
+
+    original = settings.ssn_pages_dir
+    settings.ssn_pages_dir = pages
+    try:
+        cookies = _ssn_pages_login()
+        r = client.get(
+            "/relay/v2/dashboard/api/ssn-page/image.generate.mflux",
+            cookies=cookies,
+        )
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "mflux page" in r.text
+        # Framing is allowed for same-origin embedding (T-070 iframe).
+        assert r.headers["X-Frame-Options"] == "SAMEORIGIN"
+        assert "frame-ancestors 'self'" in r.headers["Content-Security-Policy"]
+    finally:
+        settings.ssn_pages_dir = original
+
+
+def test_dashboard_ssn_page_proxy_404_for_missing(_reset_ssn_pages_cache, tmp_path):
+    """A capability without a page on the SSN returns 404."""
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    original = settings.ssn_pages_dir
+    settings.ssn_pages_dir = pages
+    try:
+        cookies = _ssn_pages_login()
+        r = client.get(
+            "/relay/v2/dashboard/api/ssn-page/never.added",
+            cookies=cookies,
+        )
+        assert r.status_code == 404
+    finally:
+        settings.ssn_pages_dir = original
+
+
+def test_dashboard_ssn_page_proxy_rejects_path_traversal(_reset_ssn_pages_cache, tmp_path):
+    """Path traversal attempts in the capability name must not escape the pages dir."""
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    (tmp_path / "secret.html").write_bytes(b"secret")
+    original = settings.ssn_pages_dir
+    settings.ssn_pages_dir = pages
+    try:
+        cookies = _ssn_pages_login()
+        for bad in ("../secret", "..", "."):
+            r = client.get(f"/relay/v2/dashboard/api/ssn-page/{bad}", cookies=cookies)
+            assert r.status_code == 404, bad
+    finally:
+        settings.ssn_pages_dir = original
