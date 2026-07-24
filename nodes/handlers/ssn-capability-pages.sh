@@ -53,7 +53,7 @@ case "$action" in
     # is used by the test-suite to substitute a mock downloader; the default
     # invokes the real node-cli shipped with this repo.
     if [ -z "${NODE_CLI_DOWNLOAD:-}" ]; then
-      NODE_CLI_DOWNLOAD="python3 -m nodes.common.node_cli artifact download"
+      NODE_CLI_DOWNLOAD="/home/felix/projects/ai-relay-service/.venv/bin/python3 -m nodes.common.node_cli artifact download"
     fi
     # shellcheck disable=SC2086
     $NODE_CLI_DOWNLOAD "$artifact_id" --output "$target" >/dev/null
