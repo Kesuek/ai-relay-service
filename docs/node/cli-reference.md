@@ -245,7 +245,7 @@ node-cli task submit --stage <capability>:<json-payload> [--name <name>] [--prio
 | `--stage` | yes | — | Stage as `<capability>:<json-payload>` (payload must be a JSON object) |
 | `--name` | no | `""` | Task name |
 | `--priority` | no | `0` | Task priority, integer 0–10 (higher = more important) |
-| `--owner` | no | — | Node ID that must claim this task (`owner_node_id`). When omitted, any node with a matching capability may claim. |
+| `--owner` | no | — | Node ID (8-char base32, z.B. `84K73W47`) that must claim this task. **Not the node name.** Use `node-cli node list` to look up IDs. When omitted, any node with a matching capability may claim. |
 
 ### Examples
 
