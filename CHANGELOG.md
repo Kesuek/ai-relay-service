@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- T-072: Node-level `node_name` + `description` per heartbeat — nodes can set `node_name` and `description` as top-level fields in `ai-relay-agent.json`. The `node-cli` daemon forwards them in every heartbeat; the server updates the `nodes` table. `node-cli node list` shows the description (truncated to 60 chars) as a `Desc:` line, `node-cli node info` prints it in full. New `nodes.description` column (auto-migrated). (Phase 14)
 - T-071: `node-cli node list` — new subcommand querying `GET /relay/v2/discovery/nodes` and printing one block per node (availability icon, name, node_id, status, role, endpoint, last heartbeat, advertised capabilities). (Phase 14)
 - T-071: `node-cli node info <node_id>` — new subcommand showing detailed info for a single node (status, role, availability, endpoint, load, queue depth, timestamps, and per-capability availability). Queries `?status=all` with a fallback to the unfiltered endpoint on older servers. (Phase 14)
 - T-060: Claim-Retry-Schutz — `release_expired_claims()` → `release_or_fail_claims()` mit `retry_count`-Tracking. Stages werden nach `max_retries` (default 2 → 3 Versuche) endgültig als `failed` markiert statt auf `pending` zurückgesetzt. Verhindert Endlos-Reclaim bei Handler-Fehlern (RAM-Overflow). (Phase 11)

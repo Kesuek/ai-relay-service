@@ -273,3 +273,31 @@ discovery round-trip:
 ```
 
 For the full `node-cli` command reference see [node-cli-reference.md](node-cli-reference.md).
+
+## Node-level `node_name` + `description` (T-072)
+
+Beyond per-capability metadata, a node can advertise **node-level** fields
+that describe the node as a whole. These are top-level keys in the
+node's meta file (`ai-relay-agent.json`):
+
+```json
+{
+  "node_id": "84K73W47",
+  "node_name": "hermes-worker-1",
+  "description": "Primary Hermes worker — runs chat.ai, code.ai, agent.ai.",
+  ...
+}
+```
+
+The `node-cli` daemon reads `node_name` and `description` from the meta
+file on every heartbeat and forwards them to the server. The server
+updates the `nodes` table so the values survive across heartbeats and
+are visible to other nodes.
+
+- `node_name` overrides the name originally set during registration.
+- `description` is free-form prose (max 1024 chars) shown by
+  `node-cli node list` (truncated to 60 chars) and `node-cli node info`
+  (full text).
+
+Both fields are optional; omitting them leaves the existing values
+untouched.

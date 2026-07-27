@@ -570,6 +570,7 @@ node-cli node list
 # ->       Endpoint: -
 # ->       Last:     2026-07-27T04:59:45
 # ->       Caps:     chat.ai, code.ai, terminal.ai
+# ->       Desc:     Primary Hermes worker — runs chat.ai, code.ai, agent.ai.
 # ->
 # ->   ❌ ssn                   ID=3P4KEWGE
 # ->       Status:   offline    Role: worker
@@ -579,13 +580,18 @@ node-cli node list
 # ->
 ```
 
+When a node advertises a node-level `description` (T-072, see
+[capabilities.md](capabilities.md#node-level-node_name--description-t-072)),
+it is shown as a `Desc:` line, truncated to 60 characters.
+
 #### `info <node_id>`
 
 Show detailed info for a single node. Queries
 `GET /relay/v2/discovery/nodes?status=all` (and falls back to the unfiltered
 endpoint on older servers) and looks up the node by `node_id`. Prints the
 node's status, role, availability, endpoint, load, queue depth, last seen /
-registered timestamps, and its capabilities with per-capability availability.
+registered timestamps, the node-level `description` (full text, T-072), and
+its capabilities with per-capability availability.
 
 ```bash
 node-cli node info 3H69CMAD
@@ -599,6 +605,7 @@ node-cli node info 3H69CMAD
 # -> Queue Depth: 0
 # -> Last Seen:   2026-07-27T05:01:26.239906+00:00
 # -> Registered:  2026-07-24T03:49:04.612120+00:00
+# -> Description: Primary Hermes worker — runs chat.ai, code.ai, agent.ai.
 # ->
 # -> Capabilities (6):
 # ->   ✅ chat.ai                   v1.0.0
