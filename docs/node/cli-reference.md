@@ -43,6 +43,7 @@ capabilities validate/publish/diff). Pure-local subcommands
 | [`task wait`](#task-wait) | Poll until a task completes, streaming new notes live |
 | [`task note`](#task-note) | Append a free-form note to a task (mini-chat) |
 | [`capabilities`](#capabilities) | Capability profile management & server discovery |
+| [`node`](#node) | List nodes and show node details from the relay server |
 | [`status`](#status) | Print `worker_status.json` |
 | [`reload`](#reload) | Send SIGHUP to running daemon |
 | [`artifact`](#artifact) | Artifact upload / download |
@@ -489,7 +490,7 @@ when the server has them stored (T-055: these are always shown — no
 node-cli capabilities server
 # -> Server capabilities (2 total):
 # ->
-# ->   ✅ chat.ai              v1.0.0    [node-1]
+# ->   ✅ chat.ai              v1.0.0    [node-1 (V34ETT74)]
 # ->      General conversational AI — accepts a prompt, question, or message and returns a text response.
 # ->      Input: {
 # ->             "fields": {
@@ -501,7 +502,9 @@ node-cli capabilities server
 # ->
 ```
 
-Exit `1` when the request fails (auth / network error).
+Exit `1` when the request fails (auth / network error). Each node is shown as
+`node_name (node_id)` so a node can be addressed unambiguously in
+[`node info`](#node-info-id) (T-071).
 
 #### `info <name>`
 
@@ -525,7 +528,7 @@ node-cli capabilities info chat.ai
 # -> }
 # ->
 # -> Nodes (1):
-# ->   - node-1 (load=12.3, queue=2)
+# ->   - node-1 (V34ETT74) (load=12.3, queue=2)
 ```
 
 ### Exit codes
@@ -534,6 +537,80 @@ node-cli capabilities info chat.ai
 |---|---|
 | 0 | Action succeeded |
 | 1 | Validation error, profile not found, no active profile, invalid active profile, capability not found (`info`), or HTTP / network error |
+
+---
+
+## node
+
+Node operations against the relay server. Query the registered nodes and show
+details for a single node (T-071). Use [`capabilities server`](#capabilities)
+to discover which capabilities each node advertises.
+
+### Syntax
+
+```
+node-cli node <action>
+```
+
+### Actions
+
+#### `list`
+
+List all nodes registered on the relay server. Fetches
+`GET /relay/v2/discovery/nodes` and prints one block per node with its
+availability icon, name, node_id, status, role, endpoint, last heartbeat, and
+advertised capabilities.
+
+```bash
+node-cli node list
+# -> Nodes (3 total):
+# ->
+# ->   ✅ hermes-agent-v2       ID=3H69CMAD
+# ->       Status:   online     Role: service
+# ->       Endpoint: -
+# ->       Last:     2026-07-27T04:59:45
+# ->       Caps:     chat.ai, code.ai, terminal.ai
+# ->
+# ->   ❌ ssn                   ID=3P4KEWGE
+# ->       Status:   offline    Role: worker
+# ->       Endpoint: -
+# ->       Last:     2026-07-27T04:56:27
+# ->       Caps:     ssn.capability-pages
+# ->
+```
+
+#### `info <node_id>`
+
+Show detailed info for a single node. Queries
+`GET /relay/v2/discovery/nodes?status=all` (and falls back to the unfiltered
+endpoint on older servers) and looks up the node by `node_id`. Prints the
+node's status, role, availability, endpoint, load, queue depth, last seen /
+registered timestamps, and its capabilities with per-capability availability.
+
+```bash
+node-cli node info 3H69CMAD
+# -> Node:        hermes-agent-v2
+# -> ID:          3H69CMAD
+# -> Status:      online
+# -> Role:        service
+# -> Available:   yes
+# -> Endpoint:    -
+# -> Load:        13.3
+# -> Queue Depth: 0
+# -> Last Seen:   2026-07-27T05:01:26.239906+00:00
+# -> Registered:  2026-07-24T03:49:04.612120+00:00
+# ->
+# -> Capabilities (6):
+# ->   ✅ chat.ai                   v1.0.0
+# ->   ✅ code.ai                   v1.0.0
+```
+
+### Exit codes
+
+| Code | Condition |
+|---|---|
+| 0 | Action succeeded |
+| 1 | HTTP / network error, or `info` did not find a node with the given `node_id` |
 
 ---
 

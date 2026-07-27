@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- T-071: `node-cli node list` — new subcommand querying `GET /relay/v2/discovery/nodes` and printing one block per node (availability icon, name, node_id, status, role, endpoint, last heartbeat, advertised capabilities). (Phase 14)
+- T-071: `node-cli node info <node_id>` — new subcommand showing detailed info for a single node (status, role, availability, endpoint, load, queue depth, timestamps, and per-capability availability). Queries `?status=all` with a fallback to the unfiltered endpoint on older servers. (Phase 14)
 - T-060: Claim-Retry-Schutz — `release_expired_claims()` → `release_or_fail_claims()` mit `retry_count`-Tracking. Stages werden nach `max_retries` (default 2 → 3 Versuche) endgültig als `failed` markiert statt auf `pending` zurückgesetzt. Verhindert Endlos-Reclaim bei Handler-Fehlern (RAM-Overflow). (Phase 11)
 - T-061: Offline-Erkennung für claimed Stages — `mark_offline_nodes()` failt alle claimed Stages eines offline Nodes sofort. Tasks werden auf `failed` gesetzt wenn alle Stages terminal sind. Events: `stage_failed`, `task_failed`. (Phase 11)
 - Daemon `_failed_tasks`-Tracking — `node_cli.py` zählt Fehlversuche pro Task und überspringt Tasks nach `max_retries`. (T-060)
@@ -26,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- T-071: `node-cli capabilities server` and `node-cli capabilities info <name>` now display each node as `node_name (node_id)` instead of only `node_name`, so a node can be addressed unambiguously in `node info`. (Phase 14)
+- `src/relay_server/core/discovery.py` — `list_nodes(status=...)` now treats `status="all"` as a keyword that disables status filtering (returns every node, including offline/pending). Previously `"all"` was treated as a literal status value and returned an empty list. (T-071)
 - `src/relay_server/api/v2/scheduler.py` — `POST /scheduler/tasks` and `POST /scheduler/task-simple` no longer default `owner_node_id` to the submitting node's ID. `owner_node_id` is now opt-in (only set when the client explicitly provides it). Tasks without an owner remain claimable by any matching node. (T-046)
 - `src/relay_server/models/__init__.py` — `HeartbeatRequest.load` and `NodeHeartbeatRequest.load` validation range changed from `[0.0, 1.0]` to `[0.0, 100.0]` to match the new percentage-based load reporting.
 - `nodes/common/poller.py` — `load_cap` removed from `DEFAULT_CONFIG` (now calculated from `os.cpu_count()` at runtime).

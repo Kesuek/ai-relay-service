@@ -30,10 +30,14 @@ dev = [
 [project.scripts]
 relay-server = "relay_server.main:main"
 relay-recovery = "relay_server.cli:main"
+node-cli = "nodes.common.node_cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/relay_server", "nodes"]
 
 [tool.ruff]
 line-length = 100
