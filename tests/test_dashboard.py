@@ -774,7 +774,10 @@ def test_dashboard_ssn_pages_returns_list(_reset_ssn_pages_cache, monkeypatch):
     from relay_server.api.v2 import dashboard as dash_mod
 
     async def fake_fetch():
-        return ["image.generate.mflux", "code.ai"]
+        return [
+            {"name": "image.generate.mflux", "node_id": "ssn-node", "url": "/relay/v2/dashboard/api/node-routes/ssn-node/image.generate.mflux"},
+            {"name": "code.ai", "node_id": "ssn-node", "url": "/relay/v2/dashboard/api/node-routes/ssn-node/code.ai"},
+        ]
 
     monkeypatch.setattr(dash_mod, "_fetch_ssn_pages", fake_fetch)
 
@@ -783,76 +786,27 @@ def test_dashboard_ssn_pages_returns_list(_reset_ssn_pages_cache, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["online"] is True
-    assert set(body["capabilities"]) == {"image.generate.mflux", "code.ai"}
+    names = {p["name"] for p in body["capabilities"]}
+    assert names == {"image.generate.mflux", "code.ai"}
+    # Each entry has a url
+    for p in body["capabilities"]:
+        assert "url" in p
+        assert "node_id" in p
 
     # Second call is served from cache without re-invoking the fetch.
     call_count = {"n": 0}
 
     async def counting_fetch():
         call_count["n"] += 1
-        return ["image.generate.mflux", "code.ai"]
+        return [
+            {"name": "image.generate.mflux", "node_id": "ssn-node", "url": "/relay/v2/dashboard/api/node-routes/ssn-node/image.generate.mflux"},
+            {"name": "code.ai", "node_id": "ssn-node", "url": "/relay/v2/dashboard/api/node-routes/ssn-node/code.ai"},
+        ]
 
     monkeypatch.setattr(dash_mod, "_fetch_ssn_pages", counting_fetch)
     r = client.get("/relay/v2/dashboard/api/ssn-pages", cookies=cookies)
     assert r.status_code == 200
     assert call_count["n"] == 0  # cached, fetch not called
-
-
-def test_dashboard_ssn_page_proxy_serves_html(_reset_ssn_pages_cache, tmp_path):
-    """The proxy reads the SSN-hosted HTML directly from ssn_pages_dir."""
-    pages = tmp_path / "pages"
-    pages.mkdir()
-    (pages / "image.generate.mflux.html").write_bytes(b"<html><body>mflux page</body></html>")
-
-    original = settings.ssn_pages_dir
-    settings.ssn_pages_dir = pages
-    try:
-        cookies = _ssn_pages_login()
-        r = client.get(
-            "/relay/v2/dashboard/api/ssn-page/image.generate.mflux",
-            cookies=cookies,
-        )
-        assert r.status_code == 200
-        assert "text/html" in r.headers["content-type"]
-        assert "mflux page" in r.text
-        # Framing is allowed for same-origin embedding (T-070 iframe).
-        assert r.headers["X-Frame-Options"] == "SAMEORIGIN"
-        assert "frame-ancestors 'self'" in r.headers["Content-Security-Policy"]
-    finally:
-        settings.ssn_pages_dir = original
-
-
-def test_dashboard_ssn_page_proxy_404_for_missing(_reset_ssn_pages_cache, tmp_path):
-    """A capability without a page on the SSN returns 404."""
-    pages = tmp_path / "pages"
-    pages.mkdir()
-    original = settings.ssn_pages_dir
-    settings.ssn_pages_dir = pages
-    try:
-        cookies = _ssn_pages_login()
-        r = client.get(
-            "/relay/v2/dashboard/api/ssn-page/never.added",
-            cookies=cookies,
-        )
-        assert r.status_code == 404
-    finally:
-        settings.ssn_pages_dir = original
-
-
-def test_dashboard_ssn_page_proxy_rejects_path_traversal(_reset_ssn_pages_cache, tmp_path):
-    """Path traversal attempts in the capability name must not escape the pages dir."""
-    pages = tmp_path / "pages"
-    pages.mkdir()
-    (tmp_path / "secret.html").write_bytes(b"secret")
-    original = settings.ssn_pages_dir
-    settings.ssn_pages_dir = pages
-    try:
-        cookies = _ssn_pages_login()
-        for bad in ("../secret", "..", "."):
-            r = client.get(f"/relay/v2/dashboard/api/ssn-page/{bad}", cookies=cookies)
-            assert r.status_code == 404, bad
-    finally:
-        settings.ssn_pages_dir = original
 
 
 # ---------------------------------------------------------------------------
