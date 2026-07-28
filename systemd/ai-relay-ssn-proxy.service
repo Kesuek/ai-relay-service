@@ -1,0 +1,18 @@
+[Unit]
+Description=AI Relay SSN Proxy — HTMX server for capability pages
+After=ai-relay-service.service ai-relay-ssn.service
+BindsTo=ai-relay-service.service
+
+[Service]
+Type=simple
+ExecStart=%h/projects/ai-relay-service/.venv/bin/python -m nodes.common.ssn_proxy
+WorkingDirectory=%h/projects/ai-relay-service
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=RELAY_BASE_URL=http://127.0.0.1:8788
+Environment=SSN_PROXY_PORT=8790
+Environment=SSN_PROXY_HOST=127.0.0.1
+
+[Install]
+WantedBy=default.target
