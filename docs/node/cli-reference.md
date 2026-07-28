@@ -18,6 +18,8 @@ The CLI requires a registered node — `~/.relay/ai-relay-agent.json` and
 `~/.relay/ai-relay-agent.token` must exist (see
 [setup.md](setup.md) for registration).
 
+There is also an SSE-driven alternative: see [node-daemon.md](node-daemon.md).
+
 ## Global options
 
 | Option | Default | Description |
