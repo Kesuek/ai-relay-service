@@ -125,8 +125,37 @@ macht. Der Server returned HTML-Snippets.
 **Vorteile:**
 - Kein client-seitiges `fetch()` — keine CSRF-Probleme
 - Kein Session-Cookie für API-Calls
-- Bilder werden vom SSN-Proxy gecached und direkt servt
+- Bilder werden als Base64-Data-URL eingebettet (kein separater Image-Request)
 - Einfache Formulare statt async-JS-Chaos
+
+**Wichtig: Node-ID-agnostische Pfade**
+
+Die HTML-Seite darf **keine absoluten Pfade** oder die node_id hardcoden.
+Da die Dynamic Route die node_id im Pfad trägt
+(`/api/node-routes/{node_id}/mflux`), müssen alle HTMX-Requests **relativ**
+sein. Sonst brechen die Links, wenn der SSN eine neue node_id bekommt
+(z.B. durch Re-Registrierung).
+
+**Richtig (relativ):**
+```html
+<form hx-post="mflux/generate" hx-target="#result">
+```
+
+**Falsch (absolut):**
+```html
+<form hx-post="/mflux/generate" hx-target="#result">
+```
+
+Bilder werden als Base64-Data-URL direkt ins HTML eingebettet, statt über
+einen separaten Image-Endpoint geladen. Das vermeidet einen weiteren
+Request durch die Dynamic Route und macht die Seite unabhängig von der
+node_id:
+
+```python
+import base64
+img_b64 = base64.b64encode(img_data).decode()
+html = f'<img src="data:image/png;base64,{img_b64}" alt="Bild">'
+```
 
 **Beispiel (mflux-Seite):**
 ```html
