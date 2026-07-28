@@ -86,13 +86,27 @@ API call.
 
 ### Dynamic Routes
 
-The SSN proxy heartbeats its 3 API endpoints as Dynamic Routes in the
-capability YAML (`~/.relay/capabilities.d/ssn.yaml`):
+The SSN proxy heartbeats its API endpoints as Dynamic Routes under the
+`ssn.proxy` capability (not claimable — it only provides routes, not
+task handlers):
 
 ```yaml
 capabilities:
   - name: ssn.capability-pages
     version: "1.0.0"
+    type: native
+    description: "Hosts HTML dashboard pages for other capabilities."
+    auto_publish: true
+    claimable: true
+    handler: /home/felix/projects/ai-relay-service/nodes/handlers/ssn-capability-pages.sh
+    max_parallel: 1
+    timeout: 300
+
+  - name: ssn.proxy
+    version: "1.0.0"
+    auto_publish: true
+    claimable: false
+    description: "API proxy for capability pages."
     routes:
       - path: /api/task-submit
         method: POST
@@ -106,6 +120,10 @@ capabilities:
         method: GET
         auth: session
         upstream: http://127.0.0.1:8790/api/storage/{id}
+      - path: /image.generate.mflux
+        method: GET
+        auth: session
+        upstream: http://127.0.0.1:8790/mflux
 ```
 
 The routes are reachable at:
