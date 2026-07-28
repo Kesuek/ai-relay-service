@@ -58,6 +58,10 @@ service nodes), possibly across hosts or containers.
 → **[concepts.md](concepts.md)** — start here. Covers what the relay is,
   capabilities, tokens, node types, the self-care pattern, and a glossary.
 
+→ **[reference/feature-list.md](reference/feature-list.md)** — the complete
+  feature catalogue (22 categories, ~150 features, each with a file/line
+  reference to its implementation).
+
 ## Quick decision tree
 
 ```
@@ -70,6 +74,8 @@ What do you want to do?
 │   └─ A real cluster                       → server/setup.md, concepts.md, node/setup.md, reference/api.md
 │
 ├─ Use the HTTP API / write a client        → reference/api.md
+│
+├─ Browse every feature / find an implementation  → reference/feature-list.md
 │
 └─ Understand the architecture              → concepts.md
 ```
