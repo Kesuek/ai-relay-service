@@ -1,31 +1,42 @@
 # Server-Side Node (SSN)
 
-> **Status: umgesetzt mit T-069.**
+> **Status: umgesetzt mit T-069 (SSN-Daemon) + T-075 (Dynamic Routes) + T-076 (SSN Proxy).**
 
 ## Was ist ein SSN?
 
-Ein **Server-Side Node (SSN)** ist ein normaler `node-cli` daemon, der auf dem **gleichen Host läuft wie der Relay-Server**. Er heartbeatet Capabilities, claimt Tasks und completed sie — genau wie jeder andere Worker-Node. Der Unterschied: er braucht keinen externen Netzwerk-Port, weil er über localhost (`http://127.0.0.1:8788`) mit dem Relay kommuniziert.
+Ein **Server-Side Node (SSN)** ist ein normaler `node-cli` daemon, der auf dem
+**gleichen Host läuft wie der Relay-Server**. Er heartbeatet Capabilities, claimt
+Tasks und completed sie — genau wie jeder andere Worker-Node. Der Unterschied:
+er braucht keinen externen Netzwerk-Port, weil er über localhost
+(`http://127.0.0.1:8788`) mit dem Relay kommuniziert.
 
-SSNs füllen die Lücke zwischen dem Relay-Core und externen Worker-Nodes. Sie bieten Dienste an, die niedrige Latenz, direkten Zugriff auf die Relay-internen APIs oder die Fähigkeit brauchen, andere Nodes zu orchestrieren — ohne einen öffentlichen Endpunkt zu exponieren. Im Relay selbst ist der SSN **kein Sonderfall**: er registriert sich wie jeder Worker, heartbeatet wie jeder Worker und bekommt Tasks zugewiesen wie jeder Worker. Es gibt kein Proxy, kein Spezial-Routing, keine Relay-internen Handler für SSN-Capabilities.
+SSNs füllen die Lücke zwischen dem Relay-Core und externen Worker-Nodes. Sie
+bieten Dienste an, die niedrige Latenz, direkten Zugriff auf die Relay-internen
+APIs oder die Fähigkeit brauchen, andere Nodes zu orchestrieren — ohne einen
+öffentlichen Endpunkt zu exponieren.
 
 ## Capability: `ssn.capability-pages`
 
-Der Referenz-SSN heartbeatet die Capability `ssn.capability-pages` und signalisiert damit: "Ich kann HTML-Dashboard-Seiten für andere Capabilities hosten." Externe Worker-Nodes (z.B. ein Mac) verwalten ihre HTML-Seiten, indem sie Tasks an diese Capability senden — der SSN führt den Handler aus und cached die HTML lokal unter `~/.ssn/pages/<capability>.html`.
+Der Referenz-SSN heartbeatet die Capability `ssn.capability-pages` und
+signalisiert damit: "Ich kann HTML-Dashboard-Seiten für andere Capabilities
+hosten." Externe Worker-Nodes (z.B. ein Mac) verwalten ihre HTML-Seiten, indem
+sie Tasks an diese Capability senden — der SSN führt den Handler aus und cached
+die HTML lokal unter `~/.ssn/pages/<capability>.html`.
 
 ### Flow
 
-1. **SSN heartbeatet** `ssn.capability-pages` — der Relay behandelt ihn wie jeden anderen Node.
-2. **Worker will eine Dashboard-Seite deployen**: Worker lädt die HTML per `node-cli artifact upload` hoch, schickt dann einen Task an `ssn.capability-pages` mit `{"action":"add","capability":"image.generate.mflux","artifact_id":"artifact_xxx"}`.
-3. **SSN claimt den Task**, führt `ssn-capability-pages.sh` aus, lädt das Artifact per `node-cli artifact download` herunter und speichert es als `~/.ssn/pages/image.generate.mflux.html`.
-4. **Dashboard** zeigt in der **Capabilities**-Liste an, dass ein SSN-Node `ssn.capability-pages` anbietet.
-5. **Operator/Admin** öffnet die vom SSN gehostete HTML-Seite (der SSN servt sie auf einem eigenen lokalen HTTP-Endpunkt oder gibt sie über ein Task-Result zurück).
-6. **Klick auf Generieren** in der HTML → Task an die eigentliche Worker-Capability (z.B. `image.generate.mflux`) → Worker erzeugt das Bild → Artifact → SSN lädt es herunter und zeigt es an.
-
-Der Relay bleibt ahnungslos — er matched nur Tasks an `ssn.capability-pages` wie an jede andere Capability.
+1. **SSN heartbeatet** `ssn.capability-pages` — der Relay behandelt ihn wie
+   jeden anderen Node.
+2. **Worker will eine Dashboard-Seite deployen**: Worker lädt die HTML per
+   `node-cli artifact upload` hoch, schickt dann einen Task an
+   `ssn.capability-pages` mit `{"action":"add","capability":"image.generate.mflux","artifact_id":"artifact_xxx"}`.
+3. **SSN claimt den Task**, führt `ssn-capability-pages.sh` aus, lädt das
+   Artifact per `node-cli artifact download` herunter und speichert es als
+   `~/.ssn/pages/image.generate.mflux.html`.
+4. **Dashboard** zeigt in der **Capabilities**-Liste an, dass ein SSN-Node
+   `ssn.capability-pages` anbietet.
 
 ### HTML-Verwaltung per Task
-
-Externe Worker-Nodes (z.B. der Mac) verwalten die HTML-Seiten über Tasks an `ssn.capability-pages`:
 
 | Aktion | Task-Payload | Beschreibung |
 |--------|-------------|--------------|
@@ -34,92 +45,158 @@ Externe Worker-Nodes (z.B. der Mac) verwalten die HTML-Seiten über Tasks an `ss
 | **delete** | `{"action": "delete", "capability": "image.generate.mflux"}` | SSN löscht die HTML-Datei |
 | **list** | `{"action": "list"}` | SSN antwortet mit `{"capabilities": ["image.generate.mflux", …]}` |
 
-Der Worker uploaded die HTML zuerst per `node-cli artifact upload` und schickt dann einen Task an `ssn.capability-pages` mit der `artifact_id`. Der SSN lädt das Artifact herunter, cached es lokal und servt es.
+## SSN Proxy (T-076)
 
-### Handler
+Seit T-076 läuft auf dem SSN-Host ein **SSN Proxy** — ein HTMX-Server auf
+`127.0.0.1:8790`. Er heartbeatet seine Endpoints als **Dynamic Routes**
+(T-075) und macht alle Relay-Interaktionen serverseitig mit dem SSN-Node-Token.
 
-Der Handler liegt unter `nodes/handlers/ssn-capability-pages.sh`. Er ist ein reines Shell-Skript und hält sich an den [Handler-Contract](capabilities.md#handler-contract): stdin = Payload-JSON, stdout = Result-JSON, env = `RELAY_BASE_URL`/`RELAY_TOKEN_FILE`/…. Für `add`/`update` ruft er `python3 -m nodes.common.node_cli artifact download` auf, sodass der Download über die authentifizierte Relay-Session des SSN läuft.
+### Architektur
 
-### Vorteile
+```
+Browser (Dashboard iFrame)
+       │
+       │ Session-Cookie
+       ▼
+Relay (192.168.2.60:8788)
+       │
+       │ Prüft Auth → leitet an Dynamic Route weiter
+       ▼
+SSN Proxy (127.0.0.1:8790)
+       │
+       │ SSN-Node-Token
+       ▼
+Relay (127.0.0.1:8788)
+```
 
-- **Kein externer Port** — SSN kommuniziert über localhost.
-- **Kein Proxy im Relay** — der Relay matched nur Tasks.
-- **Node hat volle Kontrolle** — Submit, Poll, Artifact-Download alles über `node-cli`.
-- **Skaliert** — beliebig viele Dashboard-Seiten, jede Capability kann eine haben.
-- **Konsistente Auth** — der Relay macht Auth, der SSN bekommt nur authentifizierte Requests.
+**Kein Session-Cookie für task-submit oder storage.** Der Browser schickt das
+Session-Cookie nur an den Relay. Der Relay prüft die Berechtigung und leitet
+intern an den SSN-Proxy weiter. Der SSN-Proxy injectet seinen Node-Token und
+macht den eigentlichen API-Call.
 
-## Deployment
+### Endpoints
 
-### 1. Capabilities-Profil für den SSN
+| Pfad | Methode | Beschreibung |
+|------|---------|-------------|
+| `/api/task-submit` | POST | Task an Relay submiten (mit SSN-Node-Token) |
+| `/api/tasks/{id}` | GET | Task-Status vom Relay abfragen |
+| `/api/storage/{id}` | GET | Artifact vom Relay herunterladen |
+| `/mflux` | GET | mflux Capability Page (HTMX) |
+| `/mflux/generate` | POST | Bild generieren (Task submit → pollen → Ergebnis) |
+| `/mflux/bilder/{id}` | GET | Gecachtes Bild serven |
 
-Lege ein Profil an (z.B. `~/.relay/capabilities.d/ssn.yaml`):
+### Dynamic Routes
+
+Der SSN-Proxy heartbeatet seine 3 API-Endpoints als Dynamic Routes in der
+Capability-YAML (`~/.relay/capabilities.d/ssn.yaml`):
 
 ```yaml
 capabilities:
   - name: ssn.capability-pages
     version: "1.0.0"
-    type: tool
-    description: "Hosts HTML dashboard pages for other capabilities."
+    routes:
+      - path: /api/task-submit
+        method: POST
+        auth: session
+        upstream: http://127.0.0.1:8790/api/task-submit
+      - path: /api/tasks/{id}
+        method: GET
+        auth: session
+        upstream: http://127.0.0.1:8790/api/tasks/{id}
+      - path: /api/storage/{id}
+        method: GET
+        auth: session
+        upstream: http://127.0.0.1:8790/api/storage/{id}
+```
+
+Die Routes sind erreichbar unter:
+```
+/relay/v2/dashboard/api/node-routes/{node_id}/api/task-submit
+/relay/v2/dashboard/api/node-routes/{node_id}/api/tasks/{id}
+/relay/v2/dashboard/api/node-routes/{node_id}/api/storage/{id}
+```
+
+### Capability Pages mit HTMX
+
+Die Capability-Pages sind **reine HTML-Templates mit HTMX** — kein client-seitiges
+JavaScript. HTMX ist eine ~14KB JS-Bibliothek, die aus HTML-Attributen AJAX-Requests
+macht. Der Server returned HTML-Snippets.
+
+**Vorteile:**
+- Kein client-seitiges `fetch()` — keine CSRF-Probleme
+- Kein Session-Cookie für API-Calls
+- Bilder werden vom SSN-Proxy gecached und direkt servt
+- Einfache Formulare statt async-JS-Chaos
+
+**Beispiel (mflux-Seite):**
+```html
+<form hx-post="/mflux/generate" hx-target="#result">
+  <textarea name="prompt" required></textarea>
+  <select name="format">
+    <option value="quadrat">Quadrat (512×512)</option>
+  </select>
+  <button type="submit">✨ Generieren</button>
+</form>
+<div id="result"></div>
+```
+
+## Deployment
+
+### 1. SSN-Daemon (T-069)
+
+Siehe [setup.md](../server/setup.md) für die Server-Config (`ssn_enabled`,
+`ssn_auto_approve`). Der SSN-Daemon wird als systemd-User-Unit gestartet:
+
+```bash
+cp systemd/ai-relay-ssn.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ai-relay-ssn.service
+```
+
+### 2. SSN-Proxy (T-076)
+
+```bash
+cp systemd/ai-relay-ssn-proxy.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ai-relay-ssn-proxy.service
+```
+
+### 3. Capabilities-Profil
+
+```yaml
+# ~/.relay/capabilities.d/ssn.yaml
+capabilities:
+  - name: ssn.capability-pages
+    version: "1.0.0"
+    type: native
+    description: "Server-Side Node — hosts HTML dashboard pages"
     auto_publish: true
     claimable: true
     handler: /home/felix/projects/ai-relay-service/nodes/handlers/ssn-capability-pages.sh
     max_parallel: 1
     timeout: 300
+    routes:
+      - path: /api/task-submit
+        method: POST
+        auth: session
+        upstream: http://127.0.0.1:8790/api/task-submit
+      - path: /api/tasks/{id}
+        method: GET
+        auth: session
+        upstream: http://127.0.0.1:8790/api/tasks/{id}
+      - path: /api/storage/{id}
+        method: GET
+        auth: session
+        upstream: http://127.0.0.1:8790/api/storage/{id}
 ```
 
-Publish mit `node-cli capabilities publish ssn`.
-
-### 2. systemd-User-Unit
-
-Das Repo enthält `systemd/ai-relay-ssn.service`:
-
-```ini
-[Unit]
-Description=AI Relay SSN — Server-Side Node
-After=ai-relay-service.service
-BindsTo=ai-relay-service.service
-
-[Service]
-Type=simple
-ExecStart=%h/projects/ai-relay-service/.venv/bin/python -m nodes.common.node_cli daemon foreground
-WorkingDirectory=%h/projects/ai-relay-service
-Restart=always
-Environment=RELAY_BASE_URL=http://127.0.0.1:8788
-
-[Install]
-WantedBy=default.target
-```
-
-Installieren mit:
-
+Publizieren:
 ```bash
-cp systemd/ai-relay-ssn.service ~/.config/systemd/user/
-systemctl --user daemon-reload
+node-cli capabilities publish ssn
 ```
-
-### 3. Server-Config
-
-In `~/.relay/config.yaml`:
-
-```yaml
-ssn_enabled: true
-ssn_auto_approve: true        # SSN-Registrierung automatisch approven
-ssn_service_unit: "ai-relay-ssn.service"
-```
-
-- `ssn_enabled: true` — der Relay-Server startet/stoppt die systemd-Unit des SSN in `lifespan()`.
-- `ssn_auto_approve: true` — der Relay approve die SSN-Registrierung automatisch, damit der SSN ohne manuellen Admin-Schritt online gehen kann.
-
-Alternativ als Env-Vars: `RELAY_SSN_ENABLED=true`, `RELAY_SSN_AUTO_APPROVE=true`.
-
-### 4. Registrierung
-
-Beim ersten Start registriert sich der SSN wie jeder Worker (`node-cli` liest `~/.relay/relay_config.json` für die `base_url`). Mit `ssn_auto_approve: true` approvt der Maintenance-Loop die Registrierung automatisch; der SSN geht mit dem nächsten Heartbeat auf `online`. Ohne Auto-Approve musst du den Node im Dashboard unter **Admin → Nodes** manuell approven.
-
-Der SSN braucht ein gültiges `~/.relay/ai-relay-agent.json` (Registrierungs-Metadaten) und ein Runtime-Token. Nach der Registrierung liegen beide in `~/.relay/`.
 
 ## Siehe auch
 
-- [Capabilities](capabilities.md) — Capability-Namen, Suffixe, Handler-Contract
+- [Capabilities](capabilities.md) — Capability-Namen, Suffixe, Handler-Contract, Dynamic Routes
 - [node-cli-Referenz](cli-reference.md) — `task submit`, `artifact upload`, `artifact download`
 - [Server-Setup](../server/setup.md) — `ssn_enabled`/`ssn_auto_approve` Config

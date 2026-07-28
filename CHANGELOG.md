@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- T-075: Dynamic Node Routes — nodes can declare API routes in their capability YAML (`routes:` block). Routes are registered dynamically on heartbeat and deregistered on node offline. Three auth modes: `session` (Dashboard cookie), `node_token` (Bearer), `none`. Reachable under `/relay/v2/dashboard/api/node-routes/{node_id}/{path}`. New `node_routes` table, `RouteDeclaration` model, `NodeRouteMiddleware` proxy. (Phase 15)
+- T-076: SSN Proxy — HTMX server on `127.0.0.1:8790` for capability pages. Heartbeats its endpoints as Dynamic Routes. All relay interactions are server-side with the SSN node token. No session cookie for task-submit or storage. HTMX templates for mflux image generation. New `nodes/common/ssn_proxy.py`, `systemd/ai-relay-ssn-proxy.service`. (Phase 16)
+
 - T-072: Node-level `node_name` + `description` per heartbeat — nodes can set `node_name` and `description` as top-level fields in `ai-relay-agent.json`. The `node-cli` daemon forwards them in every heartbeat; the server updates the `nodes` table. `node-cli node list` shows the description (truncated to 60 chars) as a `Desc:` line, `node-cli node info` prints it in full. New `nodes.description` column (auto-migrated). (Phase 14)
 - T-071: `node-cli node list` — new subcommand querying `GET /relay/v2/discovery/nodes` and printing one block per node (availability icon, name, node_id, status, role, endpoint, last heartbeat, advertised capabilities). (Phase 14)
 - T-071: `node-cli node info <node_id>` — new subcommand showing detailed info for a single node (status, role, availability, endpoint, load, queue depth, timestamps, and per-capability availability). Queries `?status=all` with a fallback to the unfiltered endpoint on older servers. (Phase 14)

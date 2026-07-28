@@ -209,6 +209,36 @@ for details.
 |---|---|---|
 | `ssn.capability-pages` | Relay-host SSN | Host/add/update/delete HTML dashboard pages for other capabilities |
 
+### Dynamic Node Routes (T-075)
+
+Since T-075, any node can declare **API routes** in its capability YAML.
+These are HTTP endpoints that the relay proxies to the node's upstream
+service. Routes are registered dynamically on every heartbeat and
+deregistered when the node goes offline.
+
+This enables **server-side capability pages** — instead of the browser
+making API calls directly to the relay (which requires session cookies
+for task-submit and storage), the node runs a local HTTP server that
+handles all relay interactions with its own node token. The browser
+talks to the relay, the relay proxies to the node's local server.
+
+**Use cases:**
+- **SSN Proxy** (T-076): HTMX server for capability pages. The SSN
+  runs a local HTTP server on `127.0.0.1:8790` that submits tasks,
+  polls status, and downloads artifacts — all with the SSN's node token.
+- **Direct node endpoints**: A worker node could register a
+  `POST /api/generate` endpoint that the relay proxies to, enabling
+  real-time interaction without the task lifecycle.
+
+**Auth modes:**
+- `session` — requires a valid dashboard session cookie (default)
+- `node_token` — requires a valid Bearer node token
+- `none` — no authentication (public endpoints)
+
+See [capabilities.md](node/capabilities.md#dynamic-node-routes-t-075) for
+the YAML format and [ssn.md](node/ssn.md) for the SSN Proxy reference
+implementation.
+
 ### Why KI-less nodes?
 
 | Benefit | Explanation |

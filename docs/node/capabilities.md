@@ -180,6 +180,65 @@ capability pages itself. Workers manage their pages by sending tasks to
 `ssn.capability-pages` (`add`/`update`/`delete`/`list`). See
 [ssn.md](ssn.md) for the full flow, payload formats and deployment.
 
+### Dynamic Node Routes (T-075)
+
+Since T-075, nodes can declare **API routes** in their capability YAML.
+These routes are registered dynamically when the node heartbeats and
+deregistered when the node goes offline. The relay proxies requests
+from the dashboard to the node's upstream service.
+
+Routes are defined per capability in the `routes:` block:
+
+```yaml
+capabilities:
+  - name: ssn.capability-pages
+    version: "1.0.0"
+    routes:
+      - path: /api/task-submit
+        method: POST
+        auth: session
+        upstream: http://127.0.0.1:8790/api/task-submit
+        description: "Submit a task via SSN proxy"
+      - path: /api/tasks/{id}
+        method: GET
+        auth: session
+        upstream: http://127.0.0.1:8790/api/tasks/{id}
+      - path: /api/storage/{id}
+        method: GET
+        auth: session
+        upstream: http://127.0.0.1:8790/api/storage/{id}
+```
+
+Each route has:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `path` | ✅ | The sub-path, e.g. `/api/task-submit`. Path params like `{id}` are supported. |
+| `method` | ✅ | HTTP method: `GET`, `POST`, `PUT`, `DELETE`, `PATCH` |
+| `auth` | ❌ | Auth mode: `session` (Dashboard cookie, default), `node_token` (Bearer), `none` (public) |
+| `upstream` | ✅ | Full URL the relay proxies to, e.g. `http://127.0.0.1:8790/api/task-submit` |
+| `description` | ❌ | Human-readable description |
+
+The route is reachable at:
+
+```
+/relay/v2/dashboard/api/node-routes/{node_id}/{path}
+```
+
+For example, a node with `node_id=3P4KEWGE` and a route `path=/api/task-submit`
+is reachable at `POST /relay/v2/dashboard/api/node-routes/3P4KEWGE/api/task-submit`.
+
+**Auth modes:**
+
+- `session` — requires a valid dashboard session cookie. The relay validates
+  the cookie and checks `dashboard:view` permission before proxying.
+- `node_token` — requires a valid Bearer node token in the `Authorization` header.
+- `none` — no authentication. Use with caution (only for public endpoints).
+
+**Lifecycle:** Routes are registered on every heartbeat (DELETE + INSERT).
+When a node goes offline (heartbeat timeout), all its routes are automatically
+cleared. No manual cleanup needed.
+
 Publish flow:
 
 ```
