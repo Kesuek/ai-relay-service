@@ -1,94 +1,93 @@
 # Server-Side Node (SSN)
 
-> **Status: umgesetzt mit T-069 (SSN-Daemon) + T-075 (Dynamic Routes) + T-076 (SSN Proxy).**
+> **Status: implemented with T-069 (SSN daemon) + T-075 (Dynamic Routes) + T-076 (SSN Proxy).**
 
-## Was ist ein SSN?
+## What is an SSN?
 
-Ein **Server-Side Node (SSN)** ist ein normaler `node-cli` daemon, der auf dem
-**gleichen Host läuft wie der Relay-Server**. Er heartbeatet Capabilities, claimt
-Tasks und completed sie — genau wie jeder andere Worker-Node. Der Unterschied:
-er braucht keinen externen Netzwerk-Port, weil er über localhost
-(`http://127.0.0.1:8788`) mit dem Relay kommuniziert.
+A **Server-Side Node (SSN)** is a normal `node-cli` daemon that runs on the
+**same host as the relay server**. It heartbeats capabilities, claims tasks and
+completes them — just like any other worker node. The difference: it needs no
+external network port because it communicates over localhost
+(`http://127.0.0.1:8788`).
 
-SSNs füllen die Lücke zwischen dem Relay-Core und externen Worker-Nodes. Sie
-bieten Dienste an, die niedrige Latenz, direkten Zugriff auf die Relay-internen
-APIs oder die Fähigkeit brauchen, andere Nodes zu orchestrieren — ohne einen
-öffentlichen Endpunkt zu exponieren.
+SSNs fill the gap between the relay core and external worker nodes. They host
+services that need low latency, access to relay-internal APIs, or the ability to
+orchestrate other nodes without exposing a public endpoint.
 
 ## Capability: `ssn.capability-pages`
 
-Der Referenz-SSN heartbeatet die Capability `ssn.capability-pages` und
-signalisiert damit: "Ich kann HTML-Dashboard-Seiten für andere Capabilities
-hosten." Externe Worker-Nodes (z.B. ein Mac) verwalten ihre HTML-Seiten, indem
-sie Tasks an diese Capability senden — der SSN führt den Handler aus und cached
-die HTML lokal unter `~/.ssn/pages/<capability>.html`.
+The reference SSN heartbeats the `ssn.capability-pages` capability and signals:
+"I can host HTML dashboard pages for other capabilities." External worker nodes
+(e.g. a Mac) manage their HTML pages by sending tasks to this capability — the
+SSN runs the handler and caches the HTML locally under
+`~/.ssn/pages/<capability>.html`.
 
 ### Flow
 
-1. **SSN heartbeatet** `ssn.capability-pages` — der Relay behandelt ihn wie
-   jeden anderen Node.
-2. **Worker will eine Dashboard-Seite deployen**: Worker lädt die HTML per
-   `node-cli artifact upload` hoch, schickt dann einen Task an
-   `ssn.capability-pages` mit `{"action":"add","capability":"image.generate.mflux","artifact_id":"artifact_xxx"}`.
-3. **SSN claimt den Task**, führt `ssn-capability-pages.sh` aus, lädt das
-   Artifact per `node-cli artifact download` herunter und speichert es als
+1. **SSN heartbeats** `ssn.capability-pages` — the relay treats it like any
+   other node.
+2. **Worker wants to deploy a dashboard page**: Worker uploads the HTML via
+   `node-cli artifact upload`, then sends a task to `ssn.capability-pages` with
+   `{"action":"add","capability":"image.generate.mflux","artifact_id":"artifact_xxx"}`.
+3. **SSN claims the task**, runs `ssn-capability-pages.sh`, downloads the
+   artifact via `node-cli artifact download` and stores it as
    `~/.ssn/pages/image.generate.mflux.html`.
-4. **Dashboard** zeigt in der **Capabilities**-Liste an, dass ein SSN-Node
-   `ssn.capability-pages` anbietet.
+4. **Dashboard** shows in the **Capabilities** list that an SSN node offers
+   `ssn.capability-pages`.
 
-### HTML-Verwaltung per Task
+### HTML management via tasks
 
-| Aktion | Task-Payload | Beschreibung |
-|--------|-------------|--------------|
-| **add** | `{"action": "add", "capability": "image.generate.mflux", "artifact_id": "artifact_xxx"}` | SSN lädt das Artifact herunter und speichert es als `<capability>.html` |
-| **update** | `{"action": "update", "capability": "image.generate.mflux", "artifact_id": "artifact_yyy"}` | SSN ersetzt die bestehende HTML durch die neue |
-| **delete** | `{"action": "delete", "capability": "image.generate.mflux"}` | SSN löscht die HTML-Datei |
-| **list** | `{"action": "list"}` | SSN antwortet mit `{"capabilities": ["image.generate.mflux", …]}` |
+| Action | Task payload | Description |
+|--------|-------------|-------------|
+| **add** | `{"action": "add", "capability": "image.generate.mflux", "artifact_id": "artifact_xxx"}` | SSN downloads the artifact and stores it as `<capability>.html` |
+| **update** | `{"action": "update", "capability": "image.generate.mflux", "artifact_id": "artifact_yyy"}` | SSN replaces the existing HTML with the new one |
+| **delete** | `{"action": "delete", "capability": "image.generate.mflux"}` | SSN deletes the HTML file |
+| **list** | `{"action": "list"}` | SSN responds with `{"capabilities": ["image.generate.mflux", …]}` |
 
 ## SSN Proxy (T-076)
 
-Seit T-076 läuft auf dem SSN-Host ein **SSN Proxy** — ein HTMX-Server auf
-`127.0.0.1:8790`. Er heartbeatet seine Endpoints als **Dynamic Routes**
-(T-075) und macht alle Relay-Interaktionen serverseitig mit dem SSN-Node-Token.
+Since T-076, an **SSN Proxy** runs on the SSN host — an HTMX server on
+`127.0.0.1:8790`. It heartbeats its endpoints as **Dynamic Routes** (T-075)
+and handles all relay interactions server-side using the SSN node token.
 
-### Architektur
+### Architecture
 
 ```
 Browser (Dashboard iFrame)
        │
-       │ Session-Cookie
+       │ Session cookie
        ▼
 Relay (192.168.2.60:8788)
        │
-       │ Prüft Auth → leitet an Dynamic Route weiter
+       │ Checks auth → forwards to Dynamic Route
        ▼
 SSN Proxy (127.0.0.1:8790)
        │
-       │ SSN-Node-Token
+       │ SSN node token
        ▼
 Relay (127.0.0.1:8788)
 ```
 
-**Kein Session-Cookie für task-submit oder storage.** Der Browser schickt das
-Session-Cookie nur an den Relay. Der Relay prüft die Berechtigung und leitet
-intern an den SSN-Proxy weiter. Der SSN-Proxy injectet seinen Node-Token und
-macht den eigentlichen API-Call.
+**No session cookie for task-submit or storage.** The browser sends the session
+cookie only to the relay. The relay checks permissions and forwards internally
+to the SSN proxy. The SSN proxy injects its node token and makes the actual
+API call.
 
 ### Endpoints
 
-| Pfad | Methode | Beschreibung |
-|------|---------|-------------|
-| `/api/task-submit` | POST | Task an Relay submiten (mit SSN-Node-Token) |
-| `/api/tasks/{id}` | GET | Task-Status vom Relay abfragen |
-| `/api/storage/{id}` | GET | Artifact vom Relay herunterladen |
-| `/mflux` | GET | mflux Capability Page (HTMX) |
-| `/mflux/generate` | POST | Bild generieren (Task submit → pollen → Ergebnis) |
-| `/mflux/bilder/{id}` | GET | Gecachtes Bild serven |
+| Path | Method | Description |
+|------|--------|-------------|
+| `/api/task-submit` | POST | Submit a task to the relay (with SSN node token) |
+| `/api/tasks/{id}` | GET | Get task status from the relay |
+| `/api/storage/{id}` | GET | Download an artifact from the relay |
+| `/mflux` | GET | mflux capability page (HTMX) |
+| `/mflux/generate` | POST | Generate an image (submit task → poll → result) |
+| `/mflux/bilder/{id}` | GET | Serve a cached image |
 
 ### Dynamic Routes
 
-Der SSN-Proxy heartbeatet seine 3 API-Endpoints als Dynamic Routes in der
-Capability-YAML (`~/.relay/capabilities.d/ssn.yaml`):
+The SSN proxy heartbeats its 3 API endpoints as Dynamic Routes in the
+capability YAML (`~/.relay/capabilities.d/ssn.yaml`):
 
 ```yaml
 capabilities:
@@ -109,72 +108,70 @@ capabilities:
         upstream: http://127.0.0.1:8790/api/storage/{id}
 ```
 
-Die Routes sind erreichbar unter:
+The routes are reachable at:
 ```
 /relay/v2/dashboard/api/node-routes/{node_id}/api/task-submit
 /relay/v2/dashboard/api/node-routes/{node_id}/api/tasks/{id}
 /relay/v2/dashboard/api/node-routes/{node_id}/api/storage/{id}
 ```
 
-### Capability Pages mit HTMX
+### Capability Pages with HTMX
 
-Die Capability-Pages sind **reine HTML-Templates mit HTMX** — kein client-seitiges
-JavaScript. HTMX ist eine ~14KB JS-Bibliothek, die aus HTML-Attributen AJAX-Requests
-macht. Der Server returned HTML-Snippets.
+Capability pages are **pure HTML templates with HTMX** — no client-side
+JavaScript. HTMX is a ~14KB JS library that makes AJAX requests from HTML
+attributes. The server returns HTML snippets.
 
-**Vorteile:**
-- Kein client-seitiges `fetch()` — keine CSRF-Probleme
-- Kein Session-Cookie für API-Calls
-- Bilder werden als Base64-Data-URL eingebettet (kein separater Image-Request)
-- Einfache Formulare statt async-JS-Chaos
+**Benefits:**
+- No client-side `fetch()` — no CSRF issues
+- No session cookie for API calls
+- Images are embedded as Base64 data URLs (no separate image request)
+- Simple forms instead of async JS spaghetti
 
-**Wichtig: Node-ID-agnostische Pfade**
+**Important: Node-ID-agnostic paths**
 
-Die HTML-Seite darf **keine absoluten Pfade** oder die node_id hardcoden.
-Da die Dynamic Route die node_id im Pfad trägt
-(`/api/node-routes/{node_id}/mflux`), müssen alle HTMX-Requests **relativ**
-sein. Sonst brechen die Links, wenn der SSN eine neue node_id bekommt
-(z.B. durch Re-Registrierung).
+The HTML page must **not** hardcode absolute paths or the node_id. Since the
+Dynamic Route carries the node_id in the path
+(`/api/node-routes/{node_id}/mflux`), all HTMX requests must be **relative**.
+Otherwise links break if the SSN gets a new node_id (e.g. after re-registration).
 
-**Richtig (relativ):**
+**Correct (relative):**
 ```html
 <form hx-post="mflux/generate" hx-target="#result">
 ```
 
-**Falsch (absolut):**
+**Wrong (absolute):**
 ```html
 <form hx-post="/mflux/generate" hx-target="#result">
 ```
 
-Bilder werden als Base64-Data-URL direkt ins HTML eingebettet, statt über
-einen separaten Image-Endpoint geladen. Das vermeidet einen weiteren
-Request durch die Dynamic Route und macht die Seite unabhängig von der
-node_id:
+Images are embedded as Base64 data URLs directly in the HTML, instead of
+loading them via a separate image endpoint. This avoids an extra round-trip
+through the Dynamic Route and makes the page independent of the node_id:
 
 ```python
 import base64
 img_b64 = base64.b64encode(img_data).decode()
-html = f'<img src="data:image/png;base64,{img_b64}" alt="Bild">'
+html = f'<img src="data:image/png;base64,{img_b64}" alt="Image">'
 ```
 
-**Beispiel (mflux-Seite):**
+**Example (mflux page):**
 ```html
-<form hx-post="/mflux/generate" hx-target="#result">
+<form hx-post="mflux/generate" hx-target="#result">
   <textarea name="prompt" required></textarea>
   <select name="format">
-    <option value="quadrat">Quadrat (512×512)</option>
+    <option value="quadrat">Square (512×512)</option>
   </select>
-  <button type="submit">✨ Generieren</button>
+  <button type="submit">✨ Generate</button>
 </form>
 <div id="result"></div>
 ```
 
 ## Deployment
 
-### 1. SSN-Daemon (T-069)
+### 1. SSN daemon (T-069)
 
-Siehe [setup.md](../server/setup.md) für die Server-Config (`ssn_enabled`,
-`ssn_auto_approve`). Der SSN-Daemon wird als systemd-User-Unit gestartet:
+See [setup.md](../server/setup.md) for server config (`ssn_enabled`,
+`ssn_auto_approve`). The SSN daemon runs as a systemd user unit:
 
 ```bash
 cp systemd/ai-relay-ssn.service ~/.config/systemd/user/
@@ -182,7 +179,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now ai-relay-ssn.service
 ```
 
-### 2. SSN-Proxy (T-076)
+### 2. SSN Proxy (T-076)
 
 ```bash
 cp systemd/ai-relay-ssn-proxy.service ~/.config/systemd/user/
@@ -190,7 +187,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now ai-relay-ssn-proxy.service
 ```
 
-### 3. Capabilities-Profil
+### 3. Capability profile
 
 ```yaml
 # ~/.relay/capabilities.d/ssn.yaml
@@ -219,13 +216,13 @@ capabilities:
         upstream: http://127.0.0.1:8790/api/storage/{id}
 ```
 
-Publizieren:
+Publish:
 ```bash
 node-cli capabilities publish ssn
 ```
 
-## Siehe auch
+## See also
 
-- [Capabilities](capabilities.md) — Capability-Namen, Suffixe, Handler-Contract, Dynamic Routes
-- [node-cli-Referenz](cli-reference.md) — `task submit`, `artifact upload`, `artifact download`
-- [Server-Setup](../server/setup.md) — `ssn_enabled`/`ssn_auto_approve` Config
+- [Capabilities](capabilities.md) — capability names, suffixes, handler contract, Dynamic Routes
+- [node-cli reference](cli-reference.md) — `task submit`, `artifact upload`, `artifact download`
+- [Server setup](../server/setup.md) — `ssn_enabled`/`ssn_auto_approve` config
