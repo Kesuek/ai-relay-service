@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Relay Node Daemon — SSE-driven node worker
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/projects/ai-relay-service/.venv/bin/node-daemon --foreground
+WorkingDirectory=%h/projects/ai-relay-service
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=RELAY_BASE_URL=http://127.0.0.1:8788
+
+[Install]
+WantedBy=default.target

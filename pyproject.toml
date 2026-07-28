@@ -31,6 +31,7 @@ dev = [
 relay-server = "relay_server.main:main"
 relay-recovery = "relay_server.cli:main"
 node-cli = "nodes.common.node_cli:main"
+node-daemon = "nodes.common.node_daemon:main"
 
 [build-system]
 requires = ["hatchling"]
