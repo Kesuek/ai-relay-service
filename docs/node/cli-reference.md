@@ -21,8 +21,9 @@ The CLI requires a registered node — `~/.relay/ai-relay-agent.json` and
 ## Global options
 
 | Option | Default | Description |
-|---|---|---|
+|--------|---------|-------------|
 | `--log-level <LEVEL>` | `RELAY_LOG_LEVEL` env or `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+| `--json` | — | Output raw JSON instead of formatted text. Useful for scripting and automation (e.g. SSN Proxy). Supported by: `heartbeat`, `claim`, `complete`, `task submit/result/wait`, `artifact upload/download`, `capabilities server/info`, `node list/info`, `docs`, `update check/apply`. |
 
 The global `--log-level` option is accepted by every subcommand that performs
 relay I/O (daemon actions, heartbeat, claim, complete, task, artifact,
