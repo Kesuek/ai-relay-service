@@ -96,6 +96,9 @@
 - [x] T-085: User-Status vorbereitet (`users.status`, `USER_STATUSES`-Registry)
 - [x] T-086: Doku — concepts.md (Status System Abschnitt), cli-reference.md, api.md, CHANGELOG, STATUS
 
+### Phase 19 — Node-Konfiguration umbenennen ✅
+- [x] T-087: `capability_loader.py` → `node_config.py`, `capabilities.active.yaml` → `node.yaml`, `capabilities.active.profile` → `node.profile`, `capabilities.d/` → `profiles.d/`; Schema gelockert (`capabilities` optional, `additionalProperties` auf Root, `node_name`/`description` Top-Level-Properties); `write_active_status()` regex-basiert; Migration beim ersten Start (`_migrate_old_paths()`); Doku + Tests + CLI-Referenzen aktualisiert
+
 ---
 
 ## Code Review Summary (historical — all findings resolved)

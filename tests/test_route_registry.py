@@ -120,7 +120,7 @@ class TestCapabilityYAMLRoutes:
 
     def test_routes_in_yaml_validates(self):
         """Verify that routes in capability YAML pass validation."""
-        from nodes.common.capability_loader import validate_profile
+        from nodes.common.node_config import validate_profile
 
         profile = {
             "capabilities": [
@@ -147,7 +147,7 @@ class TestCapabilityYAMLRoutes:
 
     def test_routes_with_extra_fields_accepted(self):
         """Verify that routes with unknown keys are still accepted (validation is at capability level)."""
-        from nodes.common.capability_loader import validate_profile
+        from nodes.common.node_config import validate_profile
 
         profile = {
             "capabilities": [

@@ -1,4 +1,4 @@
-"""Tests for nodes.common.capability_loader."""
+"""Tests for nodes.common.node_config."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from nodes.common import capability_loader as cl
-from nodes.common.capability_loader import (
+from nodes.common import node_config as cl
+from nodes.common.node_config import (
     ActiveProfileCache,
     CapabilityValidationError,
     current_profile_name,
@@ -27,9 +27,9 @@ from nodes.common.capability_loader import (
 @pytest.fixture()
 def isolated_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     base = tmp_path / "relay"
-    profiles_dir = base / "capabilities.d"
-    active = base / "capabilities.active.yaml"
-    active_name = base / "capabilities.active.profile"
+    profiles_dir = base / "profiles.d"
+    active = base / "node.yaml"
+    active_name = base / "node.profile"
 
     monkeypatch.setattr(cl, "BASE_DIR", base)
     monkeypatch.setattr(cl, "PROFILES_DIR", profiles_dir)
@@ -77,7 +77,7 @@ def _write(path: Path, content: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def test_load_valid_profile_returns_normalized_dicts(isolated_paths: Path):
-    p = _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    p = _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     caps = validate_profile(p)
     assert len(caps) == 3
 
@@ -121,10 +121,11 @@ def test_load_profile_duplicate_names_raises():
         validate_profile(bad)
 
 
-def test_load_profile_missing_capabilities_key_raises(isolated_paths: Path):
-    p = _write(isolated_paths / "capabilities.d" / "x.yaml", "foo: bar\n")
-    with pytest.raises(CapabilityValidationError, match="'capabilities' key is required"):
-        validate_profile(p)
+def test_load_profile_missing_capabilities_key_returns_empty(isolated_paths: Path):
+    """capabilities is optional — a profile without it yields an empty list (T-087)."""
+    p = _write(isolated_paths / "profiles.d" / "x.yaml", "foo: bar\n")
+    caps = validate_profile(p)
+    assert caps == []
 
 
 def test_load_profile_capabilities_not_a_list_raises():
@@ -153,14 +154,14 @@ def test_load_profile_auto_publish_not_bool_raises():
 
 
 def test_load_profile_yaml_syntax_error_includes_file(isolated_paths: Path):
-    p = _write(isolated_paths / "capabilities.d" / "bad.yaml", "capabilities: [unclosed\n")
+    p = _write(isolated_paths / "profiles.d" / "bad.yaml", "capabilities: [unclosed\n")
     with pytest.raises(CapabilityValidationError, match="YAML syntax error"):
         validate_profile(p)
 
 
 def test_load_profile_missing_file_raises(isolated_paths: Path):
     with pytest.raises(CapabilityValidationError, match="profile file not found"):
-        validate_profile(isolated_paths / "capabilities.d" / "missing.yaml")
+        validate_profile(isolated_paths / "profiles.d" / "missing.yaml")
 
 
 def test_validate_profile_accepts_dict_input():
@@ -257,9 +258,9 @@ def test_env_override_max_parallel_invalid_raises(monkeypatch: pytest.MonkeyPatc
 # ---------------------------------------------------------------------------
 
 def test_list_profiles_returns_sorted_yaml(isolated_paths: Path):
-    _write(isolated_paths / "capabilities.d" / "beta.yaml", VALID_PROFILE)
-    _write(isolated_paths / "capabilities.d" / "alpha.yaml", VALID_PROFILE)
-    _write(isolated_paths / "capabilities.d" / "ignore.txt", "nope")
+    _write(isolated_paths / "profiles.d" / "beta.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "alpha.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "ignore.txt", "nope")
     names = [p.name for p in list_profiles()]
     assert names == ["alpha.yaml", "beta.yaml"]
 
@@ -284,7 +285,7 @@ def test_current_profile_name_none_when_unset(isolated_paths: Path):
 # ---------------------------------------------------------------------------
 
 def test_publish_profile_creates_active_file_and_name(isolated_paths: Path):
-    p = _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    p = _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     active = publish_profile("default")
     assert active.exists()
     assert active.read_text() == p.read_text()
@@ -294,12 +295,12 @@ def test_publish_profile_creates_active_file_and_name(isolated_paths: Path):
 
 
 def test_publish_profile_invalid_does_not_touch_active(isolated_paths: Path):
-    _write(isolated_paths / "capabilities.d" / "bad.yaml", "capabilities: bad\n")
+    _write(isolated_paths / "profiles.d" / "bad.yaml", "capabilities: bad\n")
     # Pre-seed an active file so we can prove it was not overwritten.
-    (isolated_paths / "capabilities.active.yaml").write_text("pre-existing\n")
+    (isolated_paths / "node.yaml").write_text("pre-existing\n")
     with pytest.raises(CapabilityValidationError):
         publish_profile("bad")
-    assert (isolated_paths / "capabilities.active.yaml").read_text() == "pre-existing\n"
+    assert (isolated_paths / "node.yaml").read_text() == "pre-existing\n"
     assert current_profile_name() is None
 
 
@@ -349,7 +350,7 @@ def test_diff_profiles_handles_none_inputs():
 # ---------------------------------------------------------------------------
 
 def test_active_profile_cache_reads_active(isolated_paths: Path):
-    _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     publish_profile("default")
     caps = load_active_profile()
     assert len(caps) == 3
@@ -360,7 +361,7 @@ def test_active_profile_cache_empty_when_no_active_file(isolated_paths: Path):
 
 
 def test_active_profile_cache_mtime_cache(isolated_paths: Path, monkeypatch: pytest.MonkeyPatch):
-    _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     publish_profile("default")
 
     cache = ActiveProfileCache()
@@ -372,7 +373,7 @@ def test_active_profile_cache_mtime_cache(isolated_paths: Path, monkeypatch: pyt
 
 
 def test_active_profile_cache_invalidate_forces_reread(isolated_paths: Path):
-    _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     publish_profile("default")
 
     cache = ActiveProfileCache()

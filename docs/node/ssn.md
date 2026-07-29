@@ -208,7 +208,7 @@ systemctl --user enable --now ai-relay-ssn-proxy.service
 ### 3. Capability profile
 
 ```yaml
-# ~/.relay/capabilities.d/ssn.yaml
+# ~/.relay/profiles.d/ssn.yaml
 capabilities:
   - name: ssn.capability-pages
     version: "1.0.0"

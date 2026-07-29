@@ -9,8 +9,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+import yaml
 
-from nodes.common import capability_loader as cl
+from nodes.common import node_config as cl
 from nodes.common import node_cli as cli
 from nodes.common import node_utils
 
@@ -39,18 +40,18 @@ BAD_PROFILE = "capabilities: not-a-list\n"
 @pytest.fixture()
 def isolated_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     base = tmp_path / "relay"
-    profiles_dir = base / "capabilities.d"
-    active = base / "capabilities.active.yaml"
-    active_name = base / "capabilities.active.profile"
+    profiles_dir = base / "profiles.d"
+    active = base / "node.yaml"
+    active_name = base / "node.profile"
 
-    # capability_loader module globals.
+    # node_config module globals.
     monkeypatch.setattr(cl, "BASE_DIR", base)
     monkeypatch.setattr(cl, "PROFILES_DIR", profiles_dir)
     monkeypatch.setattr(cl, "ACTIVE_PATH", active)
     monkeypatch.setattr(cl, "ACTIVE_PROFILE_NAME_PATH", active_name)
     monkeypatch.setattr(cl._active_cache, "path", active)
 
-    # node_cli module globals (re-exported from capability_loader/poller).
+    # node_cli module globals (re-exported from node_config/poller).
     monkeypatch.setattr(cli, "BASE_DIR", base)
     monkeypatch.setattr(cli, "PROFILES_DIR", profiles_dir)
     monkeypatch.setattr(cli, "ACTIVE_PATH", active)
@@ -167,8 +168,8 @@ def test_unknown_command_exits_nonzero():
 # ---------------------------------------------------------------------------
 
 def test_capabilities_list_shows_profiles(isolated_paths: Path, capsys: pytest.CaptureFixture[str]):
-    _write(isolated_paths / "capabilities.d" / "alpha.yaml", VALID_PROFILE)
-    _write(isolated_paths / "capabilities.d" / "beta.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "alpha.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "beta.yaml", VALID_PROFILE)
     rc = cli.main(["capabilities", "list"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -189,7 +190,7 @@ def test_capabilities_list_empty(isolated_paths: Path, capsys: pytest.CaptureFix
 def test_capabilities_validate_detects_bad_profile(
     isolated_paths: Path, capsys: pytest.CaptureFixture[str]
 ):
-    _write(isolated_paths / "capabilities.d" / "bad.yaml", BAD_PROFILE)
+    _write(isolated_paths / "profiles.d" / "bad.yaml", BAD_PROFILE)
     rc = cli.main(["capabilities", "validate", "bad"])
     assert rc == 1
     err = capsys.readouterr().err
@@ -199,7 +200,7 @@ def test_capabilities_validate_detects_bad_profile(
 def test_capabilities_validate_ok_for_valid_profile(
     isolated_paths: Path, capsys: pytest.CaptureFixture[str]
 ):
-    _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     rc = cli.main(["capabilities", "validate", "default"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -220,30 +221,30 @@ def test_capabilities_validate_active_by_default(
 # ---------------------------------------------------------------------------
 
 def test_capabilities_publish_creates_active_file(isolated_paths: Path):
-    _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     rc = cli.main(["capabilities", "publish", "default"])
     assert rc == 0
-    active = isolated_paths / "capabilities.active.yaml"
+    active = isolated_paths / "node.yaml"
     assert active.exists()
     # Active file content == source profile content.
-    src = isolated_paths / "capabilities.d" / "default.yaml"
+    src = isolated_paths / "profiles.d" / "default.yaml"
     assert active.read_text() == src.read_text()
     # Name file recorded.
-    name_file = isolated_paths / "capabilities.active.profile"
+    name_file = isolated_paths / "node.profile"
     assert name_file.read_text().strip() == "default"
 
 
 def test_capabilities_publish_invalid_returns_nonzero(isolated_paths: Path):
-    _write(isolated_paths / "capabilities.d" / "bad.yaml", BAD_PROFILE)
+    _write(isolated_paths / "profiles.d" / "bad.yaml", BAD_PROFILE)
     rc = cli.main(["capabilities", "publish", "bad"])
     assert rc != 0
-    assert not (isolated_paths / "capabilities.active.yaml").exists()
+    assert not (isolated_paths / "node.yaml").exists()
 
 
 def test_capabilities_current_after_publish(
     isolated_paths: Path, capsys: pytest.CaptureFixture[str]
 ):
-    _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     assert cli.main(["capabilities", "publish", "default"]) == 0
     capsys.readouterr()  # discard publish output
     rc = cli.main(["capabilities", "current"])
@@ -261,7 +262,7 @@ def test_capabilities_current_unset_returns_nonzero(isolated_paths: Path):
 # ---------------------------------------------------------------------------
 
 def test_capabilities_diff_shows_changes(isolated_paths: Path, capsys: pytest.CaptureFixture[str]):
-    _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     cli.main(["capabilities", "publish", "default"])
     # Now modify the working profile: bump chat.ai version, add a new cap.
     modified = textwrap.dedent("""
@@ -282,7 +283,7 @@ def test_capabilities_diff_shows_changes(isolated_paths: Path, capsys: pytest.Ca
             auto_publish: true
             claimable: false
     """).strip()
-    _write(isolated_paths / "capabilities.d" / "default.yaml", modified)
+    _write(isolated_paths / "profiles.d" / "default.yaml", modified)
     rc = cli.main(["capabilities", "diff", "default"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -292,7 +293,7 @@ def test_capabilities_diff_shows_changes(isolated_paths: Path, capsys: pytest.Ca
 
 
 def test_capabilities_diff_no_changes(isolated_paths: Path, capsys: pytest.CaptureFixture[str]):
-    _write(isolated_paths / "capabilities.d" / "default.yaml", VALID_PROFILE)
+    _write(isolated_paths / "profiles.d" / "default.yaml", VALID_PROFILE)
     cli.main(["capabilities", "publish", "default"])
     rc = cli.main(["capabilities", "diff", "default"])
     assert rc == 0
@@ -1582,6 +1583,9 @@ def test_node_busy_persists_status_in_meta(
     _write(
         isolated_paths / "ai-relay-agent.token", "tok"
     )
+    # write_active_status edits the active YAML in place (no longer
+    # creates it), so seed a minimal node.yaml first (T-087).
+    _write(isolated_paths / "node.yaml", "capabilities: []\n")
 
     # Stub RelayClient so _setup_logging/load_meta work but no network call
     # happens (busy without --once never instantiates the client because
@@ -1616,8 +1620,10 @@ def test_node_busy_persists_status_in_meta(
     out = capsys.readouterr().out
     assert "busy" in out.lower()
 
-    meta = json.loads((isolated_paths / "ai-relay-agent.json").read_text())
-    assert meta["status"] == "busy"
+    # Status is now stored in the active YAML, not the meta file.
+    yaml_text = (isolated_paths / "node.yaml").read_text()
+    parsed = yaml.safe_load(yaml_text)
+    assert parsed.get("status") == "busy"
     monkeypatch_cli.undo()
 
 
@@ -1627,6 +1633,7 @@ def test_node_idle_persists_status_in_meta(
     _write_meta(isolated_paths, {"node_id": "node_idle", "base_url": "http://x"})
     _write(isolated_paths / "relay_config.json", json.dumps({"base_url": "http://x"}))
     _write(isolated_paths / "ai-relay-agent.token", "tok")
+    _write(isolated_paths / "node.yaml", "capabilities: []\n")
 
     from nodes.common import node_cli as cli_mod
 
@@ -1645,18 +1652,28 @@ def test_node_idle_persists_status_in_meta(
 
     rc = cli.main(["node", "idle"])
     assert rc == 0
-    meta = json.loads((isolated_paths / "ai-relay-agent.json").read_text())
-    assert meta["status"] == "idle"
+    # Status is now stored in the active YAML, not the meta file.
+    yaml_text = (isolated_paths / "node.yaml").read_text()
+    parsed = yaml.safe_load(yaml_text)
+    assert parsed.get("status") == "idle"
     mp.undo()
 
 
 def test_node_clear_status_removes_status_from_meta(isolated_paths: Path):
     _write_meta(
         isolated_paths,
-        {"node_id": "node_clear", "base_url": "http://x", "status": "busy"},
+        {"node_id": "node_clear", "base_url": "http://x"},
     )
     _write(isolated_paths / "relay_config.json", json.dumps({"base_url": "http://x"}))
     _write(isolated_paths / "ai-relay-agent.token", "tok")
+
+    # Seed the active YAML with a status field. write_active_status
+    # edits the file in place, so create it first (T-087).
+    yaml_path = isolated_paths / "node.yaml"
+    _write(yaml_path, "status: busy\ncapabilities: []\n")
+    # Verify it was written.
+    parsed = yaml.safe_load(yaml_path.read_text())
+    assert parsed.get("status") == "busy"
 
     from nodes.common import node_cli as cli_mod
 
@@ -1670,13 +1687,24 @@ def test_node_clear_status_removes_status_from_meta(isolated_paths: Path):
         def heartbeat(self, caps, inflight):
             return {"status": "ok"}
 
+        def _get_with_retry(self, path, **kw):
+            class _R:
+                status_code = 200
+
+                def json(self):
+                    return {"nodes": []}
+
+            return _R()
+
     mp = pytest.MonkeyPatch()
     mp.setattr(cli_mod, "RelayClient", _FakeClient)
 
     rc = cli.main(["node", "clear-status"])
     assert rc == 0
-    meta = json.loads((isolated_paths / "ai-relay-agent.json").read_text())
-    assert "status" not in meta
+    # Status should be removed from the active YAML.
+    yaml_text = yaml_path.read_text()
+    parsed = yaml.safe_load(yaml_text)
+    assert "status" not in parsed
     mp.undo()
 
 
@@ -1685,10 +1713,16 @@ def test_node_status_reports_requested_and_server_status(
 ):
     _write_meta(
         isolated_paths,
-        {"node_id": "node_status", "node_name": "StatusNode", "base_url": "http://x", "status": "busy"},
+        {"node_id": "node_status", "node_name": "StatusNode", "base_url": "http://x"},
     )
     _write(isolated_paths / "relay_config.json", json.dumps({"base_url": "http://x"}))
     _write(isolated_paths / "ai-relay-agent.token", "tok")
+
+    # Seed the active YAML with a status field. write_active_status edits
+    # the file in place, so create it first (T-087).
+    _write(isolated_paths / "node.yaml", "status: busy\ncapabilities: []\n")
+    parsed = yaml.safe_load((isolated_paths / "node.yaml").read_text())
+    assert parsed.get("status") == "busy"
 
     from nodes.common import node_cli as cli_mod
 
@@ -1733,10 +1767,14 @@ def test_node_status_json_output(
 ):
     _write_meta(
         isolated_paths,
-        {"node_id": "node_status_json", "base_url": "http://x", "status": "idle"},
+        {"node_id": "node_status_json", "base_url": "http://x"},
     )
     _write(isolated_paths / "relay_config.json", json.dumps({"base_url": "http://x"}))
     _write(isolated_paths / "ai-relay-agent.token", "tok")
+
+    # Seed the active YAML with a status field. write_active_status edits
+    # the file in place, so create it first (T-087).
+    _write(isolated_paths / "node.yaml", "status: idle\ncapabilities: []\n")
 
     from nodes.common import node_cli as cli_mod
 

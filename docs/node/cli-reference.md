@@ -413,8 +413,8 @@ node-cli task note tsk_abc123 "starting fetch, ETA ~5s"
 ## capabilities
 
 Capability profile management. Profiles are YAML files in
-`~/.relay/capabilities.d/`; the active profile is
-`~/.relay/capabilities.active.yaml`. See [capabilities.md](capabilities.md)
+`~/.relay/profiles.d/`; the active profile is
+`~/.relay/node.yaml`. See [capabilities.md](capabilities.md)
 for the profile format and validation rules.
 
 ### Syntax
@@ -427,7 +427,7 @@ node-cli capabilities <action> [profile]
 
 #### `list`
 
-List profiles in `~/.relay/capabilities.d/`. The active profile is marked
+List profiles in `~/.relay/profiles.d/`. The active profile is marked
 with `*`.
 
 ```bash
@@ -450,12 +450,12 @@ node-cli capabilities validate default
 #### `publish <profile>`
 
 Validate the working profile, then atomically copy it to
-`~/.relay/capabilities.active.yaml` and record the profile name. If the daemon
+`~/.relay/node.yaml` and record the profile name. If the daemon
 is running, send `SIGHUP` so it reloads immediately.
 
 ```bash
 node-cli capabilities publish default
-# -> published 'default' -> capabilities.active.yaml (sent SIGHUP to pid 12345)
+# -> published 'default' -> node.yaml (sent SIGHUP to pid 12345)
 ```
 
 #### `diff [profile]`
@@ -892,9 +892,9 @@ All paths are relative to `~/.relay/` unless noted.
 | `ai-relay-agent.token` | Runtime token (`rt_…`) |
 | `relay_config.json` | Poller / daemon config (see below) |
 | `worker_status.json` | Daemon status file (written after every heartbeat) |
-| `capabilities.active.yaml` | Active capability profile |
-| `capabilities.active.profile` | Name of the active profile |
-| `capabilities.d/` | Working capability profiles |
+| `node.yaml` | Active node configuration & capability profile |
+| `node.profile` | Name of the active profile |
+| `profiles.d/` | Working capability profiles |
 | `node-cli.pid` | Daemon PID file |
 | `node-cli.log` | Daemon log file |
 
@@ -924,7 +924,7 @@ All paths are relative to `~/.relay/` unless noted.
 | `RELAY_HEARTBEAT_INTERVAL` | daemon | Override `heartbeat_interval` (integer seconds) |
 | `RELAY_CLAIM_INTERVAL` | daemon | Override `claim_interval` (integer seconds) |
 | `RELAY_LOG_LEVEL` | all commands | Default log level when `--log-level` is not passed |
-| `RELAY_PROFILES_DIR` | capabilities | Override the `capabilities.d/` directory |
+| `RELAY_PROFILES_DIR` | capabilities | Override the `profiles.d/` directory |
 
 > **Token is read from a file, not an env var.** The CLI loads the runtime
 > token from `~/.relay/ai-relay-agent.token` only. A `RELAY_RUNTIME_TOKEN`

@@ -143,8 +143,8 @@ instead of running `hermes -z`:
 
 The generic `node-cli` daemon is **capability-agnostic**: all capabilities are
 defined in external YAML profiles. The daemon reads only
-`~/.relay/capabilities.active.yaml`; working profiles live in
-`~/.relay/capabilities.d/`.
+`~/.relay/node.yaml`; working profiles live in
+`~/.relay/profiles.d/`.
 
 ```yaml
 capabilities:
@@ -170,6 +170,29 @@ capabilities:
           required: false
           description: "Alternative to prompt — a short message or greeting."
 ```
+
+### Node-level configuration (T-087)
+
+The active file (`~/.relay/node.yaml`) is also the home of **node-level
+configuration**. The `capabilities` array is optional — a profile may
+carry only node-level fields. The following top-level keys are
+recognised:
+
+| Key | Description |
+|-----|-------------|
+| `status` | Operator-requested node status (`busy` / `idle` / `online`). Written by `node-cli node busy` / `idle` / `clear-status`; the next heartbeat forwards it to the server. |
+| `node_name` | Optional node-name override (forwarded in the heartbeat; also read from `ai-relay-agent.json`). |
+| `description` | Optional free-form node description (forwarded in the heartbeat). |
+| `capabilities` | Optional list of capability entries (see above). |
+
+A minimal profile that only pins the node to `busy` is therefore valid:
+
+```yaml
+status: busy
+```
+
+The schema allows additional top-level keys (`additionalProperties: true`),
+so forward-compatible fields do not break validation.
 
 ### Capability dashboard pages (SSN)
 
@@ -242,11 +265,11 @@ cleared. No manual cleanup needed.
 Publish flow:
 
 ```
-Operator edits capabilities.d/default.yaml
+Operator edits profiles.d/default.yaml
         ↓
 node-cli capabilities validate default    ← validates without touching active
         ↓
-node-cli capabilities publish default      ← atomic write to active.yaml + SIGHUP
+node-cli capabilities publish default      ← atomic write to node.yaml + SIGHUP
         ↓
 Daemon picks up change at next heartbeat (mtime check) or via SIGHUP
 ```
@@ -295,12 +318,15 @@ Key points:
 
 ### Validation rules
 
-A profile is invalid if: YAML syntax error, `capabilities` missing/not a list,
-any capability missing `name`, duplicate names, `claimable: true` without
-`handler`, `max_parallel`/`timeout` not positive integers,
-`auto_publish`/`claimable` not boolean, or `version` not
-a non-empty string. The optional `description` field is preserved through
-the pipeline and forwarded to the relay in heartbeats.
+A profile is invalid if: YAML syntax error, `capabilities` present but
+not a list, any capability missing `name`, duplicate names, `claimable:
+true` without `handler`, `max_parallel`/`timeout` not positive
+integers, `auto_publish`/`claimable` not boolean, or `version` not
+a non-empty string. The `capabilities` array itself is **optional**
+(T-087) — a profile may carry only node-level configuration (`status`,
+`node_name`, `description`). The optional `description` field is
+preserved through the pipeline and forwarded to the relay in
+heartbeats.
 On error the active profile is never touched.
 
 ### Capability metadata forwarded to the server (T-053)

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- T-087: Node-Konfiguration umbenannt — `nodes/common/capability_loader.py` → `nodes/common/node_config.py` (Code + Imports). Datei-Pfade umbenannt: `capabilities.active.yaml` → `node.yaml`, `capabilities.active.profile` → `node.profile`, `capabilities.d/` → `profiles.d/` (Default von `RELAY_PROFILES_DIR` ändert sich entsprechend). Schema gelockert: `capabilities` ist jetzt optional, Root-Ebene erlaubt `additionalProperties`, neue Top-Level-Properties `node_name` und `description` ergänzt (neben dem bestehenden `status`). `validate_profile()` liefert bei fehlendem `capabilities`-Key eine leere Liste statt einen Fehler. `write_active_status()` arbeitet nun regex-basiert (YAML-Format, Kommentare und Key-Reihenfolge bleiben erhalten); die Datei wird nicht mehr neu erzeugt, wenn sie fehlt (No-Op). Migration beim ersten Import: `_migrate_old_paths()` kopiert alte `capabilities.*`-Dateien nach den neuen Namen, wenn die neuen noch nicht existieren (alte Dateien bleiben für Rolling-Deploy als Fallback erhalten). CLI-Befehlsnamen (`capabilities publish/list/validate/...`) bleiben unverändert. Doku, Tests und CLI-Referenzen aktualisiert. (Phase 19)
+
+### Changed
+
+- T-087: `write_active_status()` — statt `yaml.dump` (was das gesamte Dokument neu serialisiert und Kommentare/Formatierung verwirft) wird das `status:`-Feld jetzt per Regex in-place editiert. Das YAML-Format bleibt damit erhalten; `node-cli node busy`/`idle`/`clear-status` ändern nur die Status-Zeile. (Phase 19)
+
 - T-078: Zentrales Status-System — neue Datei `src/relay_server/core/status.py` mit `StatusCategory`-Enum (AVAILABLE, BUSY, PENDING, TERMINAL, OFFLINE), `StatusDef`-Registry für Nodes, Tasks, Stages und Users, sowie Lookup-Helper (`get_category`, `is_terminal`, `is_busy`, `is_available`, `is_pending`, `is_offline`, `node_can_claim`, `node_is_claimable`, `node_can_transition`, `task_can_transition`, `stage_can_transition`, `status_color`). Business-Logik fragt ab jetzt Kategorien statt hartcodierter String-Listen ab. (Phase 18)
 - T-079: DB-Migration — neue `status`-Spalte in `users` (default `active`, backfilled aus `is_active`) und `consecutive_high_load`-Spalte in `nodes`. (Phase 18)
 - T-080: Scheduler auf Kategorie-Logik umgestellt — `claim_stage()` prüft via `node_can_claim()` (AVAILABLE), `fail_orphaned_stages()` nutzt `node_claim_statuses()` statt `status IN ('approved', 'online')`. `mark_offline_nodes()` markiert alle AVAILABLE + BUSY Nodes offline. (Phase 18)

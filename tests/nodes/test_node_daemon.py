@@ -23,7 +23,7 @@ from typing import Any
 import httpx
 import pytest
 
-from nodes.common import capability_loader as cl
+from nodes.common import node_config as cl
 from nodes.common import node_daemon as nd
 from nodes.common import node_utils
 from nodes.common.node_cli import RelayClient
@@ -51,9 +51,9 @@ VALID_PROFILE = textwrap.dedent("""
 @pytest.fixture()
 def isolated_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     base = tmp_path / "relay"
-    profiles_dir = base / "capabilities.d"
-    active = base / "capabilities.active.yaml"
-    active_name = base / "capabilities.active.profile"
+    profiles_dir = base / "profiles.d"
+    active = base / "node.yaml"
+    active_name = base / "node.profile"
 
     monkeypatch.setattr(cl, "BASE_DIR", base)
     monkeypatch.setattr(cl, "PROFILES_DIR", profiles_dir)

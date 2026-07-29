@@ -138,12 +138,12 @@ flow.
 
 The `node-cli` daemon is **capability-agnostic**: all capabilities are defined
 in external YAML profiles. The daemon reads only
-`~/.relay/capabilities.active.yaml`; working profiles live in
-`~/.relay/capabilities.d/`.
+`~/.relay/node.yaml`; working profiles live in
+`~/.relay/profiles.d/`.
 
 ```bash
-mkdir -p ~/.relay/capabilities.d
-cat > ~/.relay/capabilities.d/default.yaml <<'YAML'
+mkdir -p ~/.relay/profiles.d
+cat > ~/.relay/profiles.d/default.yaml <<'YAML'
 capabilities:
   - name: chat.ai
     version: "1.0.0"
@@ -155,7 +155,7 @@ capabilities:
 YAML
 ```
 
-Validate and publish (the daemon reads only `capabilities.active.yaml`):
+Validate and publish (the daemon reads only `~/.relay/node.yaml`):
 
 ```bash
 python -m nodes.common.node_cli capabilities validate default
@@ -285,7 +285,7 @@ or include them in image layers.
 | Problem | Solution |
 |---|---|
 | `401` on heartbeat | Runtime token expired or missing → refresh via `/auth/refresh`. If lost, recover with the registration secret (see [token-lifecycle.md](token-lifecycle.md)). |
-| `403` on claim | Capability not in the latest heartbeat → check `capabilities.active.yaml` and that `auto_publish: true`. |
+| `403` on claim | Capability not in the latest heartbeat → check `~/.relay/node.yaml` and that `auto_publish: true`. |
 | `404` on `/auth/refresh` | Wrong `RELAY_BASE_URL`, or the node was deleted by an admin → re-register. |
 | Node stays `pending` | Admin has not approved it yet (dashboard → Nodes → Approve). |
 | Node `offline` in dashboard | Daemon not running, or heartbeat interval too long. `systemctl status ai-relay-node.service` and `tail ~/.relay/node-cli.log`. |
