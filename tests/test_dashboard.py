@@ -824,14 +824,30 @@ def test_dashboard_ssn_pages_returns_list(_reset_ssn_pages_cache, monkeypatch):
 
 
 def test_dashboard_hidden_class_overrides_ssn_box_display():
-    """`.hidden` must win over `.ssn-box { display:flex }` regardless of order."""
+    """`.hidden` must win over `.ssn-box { display:flex }` regardless of order.
+
+    The SSN modal lives in admin.html; its styles are split across
+    cluster.css (``.hidden``) and admin.css (``.ssn-box``). The portal
+    pages (dashboard / node-profile / user-profile) load only cluster.css
+    and must not carry inline ``<style>`` blocks, so the regression
+    check now reads the CSS files directly.
+    """
     from relay_server.api.v2.dashboard import STATIC_DIR
 
-    html = (STATIC_DIR / "dashboard.html").read_text(encoding="utf-8")
+    cluster_css = (STATIC_DIR / "cluster.css").read_text(encoding="utf-8")
     # The utility class must use !important to beat any later `display` rule.
-    assert ".hidden { display:none !important; }" in html
+    compact = cluster_css.replace(" ", "").replace("\t", "")
+    assert ".hidden" in compact and "display:none!important" in compact
+
+    admin_css = (STATIC_DIR / "admin.css").read_text(encoding="utf-8")
+    admin_compact = admin_css.replace(" ", "").replace("\t", "")
     # Sanity: the conflicting rule is still present (this is what caused the bug).
-    assert ".ssn-box" in html and "display:flex" in html
+    assert ".ssn-box" in admin_compact and "display:flex" in admin_compact
+
+    # The public portal must not use inline `style=""` attributes.
+    for name in ("dashboard.html", "node-profile.html", "user-profile.html"):
+        html = (STATIC_DIR / name).read_text(encoding="utf-8")
+        assert ' style="' not in html, f"{name} must not use inline style attributes"
 
 
 def test_dashboard_static_file_has_no_cache_headers():
