@@ -133,6 +133,15 @@ def test_all_subcommands_parse_without_errors():
         ["capabilities", "info", "chat.ai"],
         ["status"],
         ["reload"],
+        ["node", "list"],
+        ["node", "info", "node_abc"],
+        ["node", "busy"],
+        ["node", "busy", "--once"],
+        ["node", "idle"],
+        ["node", "idle", "--once"],
+        ["node", "clear-status"],
+        ["node", "clear-status", "--once"],
+        ["node", "status"],
         ["artifact", "download", "artifact_123"],
         ["artifact", "download", "artifact_123", "--output", "/tmp/out.bin"],
         ["artifact", "download", "artifact_123", "-o", "/tmp/out.bin"],
@@ -1547,3 +1556,212 @@ def test_get_repo_info_no_git_repo(tmp_path: Path):
     assert info["local_commit"] is None
     assert info["has_upstream"] is False
     assert info["behind_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# node busy / idle / status / clear-status (T-084)
+# ---------------------------------------------------------------------------
+
+
+def _write_meta(base: Path, meta: dict) -> None:
+    _write(base / "ai-relay-agent.json", json.dumps(meta))
+
+
+def test_node_busy_persists_status_in_meta(
+    isolated_paths: Path, capsys: pytest.CaptureFixture[str]
+):
+    """`node-cli node busy` writes ``status: busy`` into the meta file.
+
+    The command does not require a server connection when ``--once`` is
+    not given (it only persists the request; the daemon forwards it on
+    the next heartbeat). We stub :class:`RelayClient` so no network is
+    touched.
+    """
+    _write_meta(isolated_paths, {"node_id": "node_busy", "base_url": "http://x"})
+    _write(isolated_paths / "relay_config.json", json.dumps({"base_url": "http://x"}))
+    _write(
+        isolated_paths / "ai-relay-agent.token", "tok"
+    )
+
+    # Stub RelayClient so _setup_logging/load_meta work but no network call
+    # happens (busy without --once never instantiates the client because
+    # with_client is the decorator — but it does instantiate). We patch
+    # RelayClient.__init__ to a no-op and heartbeat to a no-op.
+    from nodes.common import node_cli as cli_mod
+
+    class _FakeClient:
+        def __init__(self, meta, cfg):
+            self.meta = meta
+            self.cfg = cfg
+            self.base_url = meta.get("base_url")
+            self.token = "tok"
+
+        def heartbeat(self, caps, inflight):
+            return {"status": "ok"}
+
+        def _get_with_retry(self, path, **kw):
+            class _R:
+                status_code = 200
+
+                def json(self):
+                    return {"nodes": []}
+
+            return _R()
+
+    monkeypatch_cli = pytest.MonkeyPatch()
+    monkeypatch_cli.setattr(cli_mod, "RelayClient", _FakeClient)
+
+    rc = cli.main(["node", "busy"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "busy" in out.lower()
+
+    meta = json.loads((isolated_paths / "ai-relay-agent.json").read_text())
+    assert meta["status"] == "busy"
+    monkeypatch_cli.undo()
+
+
+def test_node_idle_persists_status_in_meta(
+    isolated_paths: Path, capsys: pytest.CaptureFixture[str]
+):
+    _write_meta(isolated_paths, {"node_id": "node_idle", "base_url": "http://x"})
+    _write(isolated_paths / "relay_config.json", json.dumps({"base_url": "http://x"}))
+    _write(isolated_paths / "ai-relay-agent.token", "tok")
+
+    from nodes.common import node_cli as cli_mod
+
+    class _FakeClient:
+        def __init__(self, meta, cfg):
+            self.meta = meta
+            self.cfg = cfg
+            self.base_url = meta.get("base_url")
+            self.token = "tok"
+
+        def heartbeat(self, caps, inflight):
+            return {"status": "ok"}
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(cli_mod, "RelayClient", _FakeClient)
+
+    rc = cli.main(["node", "idle"])
+    assert rc == 0
+    meta = json.loads((isolated_paths / "ai-relay-agent.json").read_text())
+    assert meta["status"] == "idle"
+    mp.undo()
+
+
+def test_node_clear_status_removes_status_from_meta(isolated_paths: Path):
+    _write_meta(
+        isolated_paths,
+        {"node_id": "node_clear", "base_url": "http://x", "status": "busy"},
+    )
+    _write(isolated_paths / "relay_config.json", json.dumps({"base_url": "http://x"}))
+    _write(isolated_paths / "ai-relay-agent.token", "tok")
+
+    from nodes.common import node_cli as cli_mod
+
+    class _FakeClient:
+        def __init__(self, meta, cfg):
+            self.meta = meta
+            self.cfg = cfg
+            self.base_url = meta.get("base_url")
+            self.token = "tok"
+
+        def heartbeat(self, caps, inflight):
+            return {"status": "ok"}
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(cli_mod, "RelayClient", _FakeClient)
+
+    rc = cli.main(["node", "clear-status"])
+    assert rc == 0
+    meta = json.loads((isolated_paths / "ai-relay-agent.json").read_text())
+    assert "status" not in meta
+    mp.undo()
+
+
+def test_node_status_reports_requested_and_server_status(
+    isolated_paths: Path, capsys: pytest.CaptureFixture[str]
+):
+    _write_meta(
+        isolated_paths,
+        {"node_id": "node_status", "node_name": "StatusNode", "base_url": "http://x", "status": "busy"},
+    )
+    _write(isolated_paths / "relay_config.json", json.dumps({"base_url": "http://x"}))
+    _write(isolated_paths / "ai-relay-agent.token", "tok")
+
+    from nodes.common import node_cli as cli_mod
+
+    class _FakeClient:
+        def __init__(self, meta, cfg):
+            self.meta = meta
+            self.cfg = cfg
+            self.base_url = meta.get("base_url")
+            self.token = "tok"
+
+        def _get_with_retry(self, path, **kw):
+            class _R:
+                status_code = 200
+
+                def json(self):
+                    return {
+                        "nodes": [
+                            {
+                                "node_id": "node_status",
+                                "status": "online",
+                                "load": 12.0,
+                                "queue_depth": 1,
+                            }
+                        ]
+                    }
+
+            return _R()
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(cli_mod, "RelayClient", _FakeClient)
+
+    rc = cli.main(["node", "status"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "busy" in out  # requested status
+    assert "online" in out  # server status
+    mp.undo()
+
+
+def test_node_status_json_output(
+    isolated_paths: Path, capsys: pytest.CaptureFixture[str]
+):
+    _write_meta(
+        isolated_paths,
+        {"node_id": "node_status_json", "base_url": "http://x", "status": "idle"},
+    )
+    _write(isolated_paths / "relay_config.json", json.dumps({"base_url": "http://x"}))
+    _write(isolated_paths / "ai-relay-agent.token", "tok")
+
+    from nodes.common import node_cli as cli_mod
+
+    class _FakeClient:
+        def __init__(self, meta, cfg):
+            self.meta = meta
+            self.cfg = cfg
+            self.base_url = meta.get("base_url")
+            self.token = "tok"
+
+        def _get_with_retry(self, path, **kw):
+            class _R:
+                status_code = 200
+
+                def json(self):
+                    return {"nodes": [{"node_id": "node_status_json", "status": "online"}]}
+
+            return _R()
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(cli_mod, "RelayClient", _FakeClient)
+
+    rc = cli.main(["--json", "node", "status"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["requested_status"] == "idle"
+    assert data["server_status"] == "online"
+    mp.undo()

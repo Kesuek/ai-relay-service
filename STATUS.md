@@ -8,7 +8,7 @@
 | **Port** | 8788 |
 | **Framework** | FastAPI + SQLite (WAL) |
 | **Owner** | Ronny Pietschke |
-| **Tests** | 205/205 passed (87 Capability-Pages-Tests included) |
+| **Tests** | 350/350 passed (87 Capability-Pages-Tests included) |
 | **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 → 2222f4b → 7ba5aaf → 1fcf787 → 6a9c83e → 09d0a8c → 122dca6 → c96d71e → f4827c4 → bc70188 → 85a7971 |
 
 ## Phase Status
@@ -84,6 +84,17 @@
 ### Phase 8 — Routing & Adressierung ✅
 - [x] `owner_node_id` in `claim_stage()` respektieren — Tasks lassen sich an einen bestimmten Node pinnen (T-046)
 - [x] `node-cli task submit --owner <node_id>` — Owner-Flag im Client (T-046)
+
+### Phase 18 — Zentrales Status-System ✅
+- [x] T-078: `core/status.py` — zentrale Status-Registry (Kategorien AVAILABLE/BUSY/PENDING/TERMINAL/OFFLINE, Lookup-Helper, Transitions-Prüfung, Farb-Mapping)
+- [x] T-079: DB-Migration — `users.status` + `nodes.consecutive_high_load` Spalten
+- [x] T-080: Scheduler-Umbau auf Kategorie-Logik (`node_can_claim`, `node_claim_statuses`, `mark_offline_nodes` für AVAILABLE+BUSY)
+- [x] T-081: Heartbeat `status` + `load_cap` Felder, Auto-Busy bei anhaltend hoher Last, `auto_busy_consecutive_heartbeats` Config
+- [x] T-082: `status_changed` SSE-Event an allen Node/Task/Stage-Übergängen
+- [x] T-083: Dashboard-Rendering — `status_category` + `status_color` im Overview-Response, `statusColor()` in dashboard.js
+- [x] T-084: `node-cli node busy`/`idle`/`status`/`clear-status` Subcommands
+- [x] T-085: User-Status vorbereitet (`users.status`, `USER_STATUSES`-Registry)
+- [x] T-086: Doku — concepts.md (Status System Abschnitt), cli-reference.md, api.md, CHANGELOG, STATUS
 
 ---
 

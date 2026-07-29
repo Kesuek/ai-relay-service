@@ -308,16 +308,98 @@ register → poll approval → heartbeat → claim → execute → complete
 
 Node status values:
 
-| Status | Meaning | Set by |
-|---|---|---|
-| `pending` | Registered, not yet approved | Relay on registration |
-| `approved` | Approved, no heartbeat yet | Relay on approval |
-| `online` | Sent at least one heartbeat | Relay on heartbeat |
-| `offline` | Missed too many heartbeats | Relay watchdog |
+| Status | Category | Meaning | Set by |
+|---|---|---|---|
+| `pending` | PENDING | Registered, not yet approved | Relay on registration |
+| `approved` | AVAILABLE | Approved, no heartbeat yet | Relay on approval |
+| `online` | AVAILABLE | Sent at least one heartbeat | Relay on heartbeat |
+| `idle` | AVAILABLE | Online and explicitly available for claims | `node-cli node idle` / auto-revert from busy |
+| `busy` | BUSY | Online but not accepting new claims | `node-cli node busy` / auto-busy on sustained load |
+| `maintenance` | BUSY | Manually taken out of rotation | Operator (future) |
+| `offline` | OFFLINE | Missed too many heartbeats | Relay watchdog |
 
 `available`, `load`, `queue_depth` in the heartbeat control whether the
 scheduler actually sends more work. `online` + `available=false` means
 "alive but do not send tasks right now".
+
+## Status system (Phase 18)
+
+All entity statuses — nodes, tasks, stages and users — are defined in
+a single central registry at `src/relay_server/core/status.py`. The
+registry maps each status name to a **category** and a list of allowed
+transitions. Business logic (scheduler, discovery watchdog, dashboard)
+queries by category instead of hardcoded string lists, so new status
+values can be added without touching call sites.
+
+### Categories
+
+| Category | Meaning | Typical statuses |
+|---|---|---|
+| `AVAILABLE` | Online and ready to accept work | `approved`, `online`, `idle`, `active` |
+| `BUSY` | Online but currently cannot accept work | `busy`, `running`, `claimed`, `maintenance` |
+| `PENDING` | Waiting for a decision / input / approval | `pending`, `accepted`, `awaiting_subtasks`, `needs_input` |
+| `TERMINAL` | Final state, no further transitions | `completed`, `failed`, `timed_out`, `cancelled` |
+| `OFFLINE` | Not reachable | `offline`, `inactive` |
+
+Helper predicates: `is_terminal()`, `is_busy()`, `is_available()`,
+`is_pending()`, `is_offline()`, `get_category()`. For node-specific
+reasoning use `node_can_claim()` (AVAILABLE only) and
+`node_is_claimable()` (AVAILABLE + PENDING).
+
+### Transitions
+
+Because status names overlap across entity types (`pending` exists for
+nodes, tasks and stages with different allowed transitions), transition
+checks are entity-specific: `node_can_transition()`,
+`task_can_transition()`, `stage_can_transition()`, `user_can_transition()`
+(or `can_transition(from, to, entity_type=...)`).
+
+```
+Node:     offline → pending → approved → online ⇄ busy ⇄ idle
+                                          ↓        ↓
+                                       offline  offline
+
+Task:     pending → accepted → running → completed/failed/timed_out/cancelled
+                              ↑↓
+                  awaiting_subtasks / needs_input
+
+Stage:    pending → claimed → completed/failed/timed_out
+                  ↑↓           pending (released back)
+```
+
+### Busy mode (manual + auto)
+
+A node can be marked `busy` manually with `node-cli node busy` (and
+reverted with `node-cli node idle` or `node-cli node clear-status`).
+The request persists in `ai-relay-agent.json` and is forwarded on the
+next heartbeat; the server validates the transition via the central
+registry and silently ignores invalid ones.
+
+Automatic busy: when a node's `load` stays at or above its `load_cap`
+for `auto_busy_consecutive_heartbeats` (default 3) heartbeats in a row,
+the server transitions the node to `busy` and stops it from claiming new
+stages. As soon as the load drops back below the cap, the node reverts
+to `idle` automatically. The `consecutive_high_load` counter is stored
+per node and resets to 0 on every below-cap heartbeat.
+
+### `status_changed` SSE event
+
+Every status transition publishes a `status_changed` event on the event
+bus (and thus the SSE stream) with the payload:
+
+```json
+{
+  "entity_type": "node" | "task" | "stage" | "user",
+  "entity_id": "...",
+  "old_status": "..." | null,
+  "new_status": "..."
+}
+```
+
+Subscribers can filter on `event_types: ["status_changed"]` to receive
+only status transitions. The event is fired for explicit requests
+(`node-cli node busy`), auto-busy, the offline watchdog, and every
+scheduler stage/task transition (claim, complete, fail, time out).
 
 ## Security model
 

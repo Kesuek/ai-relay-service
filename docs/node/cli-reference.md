@@ -622,6 +622,80 @@ node-cli node info 3H69CMAD
 | 0 | Action succeeded |
 | 1 | HTTP / network error, or `info` did not find a node with the given `node_id` |
 
+#### `busy` (T-084)
+
+Mark this node as `busy`. The scheduler will stop sending new stage claims
+to it until the status changes. The request is persisted in
+`~/.relay/ai-relay-agent.json` and forwarded on the next heartbeat; the
+server validates the transition (online/idle → busy) via the central
+status registry and silently ignores invalid ones.
+
+```bash
+node-cli node busy
+# -> ✅ Node marked busy — next heartbeat will forward the new status.
+# ->    Send SIGHUP or restart the daemon to pick up the change immediately.
+
+node-cli node busy --once   # send a single heartbeat carrying the new status now
+```
+
+`--json` output: `{"status": "busy", "persisted": true, "once": bool}`.
+
+#### `idle` (T-084)
+
+Mark this node as `idle` (available for claiming stages again). Same
+persistence and validation rules as `busy`.
+
+```bash
+node-cli node idle
+node-cli node idle --once
+```
+
+#### `clear-status` (T-084)
+
+Remove an explicit `busy`/`idle` request from the meta file and restore
+automatic status handling. After this the server sets the node to
+`online` on the next heartbeat and may later flip it to `busy` via the
+auto-busy load tracking.
+
+```bash
+node-cli node clear-status
+node-cli node clear-status --once
+```
+
+#### `status` (T-084)
+
+Show the local requested status (from `ai-relay-agent.json`, if any) and
+query the server for the authoritative current status of this node,
+including load and queue depth.
+
+```bash
+node-cli node status
+# -> Node:             hermes-agent-v2
+# -> Requested status: busy
+# -> Server status:    busy
+# -> Server load:      82.0
+# -> Server queue:     3
+```
+
+`--json` output:
+
+```json
+{
+  "node_id": "3H69CMAD",
+  "requested_status": "busy",
+  "server_status": "busy",
+  "load": 82.0,
+  "queue_depth": 3
+}
+```
+
+### Exit codes
+
+| Code | Condition |
+|---|---|
+| 0 | Action succeeded |
+| 1 | HTTP / network error, or `info` did not find a node with the given `node_id` |
+
 ---
 
 ## status

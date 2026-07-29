@@ -64,6 +64,14 @@ For node-side usage see [../node/setup.md](../node/setup.md).
 |---|---|---|---|
 | GET | `/relay/v2/events/stream` | `rt_...` (`?node=<id>`) | Real-time SSE event stream |
 
+Event types (selected): `task_created`, `task_completed`, `task_failed`,
+`task_timed_out`, `stage_claimed`, `stage_completed`, `stage_failed`,
+`stage_timed_out`, `node_online`, `node_offline`, and — since Phase 18 —
+`status_changed`. The `status_changed` event (T-082) fires on every
+node/task/stage/user status transition with the payload
+`{"entity_type", "entity_id", "old_status", "new_status"}`. Filter with
+`?types=status_changed` to receive only status transitions.
+
 ## Storage — `/relay/v2/storage`
 
 | Method | Path | Auth | Purpose |
@@ -239,7 +247,9 @@ curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/discovery/heartbeat" \
     "available": true,
     "load": 0.0,
     "queue_depth": 0,
-    "capabilities": [{"name": "storage.archive.native", "version": "1.0.0"}]
+    "capabilities": [{"name": "storage.archive.native", "version": "1.0.0"}],
+    "status": "busy",
+    "load_cap": 80.0
   }' | jq
 ```
 
@@ -248,14 +258,31 @@ Response (200):
 ```json
 {
   "node_id": "V34ETT74",
-  "status": "ok",
-  "previous_status": "approved",
-  "last_seen": "2026-07-17T10:23:11+00:00"
+  "status": "ok"
 }
 ```
 
+Body fields (all optional except the Bearer token):
+
+| Field | Type | Notes |
+|---|---|---|
+| `load` | float 0–100 | Load as a percentage of `load_cap`. Drives the auto-busy logic (T-081). |
+| `queue_depth` | int ≥ 0 | Pending stages advertised by this node. |
+| `available` | bool | Capability-level availability flag. |
+| `endpoint` | string | Node's reachable endpoint (optional). |
+| `capabilities` | array | Capability list (merge mode). Use `/worker-heartbeat` with `replace_capabilities=True` for full replace. |
+| `node_name` | string | Node-level name override (T-072). |
+| `description` | string | Node-level description (T-072). |
+| `routes` | array | Dynamic Node Routes declared by the node (T-075). |
+| `status` | string | **T-081** — explicit node status request (e.g. `busy`, `idle`). Validated via the central status registry; invalid transitions are silently ignored. |
+| `load_cap` | float | **T-081** — per-node load ceiling. When `load >= load_cap` for `auto_busy_consecutive_heartbeats` (default 3) heartbeats in a row the server transitions the node to `busy` automatically. |
+
 Errors: `401` token invalid/expired; `403` node not approved yet (poll
 `/auth/status`).
+
+On any node status transition (explicit request, auto-busy, or the
+approved/offline → online recovery path) the server publishes a
+`status_changed` SSE event with `{"entity_type": "node", "entity_id": ..., "old_status": ..., "new_status": ...}` (T-082).
 
 ### Claim a stage
 
