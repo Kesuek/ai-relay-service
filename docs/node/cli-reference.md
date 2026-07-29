@@ -889,12 +889,12 @@ All paths are relative to `~/.relay/` unless noted.
 | Path | Description |
 |---|---|
 | `ai-relay-agent.json` | Node metadata (node_id, node_name, capabilities, registration_secret, base_url) |
-| `ai-relay-agent.token` | Runtime token (`rt_…`) |
-| `relay_config.json` | Poller / daemon config (see below) |
+| `ai-relay-agent.token` | Runtime token (`rt_`...) |
 | `worker_status.json` | Daemon status file (written after every heartbeat) |
-| `node.yaml` | Active node configuration & capability profile |
+| `node.yaml` | Active node config — see [node-config.md](node-config.md) |
 | `node.profile` | Name of the active profile |
-| `profiles.d/` | Working capability profiles |
+| `profiles.d/` | Working capability profiles (edited by operator) |
+| `relay_config.json` | Daemon settings — see [setup.md](setup.md) |
 | `node-cli.pid` | Daemon PID file |
 | `node-cli.log` | Daemon log file |
 
