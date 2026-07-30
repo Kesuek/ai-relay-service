@@ -139,4 +139,4 @@ ruff format .
 
 ## License
 
-MIT
+AGPL-3.0-only — see [LICENSE](LICENSE).
