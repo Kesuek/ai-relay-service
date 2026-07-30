@@ -47,6 +47,7 @@ document is the central reference; everything else links back to it.
 | `node-token-lifecycle` | `/relay/v2/docs/node-token-lifecycle` | [docs/node/token-lifecycle.md](docs/node/token-lifecycle.md) | Token types, refresh, recovery | Node operator |
 | `reference-api` | `/relay/v2/docs/reference-api` | [docs/reference/api.md](docs/reference/api.md) | All API endpoints (Health, Auth, Discovery, Scheduler, Storage, Admin, Docs) | Developer |
 | `reference-design-board` | `/relay/v2/docs/reference-design-board` | [docs/reference/design-board.md](docs/reference/design-board.md) | Message-board design | Developer |
+| `reference-database-backends` | `/relay/v2/docs/reference-database-backends` | [docs/reference/database-backends.md](docs/reference/database-backends.md) | Pluggable database backends (SQLite, PostgreSQL, MariaDB) | Developer |
 | `readme` | `/relay/v2/docs/readme` | [README.md](README.md) | This document | All |
 
 Legacy short names still resolve to the current documents:
