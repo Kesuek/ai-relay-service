@@ -1,17 +1,2 @@
-.DS_Store
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-.eggs/
-.env
-*.db
-*.db-wal
-*.db-shm
-.pytest_cache/
-.coverage
-htmlcov/
-dist/
-build/
-.venv/
-.hermes/
+# Generated images from mflux capability
+mflux_*.png
