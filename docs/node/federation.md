@@ -1,6 +1,10 @@
-# Federation Node — Implementation
+# Federation Node — Concept
 
-> **Status:** concept (see [IDEAS.md](../../.hermes/projects/ai-relay-service/IDEAS.md))
+> **⚠️ Concept — not yet implemented.** This document describes the planned
+> Federation Node based on discussions (2026-08-01). No code exists yet.
+> See [IDEAS.md](../../.hermes/projects/ai-relay-service/IDEAS.md) for the
+> original idea and [TASKS.md](../../.hermes/projects/ai-relay-service/TASKS.md)
+> for the current board state.
 
 ## What is a Federation Node?
 
