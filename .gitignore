@@ -12,3 +12,7 @@ mflux_*.png
 
 # Hermes agent working files (plans, opencode output, project boards)
 .hermes/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
