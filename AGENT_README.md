@@ -1,9 +1,9 @@
 # Agent / Node Connection Guide
 
 This document explains how an autonomous agent or worker node connects to the
-AI Relay cluster and starts receiving tasks. For the full step-by-step guide see
+Relay cluster and starts receiving tasks. For the full step-by-step guide see
 **[docs/node/setup.md](docs/node/setup.md)**. For concepts and architecture see
-**[docs/concepts.md](docs/concepts.md)**.
+**[docs/concepts.md](docs/concepts.md)** and **[docs/node/concept.md](docs/node/concept.md)**.
 
 ## 1. What is a node?
 
