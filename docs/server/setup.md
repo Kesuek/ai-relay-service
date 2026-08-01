@@ -1,4 +1,4 @@
-# AI Relay Service — Server Setup
+# AI Relay Service — Server Setup: From Zero to Relay
 
 This guide explains how to install, configure, and run the AI Relay Service
 core on your host. Node setup is documented separately in
