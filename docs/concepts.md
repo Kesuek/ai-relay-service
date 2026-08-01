@@ -122,7 +122,7 @@ cookie; they do not use a prefixed token.
        ↓
 [Admin approves] → runtime token (7 days), node status: approved
        ↓
-[Heartbeat every 8s] → status online → claim → work → complete
+[Heartbeat every 8 s (default)] → status online → claim → work → complete
        ↓
 [Before expiry] → POST /auth/refresh → new runtime token
        ↓
@@ -257,6 +257,12 @@ Node status values:
 scheduler actually sends more work. `online` + `available=false` means
 "alive but do not send tasks right now".
 
+> **Scaling note:** The relay is designed for single-server, small-to-medium
+> clusters — tens of nodes and hundreds of tasks per minute. SQLite with WAL
+> handles this comfortably. For larger deployments (hundreds of nodes, very
+> high throughput), see [server/setup.md](server/setup.md) for scaling
+> considerations.
+
 ## Status system (Phase 18)
 
 All entity statuses — nodes, tasks, stages and users — are defined in
@@ -342,7 +348,7 @@ scheduler stage/task transition (claim, complete, fail, time out).
 - **Registration secret is recovery only.** Rotated on every recovery use.
 - **Master seed is emergency only.** Created on the relay host, never through
   the HTTP API. Stored as a bcrypt hash; the plain seed is never kept on disk.
-- **Core routes by capability string.** It does not choose tools, so it cannot
+- **The core routes tasks by capability string.** It does not choose tools, so it cannot
   be tricked into running untrusted logic.
 - **Nodes run with minimal privileges** and only touch the paths and
   devices they own.
@@ -363,7 +369,7 @@ scheduler stage/task transition (claim, complete, fail, time out).
 | **Stage** | A single unit of work inside a task DAG. Has a capability, a payload, dependencies, and a status. |
 | **Task** | A collection of one or more stages with dependencies, submitted by a node. Has a `task_id` and a priority. |
 | **DAG** | Directed acyclic graph of stages within a task; `depends_on` defines the edges. |
-| **Heartbeat** | A periodic `POST /relay/v2/discovery/heartbeat` from a node reporting availability, load, queue depth, and current capabilities. Default every 8–10 s. |
+| **Heartbeat** | A periodic `POST /relay/v2/discovery/heartbeat` from a node reporting availability, load, queue depth, and current capabilities. Default every 8 s (configurable via `heartbeat_interval_seconds`). |
 | **Claim** | A node takes a pending stage matching one of its capabilities (`POST /relay/v2/scheduler/claim`); the stage becomes `claimed` for up to `claim_ttl_seconds`. |
 | **Complete** | A node submits the result of a claimed stage (`POST /relay/v2/scheduler/stages/{id}/complete`). |
 | **Runtime token** (`rt_…`) | Day-to-day Bearer token for a node. TTL 7 days, one per node, refreshed via `/auth/refresh`. See [node/token-lifecycle.md](node/token-lifecycle.md). |

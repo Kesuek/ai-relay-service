@@ -86,3 +86,26 @@ What do you want to do?
 │
 └─ Understand the architecture              → node/concept.md, node/capability-concept.md, concepts.md
 ```
+
+## Quick API walkthrough
+
+These three calls cover the core flow: register a node, wait for approval, and refresh the token.
+
+```bash
+# 1. Register a node
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{"node_name": "test-node", "endpoint": null, "role": "node"}' | tee /tmp/register.json
+
+# 2. Poll until approved (admin must approve in the dashboard)
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/status" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -c '{node_id, registration_secret}' /tmp/register.json)"
+
+# 3. After approval: obtain a runtime token
+curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -c '{node_id, registration_secret, requested_credential: "runtime_token"}' /tmp/register.json)"
+```
+
+See [reference/api.md](reference/api.md) for the full endpoint table.
