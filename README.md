@@ -1,10 +1,10 @@
 # AI-Relay-Service v2
 
-Standalone agent cluster server for distributed AI agents. The core is a thin,
-**KI-less** coordination layer: it connects, authenticates, distributes tasks,
+Standalone task distribution server for distributed worker nodes. The core is a
+thin **coordination layer**: it connects, authenticates, distributes tasks,
 and monitors availability. Domain services (Board, Vault, Storage, …) and
-AI-capable workers run as external nodes that register with the relay over the
-public v2 API and advertise their own capabilities.
+workers run as external nodes that register with the relay over the public v2
+API and advertise their own capabilities.
 
 - **Port:** 8788
 - **Framework:** FastAPI + uvicorn
@@ -36,7 +36,7 @@ All public Markdown docs are served live by the relay at
 document is the central reference; everything else links back to it.
 
 | Name | URL | File | Content | Audience |
-|---|---|---|---|---|
+|------|-----|------|---------|----------|
 | `concepts` | `/relay/v2/docs/concepts` | [docs/concepts.md](docs/concepts.md) | Architecture, capability & token concepts, node types, self-care pattern | All |
 | `server-setup` | `/relay/v2/docs/server-setup` | [docs/server/setup.md](docs/server/setup.md) | Server installation & configuration | Admin |
 | `server-admin` | `/relay/v2/docs/server-admin` | [docs/server/admin.md](docs/server/admin.md) | Node management & admin API | Admin |
@@ -53,7 +53,7 @@ document is the central reference; everything else links back to it.
 Legacy short names still resolve to the current documents:
 
 | Legacy Name | Resolves to |
-|---|---|
+|-------------|-------------|
 | `setup` | `server-setup` |
 | `admin-setup` | `server-admin` |
 | `dashboard` | `server-dashboard` |
@@ -80,9 +80,9 @@ Legacy short names still resolve to the current documents:
 ## Architecture
 
 The relay is a stateful coordination layer. It owns the registry, heartbeat
-state, task DAG, and event stream, but it never runs AI inference or domain
-logic itself. KI-capable worker nodes decide locally and may post decision
-tasks back to the relay so another node can execute them.
+state, task DAG, and event stream, but it never runs domain logic itself.
+Worker nodes decide locally and may post decision tasks back to the relay so
+another node can execute them.
 
 ```
                           ┌────────────────────────┐
@@ -95,13 +95,17 @@ tasks back to the relay so another node can execute them.
            ┌────────────────────────┘  └────────────────────────────┐
            │ heartbeat / claim / complete           register        │
            ▼                                                          ▼
-  ┌────────────────────┐                                     ┌────────────────────┐
-  │  Service Node      │◄─── KI-less: executes work ───────►│  Worker Node       │
-  │  (storage, board)  │         directly over API          │  with local AI     │
-  └────────────────────┘                                     └────────────────────┘
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  Node (one type, differentiated by capabilities)                     │
+  │                                                                      │
+  │  • chat.ai          → LLM chat          (worker on Mac)             │
+  │  • image.gen.mflux  → image generation  (worker on Mac)             │
+  │  • ssn.pages        → host dashboard    (SSN on relay host)        │
+  │  • federation       → bridge relays     (federation node)          │
+  └──────────────────────────────────────────────────────────────────────┘
 ```
 
-See [docs/concepts.md](docs/concepts.md) for the full node architecture and
+See [docs/concepts.md](docs/concepts.md) for the full architecture and
 self-care pattern, and [docs/node/token-lifecycle.md](docs/node/token-lifecycle.md)
 for the auth flow.
 
@@ -109,13 +113,13 @@ for the auth flow.
 
 - **One runtime token per node.** Refreshing it invalidates the previous one.
 - **Registration secret is recovery only.** It expires after 12 hours.
-- **Core is KI-less.** It routes by capability string; it does not choose tools.
+- **Core routes by capability string.** It does not choose tools or models.
 
 ## Examples & Storage Node
 
 - **Example nodes** in `examples/nodes/` — standalone vault and board nodes.
   See `examples/nodes/README.md` and `scripts/manual_node_test.py`.
-- **Storage node** in `nodes/storage-node/` — KI-less NAS archiver, runs as a
+- **Storage node** in `nodes/storage-node/` — NAS archiver, runs as a
   Docker container. See `nodes/storage-node/README.md` and
   `docs/node/setup.md`.
 

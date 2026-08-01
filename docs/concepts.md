@@ -1,4 +1,4 @@
-# AI Relay — Concepts
+# Relay — Concepts
 
 This document is the central concept reference for the AI Relay Service. It
 explains what the relay is, the architecture it follows, how capabilities and
@@ -10,17 +10,16 @@ documents link back here for the underlying mental model.
 > (what a node is) and [node/capability-concept.md](node/capability-concept.md)
 > (what a capability is) before diving into this reference.
 
-## What is the AI Relay?
+## What is the Relay?
 
-The AI Relay is a **KI-less coordination layer** for a cluster of distributed AI
-agents and service nodes. It does one thing well: it connects, authenticates,
-distributes tasks, and monitors availability. It never runs AI inference or
-domain logic itself.
+The Relay is a **coordination layer** for a cluster of distributed worker
+nodes. It does one thing well: it connects, authenticates, distributes tasks,
+and monitors availability. It never runs domain logic itself.
 
 - It owns the registry, heartbeat state, the task DAG, and the event stream.
 - It routes work by **capability string** — it does not choose tools, models,
   or parameters.
-- Every domain service (Board, Vault, Storage, …) and every AI worker runs as
+- Every domain service (Board, Vault, Storage, …) and every worker runs as
   an **external node** that registers with the relay over the public v2 API
   and advertises its own capabilities.
 
@@ -70,11 +69,11 @@ will not match a stage.
 
 | Suffix | Meaning | Example |
 |--------|---------|---------|
-| `.native` | Runs on the node directly. No local AI. | `storage.archive.native`, `db.board.create.native` |
-| `.ai` | KI-capable; the node delegates to its local AI. | `chat.ai`, `code.ai` |
+| `.native` | Runs on the node directly. No external reasoning. | `storage.archive.native`, `db.board.create.native` |
+| `.ai` | Delegates to a local AI or LLM for reasoning. | `chat.ai`, `code.ai` |
 | `.relay` | Relay-internal orchestration capability. | `llm.decide_cleanup.relay` |
 
-> **All KI-less / service nodes use `.native`.** A database service node
+> **Nodes without local AI use `.native`.** A database service node
 > advertises `db.board.create.native`, `db.post.read.native`, etc. — never
 > the bare `db.board.create`. The relay matches names **exactly**, so a
 > stage requesting `db.board.create.native` will not be claimed by a node
@@ -161,24 +160,27 @@ For a full introduction see [node/concept.md](node/concept.md).
 | `ssn.pages` + `ssn.proxy` | Hosts dashboard pages + API proxy | SSN on relay host | [ssn.md](node/ssn.md) |
 | `federation` | Bridges capabilities from remote relays | Federation node | [federation.md](node/federation.md) |
 
-### KI-capable vs KI-less
+### Capability execution modes
 
-While there is only one node type, capabilities fall into two broad categories:
+While there is only one node type, capabilities fall into two broad categories
+based on how they execute work:
 
-| | KI-capable (`.ai`) | KI-less (`.native`) |
+| | With reasoning (`.ai`) | Without reasoning (`.native`) |
 |---|---|---|
-| **Reasoning** | Understands natural language, plans, judges | None — executes exactly what the stage says |
+| **Behaviour** | Understands natural language, plans, judges | Executes exactly what the stage says |
 | **Example** | `chat.ai`, `code.ai`, `web.ai` | `storage.archive.native`, `db.board.create.native` |
 | **Safety** | Validates destructive payloads before approving | Cannot improvise — only does what the stage says |
 | **Cost** | Needs GPU or large model | Runs on constrained devices (NAS, IoT, Docker) |
 
 ### Self-care pattern
 
-This is the core pattern that connects KI-less capabilities to KI-capable
-capabilities through the relay, without the relay itself having to reason.
+This is the core pattern that connects capabilities without reasoning to
+capabilities with reasoning through the relay, without the relay itself
+having to decide.
 
 > A node detects a problem it is not allowed to decide itself. Instead
-> of making a choice, it creates a task for a KI-capable capability.
+> of making a choice, it creates a task for a capability that can reason
+> about it.
 
 Example: the storage node notices disk usage above the threshold.
 
@@ -190,12 +192,12 @@ Example: the storage node notices disk usage above the threshold.
 4. Relay creates a follow-up `storage.delete` stage.
 5. Storage node claims and executes the deletion.
 
-No KI logic lives inside the storage node. The relay only routes by
+No decision logic lives inside the storage node. The relay only routes by
 capability; it never interprets the decision.
 
 ### Decision boundaries
 
-| Situation | KI-capable node | KI-less node |
+| Situation | With reasoning (`.ai`) | Without reasoning (`.native`) |
 |-----------|----------------|--------------|
 | User asks "What should I delete?" | Decide | Measure, then ask |
 | Disk full | Analyse and recommend | Report usage, then act on command |
@@ -207,16 +209,16 @@ capability; it never interprets the decision.
 Rule of thumb:
 
 > If the answer to "what should happen next?" requires interpretation,
-> preference, or judgement, it belongs to a KI-capable capability.
+> preference, or judgement, it belongs to a capability with reasoning (`.ai`).
 >
 > If the answer is deterministic and reversible or explicitly authorised,
-> it can belong to a KI-less capability.
+> it can belong to a capability without reasoning (`.native`).
 
-### Why KI-less capabilities?
+### Why capabilities without reasoning?
 
 | Benefit | Explanation |
 |---------|-------------|
-| Safety | A dumb node cannot improvise. It only does what the stage says. |
+| Safety | A node without reasoning cannot improvise. It only does what the stage says. |
 | Simplicity | Small code base, easy to audit, easy to replace. |
 | Reliability | Fewer moving parts, deterministic behaviour. |
 | Network placement | Can run on constrained devices (NAS, IoT, Docker). |
@@ -340,11 +342,11 @@ scheduler stage/task transition (claim, complete, fail, time out).
 - **Registration secret is recovery only.** Rotated on every recovery use.
 - **Master seed is emergency only.** Created on the relay host, never through
   the HTTP API. Stored as a bcrypt hash; the plain seed is never kept on disk.
-- **Core is KI-less.** It routes by capability string; it does not choose
-  tools, so it cannot be tricked into running untrusted logic.
-- **Service nodes run with minimal privileges** and only touch the paths and
+- **Core routes by capability string.** It does not choose tools, so it cannot
+  be tricked into running untrusted logic.
+- **Nodes run with minimal privileges** and only touch the paths and
   devices they own.
-- **KI nodes validate destructive payloads** before approving them.
+- **Nodes with reasoning validate destructive payloads** before approving them.
 - **Unknown capabilities are ignored** — nodes cannot claim work outside
   their role.
 - **Keep the relay behind your firewall**; it is designed for private
@@ -371,7 +373,7 @@ scheduler stage/task transition (claim, complete, fail, time out).
 | **Bootstrap seed** (`bs_…`) | One-time 24 h session after a master-seed dashboard login. |
 | **SSE** | Server-Sent Events; the relay pushes events to nodes via `GET /relay/v2/events/stream`. |
 | **EventBus** | The relay's internal event system; emits typed events (e.g. `board.post_created`, `task.stage_completed`) that nodes subscribe to via SSE. |
-| **Self-care pattern** | A node with a KI-less capability posts a decision task for a KI-capable capability when a judgement call is needed, instead of deciding itself. |
+| **Self-care pattern** | A node without reasoning posts a decision task for a capability with reasoning when a judgement call is needed, instead of deciding itself. |
 | **SSN** | A node that runs on the relay host and heartbeats `ssn.pages` + `ssn.proxy`. See [node/ssn.md](node/ssn.md). |
 | **Federation Node** | A node that heartbeats `federation` and bridges capabilities from remote relays. See [node/federation.md](node/federation.md). |
 | **Pending / approved / online / offline** | Node status values; see "Node lifecycle" above. |
