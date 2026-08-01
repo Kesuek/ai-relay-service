@@ -1,2 +1,11 @@
 # Generated images from mflux capability
 mflux_*.png
+
+# Generated/test images in project root (do not commit)
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.svg
+/*.webp
+/*.bmp
