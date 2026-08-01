@@ -356,23 +356,25 @@ scheduler stage/task transition (claim, complete, fail, time out).
 | Term | Meaning |
 |---|---|
 | **Node** | A process that registers with the relay and heartbeats capabilities. There is one node type — capabilities define what it does. See [node/concept.md](node/concept.md). |
-| **Capability** | A dot-separated routing key (e.g. `storage.archive.native`) a node advertises; the scheduler matches stages to nodes by exact capability name. |
-| **Capability suffix** | `.native` (no AI, runs directly), `.ai` (delegates to local AI), `.relay` (relay-internal). Required on every concrete capability. |
+| **Capability** | A dot-separated routing key (e.g. `storage.archive.native`) a node advertises; the scheduler matches stages to nodes by exact capability name. See [node/capability-concept.md](node/capability-concept.md). |
+| **Capability suffix** | `.native` (no AI, runs directly), `.ai` (delegates to local AI), `.relay` (relay-internal). Required on every concrete capability. See [node/capabilities.md](node/capabilities.md). |
 | **Stage** | A single unit of work inside a task DAG. Has a capability, a payload, dependencies, and a status. |
 | **Task** | A collection of one or more stages with dependencies, submitted by a node. Has a `task_id` and a priority. |
 | **DAG** | Directed acyclic graph of stages within a task; `depends_on` defines the edges. |
 | **Heartbeat** | A periodic `POST /relay/v2/discovery/heartbeat` from a node reporting availability, load, queue depth, and current capabilities. Default every 8–10 s. |
 | **Claim** | A node takes a pending stage matching one of its capabilities (`POST /relay/v2/scheduler/claim`); the stage becomes `claimed` for up to `claim_ttl_seconds`. |
 | **Complete** | A node submits the result of a claimed stage (`POST /relay/v2/scheduler/stages/{id}/complete`). |
-| **Runtime token** (`rt_…`) | Day-to-day Bearer token for a node. TTL 7 days, one per node, refreshed via `/auth/refresh`. |
+| **Runtime token** (`rt_…`) | Day-to-day Bearer token for a node. TTL 7 days, one per node, refreshed via `/auth/refresh`. See [node/token-lifecycle.md](node/token-lifecycle.md). |
 | **Registration secret** (`rs_…`) | Recovery-only credential. TTL 12 h, rotated on every use. Used to recover a lost runtime token. |
 | **Temporary token** (`tp_…`) | Short-lived token (24 h) issued on registration, replaced by a runtime token after approval. |
 | **Master admin seed** (`adm_…`) | Emergency credential created on the relay host; used to bootstrap the first admin and for recovery. Stored as a bcrypt hash. |
 | **Bootstrap seed** (`bs_…`) | One-time 24 h session after a master-seed dashboard login. |
 | **SSE** | Server-Sent Events; the relay pushes events to nodes via `GET /relay/v2/events/stream`. |
 | **EventBus** | The relay's internal event system; emits typed events (e.g. `board.post_created`, `task.stage_completed`) that nodes subscribe to via SSE. |
-| **Self-care pattern** | A KI-less node posts a decision task for a KI node when a judgement call is needed, instead of deciding itself. |
-| **Pending / approved / online / offline** | Node status values; see "Node lifecycle". |
+| **Self-care pattern** | A node with a KI-less capability posts a decision task for a KI-capable capability when a judgement call is needed, instead of deciding itself. |
+| **SSN** | A node that runs on the relay host and heartbeats `ssn.pages` + `ssn.proxy`. See [node/ssn.md](node/ssn.md). |
+| **Federation Node** | A node that heartbeats `federation` and bridges capabilities from remote relays. See [node/federation.md](node/federation.md). |
+| **Pending / approved / online / offline** | Node status values; see "Node lifecycle" above. |
 
 ## Where to go next
 

@@ -56,7 +56,7 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/register" \
   -d '{
     "node_name": "my-node",
     "endpoint": null,
-    "role": "service",
+    "role": "node",
     "capabilities": [{"name": "chat.ai", "version": "1.0.0"}]
   }' | tee /tmp/register.json
 ```
