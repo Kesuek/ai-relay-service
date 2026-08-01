@@ -9,19 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- T-088c: Proaktiver Token-Refresh im Heartbeat-Loop — der Daemon refresht das Runtime-Token automatisch, sobald es in weniger als 1 Stunde abläuft, bevor es zu Verbindungsabbrüchen kommt. `RelayClient.token_expires_at` trackt die Gültigkeit; fehlerhafte/fehlende `expires_at`-Werte werden sicher ignoriert (Fallback auf die bestehende 401/403-Retry-Logik). (Phase 19)
-- T-088b: `_refresh_token()`/`_recover_runtime_token()` speichern `expires_at` aus der Server-Response (`/relay/v2/auth/refresh` liefert bereits `expires_at`) sowohl in der Token-Datei als auch in `RelayClient.token_expires_at`. (Phase 19)
-- T-088d: CLI-Subcommands `capabilities server`, `capabilities info`, `node list`, `node info` nutzen `_get_with_retry()` statt `_get()` — bei einem abgelaufenen Token wird einmalig refreshed und erneut versucht, statt direkt mit 401 durchzufallen. (Phase 19)
-- Neue Tests: `tests/nodes/test_node_utils.py` (8 Tests für JSON-Format, Legacy-Migration, Atomic-Write, korrupte JSON-Fallback), `tests/nodes/test_node_cli.py` um 8 Tests für Token-Loading, expires_at-Persistenz bei Refresh/Recovery, proaktiven Refresh (vor Ablauf / frisch / ohne expires_at) und `_get_with_retry` bei CLI-Subcommands erweitert. (Phase 19)
-
-- T-087: Node-Konfiguration umbenannt — `nodes/common/capability_loader.py` → `nodes/common/node_config.py` (Code + Imports). Datei-Pfade umbenannt: `capabilities.active.yaml` → `node.yaml`, `capabilities.active.profile` → `node.profile`, `capabilities.d/` → `profiles.d/` (Default von `RELAY_PROFILES_DIR` ändert sich entsprechend). Schema gelockert: `capabilities` ist jetzt optional, Root-Ebene erlaubt `additionalProperties`, neue Top-Level-Properties `node_name` und `description` ergänzt (neben dem bestehenden `status`). `validate_profile()` liefert bei fehlendem `capabilities`-Key eine leere Liste statt einen Fehler. `write_active_status()` arbeitet nun regex-basiert (YAML-Format, Kommentare und Key-Reihenfolge bleiben erhalten); die Datei wird nicht mehr neu erzeugt, wenn sie fehlt (No-Op). Migration beim ersten Import: `_migrate_old_paths()` kopiert alte `capabilities.*`-Dateien nach den neuen Namen, wenn die neuen noch nicht existieren (alte Dateien bleiben für Rolling-Deploy als Fallback erhalten). CLI-Befehlsnamen (`capabilities publish/list/validate/...`) bleiben unverändert. Doku, Tests und CLI-Referenzen aktualisiert. (Phase 19)
+- **Federation Node — Konzept** (2026-08-01): Neues Node-Konzept für Relay-übergreifende Capabilities. Ein Federation Node heartbeatet `federation` als Capability, verbindet sich zu Remote-Relays und forwardet Tasks. Dashboard-gesteuerte Capability-Freigabe (Admin klickt frei, Node heartbeatet erst dann). Client-Server-Modell: Server bietet Caps an, Client subscribed. P2P-Transport (QUIC/WebRTC) für Internet, HTTP für LAN. Siehe `docs/node/federation.md` und `IDEAS.md`.
+- **Doku-Restrukturierung (T-092)**: Drei neue Konzept-Seiten — `docs/node/concept.md` (Was ein Node ist — ein Typ, Capabilities unterscheiden), `docs/node/capability-concept.md` (Was eine Capability ist — Routing-Label, Beispiele), `docs/node/federation.md` (Federation Node als Konzept). `docs/node/ssn.md` überarbeitet (SSN als Implementierung von `ssn.pages` + `ssn.proxy`, nicht als Node-Typ). `docs/concepts.md` von "drei Node-Typen" auf Capability-Fokus umgestellt. `docs/getting-started.md`, `docs/setup.md`, `docs/node-readme.md`, `docs/node/setup.md` aktualisiert.
+- **Doku von KI-Sprache befreit (T-093)**: Alle 20 `docs/`-Dateien durchgegangen. "KI-less"/"KI-capable" → "With reasoning (`.ai`)"/"Without reasoning (`.native`)". Self-Care-Pattern generisch beschrieben. "AI Relay" → "Relay" in Titeln. `README.md`, `concepts.md`, `capabilities.md`, `design-board.md`, `dashboard.md`, `admin.md`, `AGENT_README.md` aktualisiert.
+- **README Storytelling**: "Why AI-Relay?"-Block erklärt Herkunft (Mac-Bildgenerierung → generischer Task-Switch). "Why use it?"-Sektion mit 6 Gründen.
+- **Server-Setup "From Zero to Relay"**: Titel vereinheitlicht mit Node-Setup "From Zero to Daemon". Verweis auf pluggable Database-Backends (`docs/reference/database-backends.md`).
+- **Review-Fixes**: Heartbeat-Intervall auf `8 s (default)` vereinheitlicht. Scaling-Hinweis in `concepts.md`. Quick-API-Walkthrough (3 curl-Befehle) in `getting-started.md`.
+- **Repository-Cleanup**: `.gitignore` um `__pycache__/`, `*.pyc`, `dist/`, `*.tar.gz`, Bildformate im Root (`/*.png`, `/*.jpg`, etc.), `.hermes/` ergänzt. 160+ `.pyc`-Dateien, 8 `dist/`-Dateien, 101 `.hermes/`-Dateien, `drache_ausmalbild.svg`, `ssn-capability-pages.sh` aus Tracking entfernt.
 
 ### Changed
 
-- T-088a: Token-Datei-Format auf JSON umgestellt — `save_token(token, expires_at=None)` schreibt `{"token": "...", "expires_at": "..."}` (atomar via tmp-Datei + rename), `load_token()` gibt ein dict (oder `None`) zurück. Legacy Plaintext-Tokens werden beim Laden erkannt und mit `expires_at=None` konvertiert; beim nächsten `save_token()` wird die Datei automatisch ins JSON-Format migriert. Betroffene Aufrufer (`RelayClient.__init__`, `_refresh_token`, `_recover_runtime_token`, `ssn_proxy._load_token`) angepasst. (Phase 19)
-- T-088e: `registration_secret_ttl_hours` default 12 → 168 (7 Tage), sodass die Recovery-Fallback-Ablaufzeit mit `token_ttl_hours` übereinstimmt. `docs/server/setup.md` aktualisiert. (Phase 19)
+- `docs/concepts.md` — "AI Relay" → "Relay" (Titel + Überschrift). "KI-less coordination layer" → "coordination layer". Capability execution modes: "KI-capable"/"KI-less" → "With reasoning (`.ai`)"/"Without reasoning (`.native`)". Security: "Core is KI-less" → "The core routes tasks by capability string". Glossary: Self-care auf Capability-Sprache umgestellt, neue Einträge für SSN und Federation Node.
+- `docs/node/ssn.md` — Komplett überarbeitet. SSN als Implementierung beschrieben (zwei Capabilities: `ssn.pages` + `ssn.proxy`), nicht als Node-Typ. SSN Proxy als API-Brücke zwischen HTML und Relay. HTMX-Pattern, Deployment, Capability-Profile.
+- `docs/node/capabilities.md` — Tabellen von KI-Sprache auf execution modes umgestellt. "KI-capable" → "With reasoning", "KI-less / tool" → "Without reasoning / tool".
+- `docs/reference/design-board.md` — "KI-less"/"KI-capable" → "no reasoning"/"with reasoning". "AI Relay Core" → "Relay Core". "KI-less router" → "coordination".
+- `docs/server/dashboard.md` — "AI Relay" → "Relay". "KI nodes" → "worker nodes".
+- `docs/server/admin.md` — "KI agent" → "automated agent".
+- `docs/server/setup.md` — "sole database" → "default database". PostgreSQL-Eintrag durch Verweis auf pluggable Database-Backends ersetzt.
+- `AGENT_README.md` — "AI Relay" → "Relay". Verweis auf `docs/node/concept.md` ergänzt.
+- `docs/node-readme.md` — Verweis auf `node-daemon.md` ergänzt.
 
-- T-087: `write_active_status()` — statt `yaml.dump` (was das gesamte Dokument neu serialisiert und Kommentare/Formatierung verwirft) wird das `status:`-Feld jetzt per Regex in-place editiert. Das YAML-Format bleibt damit erhalten; `node-cli node busy`/`idle`/`clear-status` ändern nur die Status-Zeile. (Phase 19)
+### Removed
+
+- `nodes/handlers/ssn-capability-pages.sh` — aus Tracking entfernt (wird durch Python-Version ersetzt, siehe T-091).
+- `drache_ausmalbild.svg` — aus Repository entfernt.
+- `dist/` — Build-Artifakte aus Tracking entfernt.
+- `.hermes/` — Hermes-Arbeitsdateien (Pläne, OpenCode-Output) aus Tracking entfernt.
+- `__pycache__/` — 160+ Python-Bytecode-Dateien aus Tracking entfernt.
 
 - T-078: Zentrales Status-System — neue Datei `src/relay_server/core/status.py` mit `StatusCategory`-Enum (AVAILABLE, BUSY, PENDING, TERMINAL, OFFLINE), `StatusDef`-Registry für Nodes, Tasks, Stages und Users, sowie Lookup-Helper (`get_category`, `is_terminal`, `is_busy`, `is_available`, `is_pending`, `is_offline`, `node_can_claim`, `node_is_claimable`, `node_can_transition`, `task_can_transition`, `stage_can_transition`, `status_color`). Business-Logik fragt ab jetzt Kategorien statt hartcodierter String-Listen ab. (Phase 18)
 - T-079: DB-Migration — neue `status`-Spalte in `users` (default `active`, backfilled aus `is_active`) und `consecutive_high_load`-Spalte in `nodes`. (Phase 18)
