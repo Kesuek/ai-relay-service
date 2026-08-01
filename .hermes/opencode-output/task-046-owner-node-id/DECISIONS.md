@@ -1,0 +1,8 @@
+# DECISIONS — T-046
+
+| Decision | Reason |
+|---|---|
+| `owner_node_id` ist opt-in, kein Default auf `ctx.node_id` | Bisher setzten `POST /scheduler/tasks` und `POST /scheduler/task-simple` den Einreicher-Node implizit als Owner. Mit dem neuen `claim_stage`-Filter hätten Tasks damit für alle anderen Nodes unsichtbar werden können — ein Breaking Change ohne Not. Das Default-Verhalten wurde daher entfernt; `owner_node_id` wird nur gesetzt, wenn der Client es explizit angibt. |
+| Filter-Logik im `claim_stage`-Loop, nicht in der SQL-Query | Die bestehende Query filtert nach `status = 'pending'` und `capability IN (...)`. Der Owner-Check benötigt zusätzlich den Lookup in der `tasks`-Tabelle (JOIN oder Sub-Query). Um die bestehende Code-Struktur minimal zu berühren und den bestehenden Dependency-Check-Symmetrie zu wahren, wurde der Check als Python-Branch innerhalb des Loops implementiert — analog zum bestehenden `depends_on`-Check eine Zeile darüber. |
+| `--owner` nur in `submit_simple_task` (einstufig), nicht im DAG-`POST /tasks`-Client | Der Plan adressiert nur `node-cli task submit`. Das Feld existiert in `TaskRequest` bereits und ist damit auch über die DAG-API nutzbar; ein CLI-Flag für den Mehrstufen-Fall kann später folgen. |
+| Feld nur im Body senden, wenn gesetzt | `submit_simple_task` baut den Body jetzt mit `if owner_node_id: body["owner_node_id"] = ...`. Damit bleibt die API rückwärtskompatibel und Pydantic-Validierung greift nur, wenn der Client das Feld wirklich nutzt. |

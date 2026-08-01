@@ -295,7 +295,7 @@ chunked_uploads_dir: "~/.relay/chunked_uploads"
 
 # Auth / tokens
 token_ttl_hours: 168                  # runtime token TTL (7 days)
-registration_secret_ttl_hours: 12
+registration_secret_ttl_hours: 168       # 7 days (T-088), matches token_ttl_hours
 temporary_token_ttl_hours: 24
 claim_ttl_seconds: 60                 # how long a stage can stay "claimed"
 heartbeat_interval_seconds: 10

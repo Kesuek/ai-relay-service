@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  ai-relay-storage:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-relay-storage-node:latest
+    container_name: ai-relay-storage
+    restart: unless-stopped
+    volumes:
+      - ${RELAY_STORAGE_PATH:-/volume1/ai-relay-storage}:/storage
+      - ai-relay-agent-config:/root/.relay
+    environment:
+      - RELAY_BASE_URL=${RELAY_BASE_URL:-http://ai-relay.local:8788}
+      - RELAY_NODE_NAME=${RELAY_NODE_NAME:-nas-storage-01}
+      - RELAY_STORAGE_PATH=/storage
+      - RELAY_POLL_INTERVAL=${RELAY_POLL_INTERVAL:-8}
+      - RELAY_QUOTA_THRESHOLD=${RELAY_QUOTA_THRESHOLD:-0.85}
+
+volumes:
+  ai-relay-agent-config:

@@ -1803,3 +1803,298 @@ def test_node_status_json_output(
     assert data["requested_status"] == "idle"
     assert data["server_status"] == "online"
     mp.undo()
+
+
+# ---------------------------------------------------------------------------
+# T-088: token refresh robustness — expires_at persistence + proactive refresh
+# ---------------------------------------------------------------------------
+
+
+def _write_json_token(base: Path, token: str = "rt_test", expires_at: str | None = None) -> Path:
+    """Write a JSON-envelope token file (the format since T-088)."""
+    token_path = base / "ai-relay-agent.token"
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"token": token}
+    if expires_at is not None:
+        payload["expires_at"] = expires_at
+    token_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    return token_path
+
+
+def test_relay_client_loads_token_and_expires_at(isolated_paths: Path):
+    """RelayClient.__init__ populates both token and token_expires_at
+    from the JSON envelope on disk."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write_json_token(base, "rt_test", expires_at="2026-08-08T08:30:00+00:00")
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    assert client.token == "rt_test"
+    assert client.token_expires_at == "2026-08-08T08:30:00+00:00"
+
+
+def test_relay_client_legacy_plaintext_token(isolated_paths: Path):
+    """A legacy plaintext token is loaded with expires_at=None (T-088a)."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write(base / "ai-relay-agent.token", "rt_legacy")  # plaintext
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    assert client.token == "rt_legacy"
+    assert client.token_expires_at is None
+
+
+def test_token_refresh_saves_expires_at(isolated_paths: Path, monkeypatch):
+    """_refresh_token stores the returned expires_at on disk and in memory."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write_json_token(base, "rt_old", expires_at="2026-01-01T00:00:00+00:00")
+
+    new_token = "rt_new"
+    new_expires = "2026-09-09T12:00:00+00:00"
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return {"token": new_token, "expires_at": new_expires, "token_type": "runtime"}
+
+    def fake_post(url, **kw):
+        return FakeResp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    assert client.token == "rt_old"
+    ok = client._refresh_token()
+    assert ok is True
+    assert client.token == new_token
+    assert client.token_expires_at == new_expires
+
+    # Token file persisted as JSON envelope with the new expiry.
+    on_disk = json.loads((base / "ai-relay-agent.token").read_text())
+    assert on_disk == {"token": new_token, "expires_at": new_expires}
+
+
+def test_recover_runtime_token_saves_expires_at(isolated_paths: Path, monkeypatch):
+    """_recover_runtime_token stores the returned expires_at (recovery path)."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({"base_url": "http://relay:8788", "request_timeout": 10}))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write_json_token(base, "rt_old")
+
+    new_token = "rt_recovered"
+    new_expires = "2026-10-10T10:00:00+00:00"
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return {"token": new_token, "expires_at": new_expires, "token_type": "runtime"}
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(httpx, "post", lambda url, **kw: FakeResp())
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    recovered = client._recover_runtime_token()
+    assert recovered == new_token
+    assert client.token == new_token
+    assert client.token_expires_at == new_expires
+    on_disk = json.loads((base / "ai-relay-agent.token").read_text())
+    assert on_disk == {"token": new_token, "expires_at": new_expires}
+
+
+def test_proactive_refresh_before_expiry(isolated_paths: Path, monkeypatch):
+    """When the token expires in <1h, the heartbeat loop calls _refresh_token."""
+    from datetime import datetime, timedelta, timezone
+
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({
+        "base_url": "http://relay:8788", "request_timeout": 10,
+        "heartbeat_interval": 999,  # don't loop
+    }))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    # Token expires in 30 minutes.
+    soon = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+    _write_json_token(base, "rt_soon", expires_at=soon)
+
+    refreshed = {"called": False}
+
+    # Build a minimal daemon with a stub client so the heartbeat path is
+    # exercised without a real network. We capture whether _refresh_token
+    # was invoked.
+    class _StubClient:
+        def __init__(self):
+            self.meta = {"node_id": "n1", "base_url": "http://relay.test"}
+            self.base_url = "http://relay.test"
+            self.token = "rt_soon"
+            self.token_expires_at = soon
+            self.heartbeat = lambda caps, inflight: {"status": "ok"}
+
+        def _refresh_token(self):
+            refreshed["called"] = True
+            return True
+
+    stub = _StubClient()
+
+    daemon = cli.Daemon(stub, {
+        "base_url": "http://relay.test",
+        "request_timeout": 5,
+        "heartbeat_interval": 999,
+    })
+    # Run a single iteration: stop after the first heartbeat so the
+    # loop body executes once.
+    iterations = {"n": 0}
+
+    def stop_after_one(*a, **k):
+        iterations["n"] += 1
+        if iterations["n"] >= 1:
+            daemon._stop_event.set()
+        return 0
+
+    monkeypatch.setattr(cli.time, "sleep", stop_after_one)
+    monkeypatch.setattr(cli, "load_active_profile", lambda: [])
+
+    daemon._heartbeat_loop()
+    assert refreshed["called"] is True
+
+
+def test_proactive_refresh_skipped_when_fresh(isolated_paths: Path, monkeypatch):
+    """When the token expires in >1h, the heartbeat loop does NOT refresh."""
+    from datetime import datetime, timedelta, timezone
+
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({
+        "base_url": "http://relay:8788", "request_timeout": 10,
+        "heartbeat_interval": 999,
+    }))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    # Token expires in 2 days.
+    later = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    _write_json_token(base, "rt_fresh", expires_at=later)
+
+    refreshed = {"called": False}
+
+    class _StubClient:
+        def __init__(self):
+            self.meta = {"node_id": "n1", "base_url": "http://relay.test"}
+            self.base_url = "http://relay.test"
+            self.token = "rt_fresh"
+            self.token_expires_at = later
+            self.heartbeat = lambda caps, inflight: {"status": "ok"}
+
+        def _refresh_token(self):
+            refreshed["called"] = True
+            return True
+
+    stub = _StubClient()
+
+    daemon = cli.Daemon(stub, {
+        "base_url": "http://relay.test",
+        "request_timeout": 5,
+        "heartbeat_interval": 999,
+    })
+    iterations = {"n": 0}
+
+    def stop_after_one(*a, **k):
+        iterations["n"] += 1
+        if iterations["n"] >= 1:
+            daemon._stop_event.set()
+        return 0
+
+    monkeypatch.setattr(cli.time, "sleep", stop_after_one)
+    monkeypatch.setattr(cli, "load_active_profile", lambda: [])
+
+    daemon._heartbeat_loop()
+    assert refreshed["called"] is False
+
+
+def test_proactive_refresh_ignored_without_expires_at(isolated_paths: Path, monkeypatch):
+    """A token with no expires_at (None) skips the proactive refresh."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({
+        "base_url": "http://relay:8788", "request_timeout": 10,
+        "heartbeat_interval": 999,
+    }))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write_json_token(base, "rt_no_expiry", expires_at=None)
+
+    refreshed = {"called": False}
+
+    class _StubClient:
+        def __init__(self):
+            self.meta = {"node_id": "n1", "base_url": "http://relay.test"}
+            self.base_url = "http://relay.test"
+            self.token = "rt_no_expiry"
+            self.token_expires_at = None
+            self.heartbeat = lambda caps, inflight: {"status": "ok"}
+
+        def _refresh_token(self):
+            refreshed["called"] = True
+            return True
+
+    stub = _StubClient()
+
+    daemon = cli.Daemon(stub, {
+        "base_url": "http://relay.test",
+        "request_timeout": 5,
+        "heartbeat_interval": 999,
+    })
+    iterations = {"n": 0}
+
+    def stop_after_one(*a, **k):
+        iterations["n"] += 1
+        if iterations["n"] >= 1:
+            daemon._stop_event.set()
+        return 0
+
+    monkeypatch.setattr(cli.time, "sleep", stop_after_one)
+    monkeypatch.setattr(cli, "load_active_profile", lambda: [])
+
+    daemon._heartbeat_loop()
+    assert refreshed["called"] is False
+
+
+def test_capabilities_server_uses_get_with_retry(isolated_paths: Path, monkeypatch):
+    """`capabilities server` triggers a token refresh on a 401 and retries."""
+    _client_stub(isolated_paths, monkeypatch)
+
+    calls = {"n": 0}
+
+    class FakeResp:
+        def __init__(self, status_code: int):
+            self.status_code = status_code
+        def json(self):
+            return {"capabilities": []}
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("auth", request=None, response=self)
+
+    def fake_get(url, **kw):
+        calls["n"] += 1
+        # First call returns 401, subsequent calls return 200.
+        return FakeResp(401 if calls["n"] == 1 else 200)
+
+    monkeypatch.setattr(cli.httpx, "get", fake_get)
+    monkeypatch.setattr(cli, "load_meta", lambda: {"node_id": "n1", "base_url": "http://relay.test"})
+    monkeypatch.setattr(cli, "_effective_config", lambda: {"base_url": "http://relay.test", "request_timeout": 5})
+    monkeypatch.setattr(cli.RelayClient, "_refresh_token", lambda self: True)
+
+    rc = cli.main(["capabilities", "server"])
+    assert rc == 0
+    # Two GETs happened: the initial 401 + the retry after refresh.
+    assert calls["n"] == 2

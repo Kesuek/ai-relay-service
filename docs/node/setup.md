@@ -131,6 +131,16 @@ jq -r .token /tmp/refresh.json > ~/.relay/ai-relay-agent.token
 jq -r .registration_secret /tmp/refresh.json
 ```
 
+> **Token file format (T-088):** the manual `jq -r .token > ...` above
+> writes a legacy plaintext token. The `node-cli` daemon accepts this
+> (it migrates it to the JSON envelope on the next refresh), but to
+> benefit from proactive refresh you should write the full envelope
+> instead:
+> ```bash
+> jq -c '{token: .token, expires_at: .expires_at}' /tmp/refresh.json \
+>   > ~/.relay/ai-relay-agent.token
+> ```
+
 See [token-lifecycle.md](token-lifecycle.md) for the full refresh and recovery
 flow.
 

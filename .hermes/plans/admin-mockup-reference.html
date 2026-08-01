@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Relay Cluster — Community</title>
+<style>
+:root {
+  --bg: #0b0d14;
+  --nav: #12141e;
+  --surface: #181b26;
+  --border: #262a38;
+  --text: #e4e8f0;
+  --muted: #848aa0;
+  --accent: #6c8cff;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --info: #60a5fa;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; min-height: 100vh; }
+
+/* Nav */
+nav { background: var(--nav); border-bottom: 1px solid var(--border); padding: 0 2rem; display: flex; align-items: center; height: 56px; position: sticky; top: 0; z-index: 50; }
+nav .logo { font-weight: 700; font-size: 1.05rem; color: var(--accent); margin-right: 2rem; letter-spacing: -.02em; }
+nav .logo span { color: var(--muted); font-weight: 400; }
+nav a { color: var(--muted); text-decoration: none; font-size: .85rem; padding: .5rem 1rem; border-radius: .35rem; transition: all .15s; }
+nav a:hover { color: var(--text); background: rgba(255,255,255,.04); }
+nav a.active { color: var(--accent); background: rgba(108,140,255,.08); }
+nav .spacer { flex: 1; }
+nav .avatar { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #a78bfa); display: flex; align-items: center; justify-content: center; font-size: .7rem; font-weight: 600; cursor: pointer; }
+
+/* Hero */
+.hero { padding: 3rem 2rem 2rem; text-align: center; border-bottom: 1px solid var(--border); }
+.hero h1 { font-size: 2rem; font-weight: 700; margin-bottom: .5rem; }
+.hero p { color: var(--muted); font-size: 1rem; max-width: 600px; margin: 0 auto 1.5rem; }
+.hero .pill { display: inline-flex; align-items: center; gap: .5rem; background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.2); padding: .35rem 1rem; border-radius: 2rem; font-size: .85rem; color: var(--ok); }
+.hero .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* Status Widget */
+.status-bar { display: flex; gap: 0; background: var(--nav); border: 1px solid var(--border); border-radius: 1rem; margin: -1.5rem auto 2rem; max-width: 700px; overflow: hidden; }
+.status-item { flex: 1; padding: 1rem; text-align: center; border-right: 1px solid var(--border); }
+.status-item:last-child { border-right: none; }
+.status-item .num { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+.status-item .lbl { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: .15rem; }
+
+/* Main layout */
+.container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+
+/* Section headers */
+.section { margin: 2rem 0 1rem; display: flex; align-items: center; justify-content: space-between; }
+.section h2 { font-size: 1.1rem; font-weight: 600; }
+.section .link { font-size: .8rem; color: var(--accent); text-decoration: none; }
+.section .link:hover { text-decoration: underline; }
+
+/* Node Grid (Profile Cards) */
+.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+.node-card { background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; overflow: hidden; transition: border-color .15s; cursor: pointer; }
+.node-card:hover { border-color: var(--accent); }
+.node-card .banner { height: 48px; background: linear-gradient(135deg, var(--accent), transparent); }
+.node-card .body { padding: 0 1rem 1rem; margin-top: -20px; }
+.node-card .node-avatar { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--bg); display: flex; align-items: center; justify-content: center; font-size: .85rem; font-weight: 700; margin-bottom: .5rem; }
+.node-card .node-avatar.cyberfox { background: linear-gradient(135deg, #6c8cff, #34d399); }
+.node-card .node-avatar.mac { background: linear-gradient(135deg, #fbbf24, #f87171); }
+.node-card .node-avatar.ssn { background: linear-gradient(135deg, #a78bfa, #6c8cff); }
+.node-card .node-avatar.ct { background: linear-gradient(135deg, #60a5fa, #34d399); }
+.node-card .node-name { font-weight: 600; font-size: .95rem; }
+.node-card .node-id { font-size: .7rem; color: var(--muted); font-family: ui-monospace, monospace; }
+.node-card .node-status { font-size: .75rem; display: flex; align-items: center; gap: .35rem; margin: .35rem 0; }
+.node-card .node-status .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.node-card .node-caps { display: flex; flex-wrap: wrap; gap: .3rem; margin: .5rem 0; }
+.node-card .node-caps .c { font-size: .7rem; padding: .15rem .4rem; border-radius: .25rem; background: rgba(108,140,255,.1); color: var(--info); }
+.node-card .node-meta { display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); border-top: 1px solid var(--border); padding-top: .5rem; margin-top: .5rem; }
+.node-card .load-mini { height: 3px; background: var(--bg); border-radius: 2px; margin-top: .35rem; overflow: hidden; }
+.node-card .load-mini .f { height: 100%; border-radius: 2px; }
+
+/* User Profile Cards */
+.user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+.user-card { background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 1.25rem; cursor: pointer; transition: border-color .15s; }
+.user-card:hover { border-color: var(--accent); }
+.user-card .top { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
+.user-card .u-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .85rem; flex-shrink: 0; }
+.user-card .u-avatar.ronny { background: linear-gradient(135deg, #6c8cff, #a78bfa); }
+.user-card .u-name { font-weight: 600; font-size: .9rem; }
+.user-card .u-role { font-size: .7rem; color: var(--muted); }
+.user-card .u-meta { font-size: .75rem; color: var(--muted); display: flex; gap: 1rem; }
+.user-card .u-meta span { display: flex; align-items: center; gap: .25rem; }
+
+/* Activity Feed */
+.activity { background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; margin-bottom: 2rem; }
+.activity-item { display: flex; align-items: flex-start; gap: .75rem; padding: .75rem 1rem; border-bottom: 1px solid var(--border); font-size: .85rem; }
+.activity-item:last-child { border-bottom: none; }
+.activity .icon { width: 28px; height: 28px; border-radius: 50%; background: var(--bg); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: .75rem; }
+.activity .ts { color: var(--muted); font-size: .75rem; margin-left: auto; white-space: nowrap; }
+.activity .highlight { color: var(--accent); }
+.activity .ok { color: var(--ok); }
+.activity .warn { color: var(--warn); }
+
+/* Footer */
+footer { text-align: center; padding: 2rem; color: var(--muted); font-size: .8rem; border-top: 1px solid var(--border); margin-top: 2rem; }
+footer a { color: var(--accent); text-decoration: none; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  nav { padding: 0 1rem; overflow-x: auto; }
+  nav a { font-size: .8rem; padding: .5rem .6rem; }
+  .hero { padding: 2rem 1rem 1.5rem; }
+  .hero h1 { font-size: 1.5rem; }
+  .status-bar { flex-wrap: wrap; margin: -1rem 1rem 1.5rem; }
+  .status-item { flex: 1 1 50%; border-bottom: 1px solid var(--border); }
+  .container { padding: 0 1rem; }
+  .node-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">⟐ relay<span>.cluster</span></div>
+  <a href="#" class="active">Overview</a>
+  <a href="#">Nodes</a>
+  <a href="#">Users</a>
+  <a href="#">Capabilities</a>
+  <a href="#">Events</a>
+  <div class="spacer"></div>
+  <a href="#">Sign in</a>
+  <div class="avatar">RP</div>
+</nav>
+
+<section class="hero">
+  <h1>AI Relay Cluster</h1>
+  <p>Distributed agent coordination layer — 8 nodes across 3 hosts, serving 1,200+ tasks with 99.9% uptime.</p>
+  <div class="pill"><span class="dot"></span> All systems operational</div>
+</section>
+
+<div style="display:flex;justify-content:center">
+  <div class="status-bar">
+    <div class="status-item"><div class="num" style="color:var(--ok)">6</div><div class="lbl">nodes online</div></div>
+    <div class="status-item"><div class="num">1,248</div><div class="lbl">tasks processed</div></div>
+    <div class="status-item"><div class="num" style="color:var(--warn)">2</div><div class="lbl">active stages</div></div>
+    <div class="status-item"><div class="num">347</div><div class="lbl">artifacts</div></div>
+    <div class="status-item"><div class="num" style="color:var(--info)">12</div><div class="lbl">capabilities</div></div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="section">
+    <h2>🖥 Nodes</h2>
+    <a href="#" class="link">View all →</a>
+  </div>
+  <div class="node-grid">
+    <div class="node-card" onclick="alert('felix-cyberfox profile')">
+      <div class="banner"></div>
+      <div class="body">
+        <div class="node-avatar cyberfox">🦊</div>
+        <div class="node-name">felix-cyberfox <span class="node-id">3H69CMAD</span></div>
+        <div class="node-status"><span class="dot" style="background:var(--ok)"></span> online · load 62%</div>
+        <div class="node-caps"><span class="c">chat.ai</span><span class="c">code.ai</span><span class="c">web.ai</span></div>
+        <div class="load-mini"><div class="f" style="width:62%;background:var(--warn)"></div></div>
+        <div class="node-meta"><span>▲ 142 tasks</span><span>queue: 1</span><span>updated 3s ago</span></div>
+      </div>
+    </div>
+    <div class="node-card" onclick="alert('m4-macmini profile')">
+      <div class="banner" style="background:linear-gradient(135deg,var(--warn),transparent)"></div>
+      <div class="body">
+        <div class="node-avatar mac">💻</div>
+        <div class="node-name">m4-macmini <span class="node-id">84K73W47</span></div>
+        <div class="node-status"><span class="dot" style="background:var(--warn)"></span> busy · load 91%</div>
+        <div class="node-caps"><span class="c">image.gen.mflux</span><span class="c">image.gen.sdxl</span></div>
+        <div class="load-mini"><div class="f" style="width:91%;background:var(--bad)"></div></div>
+        <div class="node-meta"><span>▲ 87 tasks</span><span>queue: 3</span><span>updated 1s ago</span></div>
+      </div>
+    </div>
+    <div class="node-card" onclick="alert('ssn-proxy profile')">
+      <div class="banner" style="background:linear-gradient(135deg,#a78bfa,transparent)"></div>
+      <div class="body">
+        <div class="node-avatar ssn">☁</div>
+        <div class="node-name">ssn-proxy <span class="node-id">SSN001</span></div>
+        <div class="node-status"><span class="dot" style="background:var(--ok)"></span> online · load 12%</div>
+        <div class="node-caps"><span class="c">ssn.capability-pages</span><span class="c">ssn.proxy</span></div>
+        <div class="load-mini"><div class="f" style="width:12%;background:var(--ok)"></div></div>
+        <div class="node-meta"><span>▲ 1,004 tasks</span><span>queue: 0</span><span>updated 2s ago</span></div>
+      </div>
+    </div>
+    <div class="node-card" onclick="alert('relay-ct profile')">
+      <div class="banner" style="background:linear-gradient(135deg,var(--info),transparent)"></div>
+      <div class="body">
+        <div class="node-avatar ct">🌐</div>
+        <div class="node-name">relay-ct <span class="node-id">CT001</span></div>
+        <div class="node-status"><span class="dot" style="background:var(--ok)"></span> online · load 23%</div>
+        <div class="node-caps"><span class="c">chat.ai</span><span class="c">terminal.ai</span></div>
+        <div class="load-mini"><div class="f" style="width:23%;background:var(--ok)"></div></div>
+        <div class="node-meta"><span>▲ 15 tasks</span><span>queue: 0</span><span>updated 4s ago</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>👤 Human Users</h2>
+    <a href="#" class="link">View all →</a>
+  </div>
+  <div class="user-grid">
+    <div class="user-card" onclick="alert('Ronny profile')">
+      <div class="top">
+        <div class="u-avatar ronny">RP</div>
+        <div><div class="u-name">Ronny Pietschke</div><div class="u-role">Cluster Owner · Admin</div></div>
+      </div>
+      <div class="u-meta">
+        <span>⏺ active</span>
+        <span>🖥 4 nodes</span>
+        <span>📅 joined Jan 2026</span>
+      </div>
+    </div>
+    <div class="user-card" onclick="alert('Anja profile')" style="opacity:.7">
+      <div class="top">
+        <div class="u-avatar" style="background:linear-gradient(135deg,#f472b6,#ec4899)">AP</div>
+        <div><div class="u-name">Anja</div><div class="u-role">Family · Guest</div></div>
+      </div>
+      <div class="u-meta">
+        <span>⏺ active</span>
+        <span>🖥 1 node</span>
+        <span>📅 joined Mar 2026</span>
+      </div>
+    </div>
+    <div class="user-card" onclick="alert('Mareike profile')" style="opacity:.5">
+      <div class="top">
+        <div class="u-avatar" style="background:linear-gradient(135deg,#34d399,#6ee7b7)">MN</div>
+        <div><div class="u-name">Mareike</div><div class="u-role">Family · Guest</div></div>
+      </div>
+      <div class="u-meta">
+        <span>⚫ inactive</span>
+        <span>🖥 0 nodes</span>
+        <span>📅 joined Mar 2026</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>📡 Recent Activity</h2>
+    <a href="#" class="link">View all →</a>
+  </div>
+  <div class="activity">
+    <div class="activity-item">
+      <div class="icon">✅</div>
+      <div><span class="ok">T-123</span> Summarize news feed — completed by <span class="highlight">felix-cyberfox</span> (12s runtime)</div>
+      <div class="ts">5m ago</div>
+    </div>
+    <div class="activity-item">
+      <div class="icon">🔄</div>
+      <div><span class="highlight">T-124</span> Generate banner image — claimed by <span class="warn">m4-macmini</span></div>
+      <div class="ts">2m ago</div>
+    </div>
+    <div class="activity-item">
+      <div class="icon">⚡</div>
+      <div><span class="warn">m4-macmini</span> status changed → <span class="warn">busy</span> (load 91%)</div>
+      <div class="ts">1m ago</div>
+    </div>
+    <div class="activity-item">
+      <div class="icon">🔗</div>
+      <div><span class="highlight">ssn-proxy</span> came online (SSN001) — advertising <span class="ok">ssn.capability-pages</span></div>
+      <div class="ts">12m ago</div>
+    </div>
+    <div class="activity-item">
+      <div class="icon">📦</div>
+      <div>Artifact <span class="highlight">banner_v2.png</span> uploaded (2.3 MB) by m4-macmini</div>
+      <div class="ts">18m ago</div>
+    </div>
+    <div class="activity-item">
+      <div class="icon">✅</div>
+      <div><span class="ok">T-122</span> Deploy config update — completed by <span class="highlight">relay-ct</span> (3s runtime)</div>
+      <div class="ts">12m ago</div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <p><a href="#">AI Relay Service</a> · v2.0.0 · <a href="#">GitHub</a> · Running on Proxmox + Tailscale</p>
+</footer>
+
+</body>
+</html>

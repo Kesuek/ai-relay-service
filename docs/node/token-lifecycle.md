@@ -12,7 +12,7 @@ recover when one is lost.
 | Bootstrap seed | `bs_` | 24 h | One-time bootstrap session after master-seed login |
 | Temporary token | `tp_` | 24 h | Issued on registration, replaced after approval |
 | Runtime token | `rt_` | 7 days | Day-to-day auth for heartbeat, claim, complete |
-| Registration secret | `rs_` | 12 h | Recovery only — rotate the runtime token |
+| Registration secret | `rs_` | 7 days | Recovery only — rotate the runtime token |
 
 One runtime token per node. Refreshing it invalidates the previous one.
 
@@ -24,7 +24,7 @@ and `rs_` credentials.
 ## Lifecycle
 
 ```
-[Register] → temporary token (24h) + registration secret (12h)
+[Register] → temporary token (24h) + registration secret (7d)
        ↓
 [Admin approves] → runtime token (7 days), node status: approved
        ↓
@@ -78,6 +78,13 @@ curl -X POST "http://${RELAY_HOST}:8788/relay/v2/auth/refresh" \
 ```
 
 Save the new token immediately — the old one is invalidated.
+
+> **Automatic refresh (T-088):** the `node-cli` daemon refreshes the
+> runtime token proactively in its heartbeat loop when it expires in
+> less than 1 hour, so manual refresh is only needed for long-running
+> one-shot commands or nodes that do not run the daemon. The token file
+> (`~/.relay/ai-relay-agent.token`) is stored as a JSON envelope with
+> the token's `expires_at` so the daemon knows when to refresh.
 
 ## Refresh the registration secret
 

@@ -1,0 +1,12 @@
+# DECISIONS — T-072
+
+| Decision | Reason |
+|---|---|
+| `node_name`/`description` sind Top-Level-Felder im Heartbeat (nicht Teil der Capabilities) | Der Plan beschreibt sie als Top-Level-Felder der Meta-Datei (`ai-relay-agent.json`), die Node-Eigenschaft sind, nicht Capability-Eigenschaft. Sie gehören deshalb direkt in den Heartbeat-Body, nicht in einen Capability-Eintrag. |
+| `node_name` updated die `nodes.node_name`-Spalte (override des Registrierungs-Namens) | Ein Node kann seinen zur Registrierung gesetzten Namen per Heartbeat überschreiben, ohne dass eine separate Admin-Action nötig ist. Da `node_name UNIQUE NOT NULL` ist, muss der Node-Operator sicherstellen, dass der neue Name nicht kollidiert (andernfalls schlägt das UPDATE fehl — der Heartbeat returned dann `False`, was der Client als Fehler interpretiert). |
+| `description` als eigene Spalte (`nodes.description`), nicht im `capabilities`-JSON | `description` ist Node-Level (nicht Capability-Level). Eine separate Spalte ist sauber abfragbar, ohne `json_extract` auf der JSON-Capabilities-Spalte. Migration per `ALTER TABLE ... ADD COLUMN` ist idempotent und bestehende Zeilen erhalten `NULL`. |
+| `max_length=128` für `node_name`, `max_length=1024` für `description` | Konsistent mit dem Plan; großzügig genug für sprechende Namen/Beschreibungen, aber begrenzt gegen Missbrauch. |
+| `_node_row_to_dict` liest `description` defensiv (`if "description" in row.keys()`) | Beim ersten Deploy kann die Spalte an alter Code-Stellen noch fehlen (z.B. `query_nodes_by_capability` vor der Migration). Der `in`-Check verhindert `IndexError`, falls eine der SELECT-Listen noch nicht aktualisiert wurde — alle SELECTs wurden aber angepasst, so dass der Pfad nur theoretisch greift. |
+| Beide Heartbeat-Routes (`/heartbeat` und `/worker-heartbeat`) reichen beide Felder weiter | Der Plan fokussiert auf den Standard-Heartbeat; der Worker-Heartbeat nutzt dasselbe `heartbeat()`-Core. Einheitliche Übergabe verhindert Divergenz zwischen den Beiden Endpoints. |
+| Felder werden nur gesendet, wenn im `meta` vorhanden (truthy) | Vermeidet, dass leere Strings den registrierten Namen/description auf `NULL` setzen. `None` wird serverseitig ohnehin übersprungen (kein UPDATE). |
+| Board-Dateien (TASKS.md/DECISIONS.md/PLAN.md im Repo-Root) nicht angelegt | Diese Dateien existieren im Repo nicht; der Schritt im Plan entfällt. Stattdessen werden die Board-Infos in diesem OpenCode-Output-Verzeichnis abgelegt. |

@@ -9,9 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- T-088c: Proaktiver Token-Refresh im Heartbeat-Loop — der Daemon refresht das Runtime-Token automatisch, sobald es in weniger als 1 Stunde abläuft, bevor es zu Verbindungsabbrüchen kommt. `RelayClient.token_expires_at` trackt die Gültigkeit; fehlerhafte/fehlende `expires_at`-Werte werden sicher ignoriert (Fallback auf die bestehende 401/403-Retry-Logik). (Phase 19)
+- T-088b: `_refresh_token()`/`_recover_runtime_token()` speichern `expires_at` aus der Server-Response (`/relay/v2/auth/refresh` liefert bereits `expires_at`) sowohl in der Token-Datei als auch in `RelayClient.token_expires_at`. (Phase 19)
+- T-088d: CLI-Subcommands `capabilities server`, `capabilities info`, `node list`, `node info` nutzen `_get_with_retry()` statt `_get()` — bei einem abgelaufenen Token wird einmalig refreshed und erneut versucht, statt direkt mit 401 durchzufallen. (Phase 19)
+- Neue Tests: `tests/nodes/test_node_utils.py` (8 Tests für JSON-Format, Legacy-Migration, Atomic-Write, korrupte JSON-Fallback), `tests/nodes/test_node_cli.py` um 8 Tests für Token-Loading, expires_at-Persistenz bei Refresh/Recovery, proaktiven Refresh (vor Ablauf / frisch / ohne expires_at) und `_get_with_retry` bei CLI-Subcommands erweitert. (Phase 19)
+
 - T-087: Node-Konfiguration umbenannt — `nodes/common/capability_loader.py` → `nodes/common/node_config.py` (Code + Imports). Datei-Pfade umbenannt: `capabilities.active.yaml` → `node.yaml`, `capabilities.active.profile` → `node.profile`, `capabilities.d/` → `profiles.d/` (Default von `RELAY_PROFILES_DIR` ändert sich entsprechend). Schema gelockert: `capabilities` ist jetzt optional, Root-Ebene erlaubt `additionalProperties`, neue Top-Level-Properties `node_name` und `description` ergänzt (neben dem bestehenden `status`). `validate_profile()` liefert bei fehlendem `capabilities`-Key eine leere Liste statt einen Fehler. `write_active_status()` arbeitet nun regex-basiert (YAML-Format, Kommentare und Key-Reihenfolge bleiben erhalten); die Datei wird nicht mehr neu erzeugt, wenn sie fehlt (No-Op). Migration beim ersten Import: `_migrate_old_paths()` kopiert alte `capabilities.*`-Dateien nach den neuen Namen, wenn die neuen noch nicht existieren (alte Dateien bleiben für Rolling-Deploy als Fallback erhalten). CLI-Befehlsnamen (`capabilities publish/list/validate/...`) bleiben unverändert. Doku, Tests und CLI-Referenzen aktualisiert. (Phase 19)
 
 ### Changed
+
+- T-088a: Token-Datei-Format auf JSON umgestellt — `save_token(token, expires_at=None)` schreibt `{"token": "...", "expires_at": "..."}` (atomar via tmp-Datei + rename), `load_token()` gibt ein dict (oder `None`) zurück. Legacy Plaintext-Tokens werden beim Laden erkannt und mit `expires_at=None` konvertiert; beim nächsten `save_token()` wird die Datei automatisch ins JSON-Format migriert. Betroffene Aufrufer (`RelayClient.__init__`, `_refresh_token`, `_recover_runtime_token`, `ssn_proxy._load_token`) angepasst. (Phase 19)
+- T-088e: `registration_secret_ttl_hours` default 12 → 168 (7 Tage), sodass die Recovery-Fallback-Ablaufzeit mit `token_ttl_hours` übereinstimmt. `docs/server/setup.md` aktualisiert. (Phase 19)
 
 - T-087: `write_active_status()` — statt `yaml.dump` (was das gesamte Dokument neu serialisiert und Kommentare/Formatierung verwirft) wird das `status:`-Feld jetzt per Regex in-place editiert. Das YAML-Format bleibt damit erhalten; `node-cli node busy`/`idle`/`clear-status` ändern nur die Status-Zeile. (Phase 19)
 

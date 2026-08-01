@@ -971,8 +971,20 @@ underscores, uppercased).
 - **Token refresh:** every relay request retries exactly once after a token
   refresh on `401`/`403`. If refresh fails, the client attempts recovery with
   the `registration_secret`; if that also fails the command exits `1`.
+- **Proactive token refresh (T-088):** the daemon's heartbeat loop refreshes
+  the runtime token automatically when it expires in less than 1 hour, before
+  any relay request fails. The expiry is read from the JSON token envelope
+  (`{"token": "...", "expires_at": "..."}`) written by `save_token()`; a
+  missing or malformed `expires_at` is ignored and the existing 401/403 retry
+  path still applies.
 - **Missing token:** if `~/.relay/ai-relay-agent.token` is absent, the CLI
   attempts registration-secret recovery immediately on startup.
 - **Network errors** (`httpx.HTTPError`) are reported on stderr and exit `1`.
 - **`KeyboardInterrupt`** exits `130`.
 - **Invalid CLI arguments** exit `2` (argparse default).
+
+> **Token file format (T-088):** since T-088 the token file at
+> `~/.relay/ai-relay-agent.token` is a JSON envelope
+> `{"token": "rt_...", "expires_at": "2026-08-08T08:30:00+00:00"}`. Legacy
+> plaintext token files (pre-T-088) are still read on load with
+> `expires_at: null` and migrated to the JSON format on the next refresh.
