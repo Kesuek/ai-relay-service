@@ -3,13 +3,15 @@
 This document explains how an autonomous agent or worker node connects to the
 Relay cluster and starts receiving tasks. For the full step-by-step guide see
 **[docs/node/setup.md](docs/node/setup.md)**. For concepts and architecture see
-**[docs/concepts.md](docs/concepts.md)** and **[docs/node/concept.md](docs/node/concept.md)**.
+**[docs/concepts.md](docs/concepts.md)**, **[docs/node/concept.md](docs/node/concept.md)**
+and **[docs/node/capability-concept.md](docs/node/capability-concept.md)**.
 
 ## 1. What is a node?
 
-A **node** is any worker that registers with the relay, announces its
-capabilities, and claims tasks. Nodes can be Python scripts, containers,
-remote workers, or agents like this one.
+A **node** is any process that registers with the relay, heartbeats its
+presence, and offers capabilities. There is only one node type — what makes a
+node useful are the **capabilities** it heartbeats. Nodes can be Python scripts,
+containers, remote workers, or agents like this one.
 
 ## 2. Server address
 
@@ -24,7 +26,7 @@ dashboard HTML pages; use the API endpoints.
 
 ## 3. Register or reuse a token
 
-### 3.1 Worker / service node
+### 3.1 Worker node
 
 Worker nodes do **not** choose their own ID. The cluster assigns an 8-character
 node ID when registration succeeds (see `docs/concepts.md`).
@@ -35,7 +37,8 @@ Content-Type: application/json
 
 {
   "node_name": "My first agent",
-  "endpoint": "http://192.168.1.50:7777",
+  "endpoint": null,
+  "role": "node",
   "capabilities": [
     {"name": "chat.ai", "version": "1.0.0"}
   ]
@@ -76,8 +79,9 @@ operation a human administrator should use a regular dashboard account, or an
 admin node should use its runtime token.
 
 > **Tip:** Save the returned runtime token to a file (e.g.
-> `~/.relay/ai-relay-agent.token`). On restart, reuse it instead of registering
-> again.
+> `~/.relay/<node_id>.token`). On restart, reuse it instead of registering
+> again. The token file uses a JSON envelope format (since T-088):
+> `{"token": "rt_...", "expires_at": "2026-08-08T12:00:00+00:00"}`.
 
 ## 4. Poll approval status
 
@@ -98,19 +102,20 @@ The response is read-only and reports the current status (`pending`,
 `approved`, `online`, or `offline`). It never issues tokens.
 
 Once approved, the admin receives the first runtime token (`rt_...`). Save it to
-`~/.relay/ai-relay-agent.token` and use it for **all** later calls (heartbeat,
+`~/.relay/<node_id>.token` and use it for **all** later calls (heartbeat,
 claim, complete).
 
 ## 5. Refresh and recover credentials
 
 ### Refresh a runtime token before expiry
 
-Runtime tokens expire after the configured TTL (default 7 days). Refresh them
-proactively:
+Runtime tokens expire after the configured TTL (default 7 days). The node-cli
+daemon refreshes them proactively when less than 1 hour remains. For manual
+refresh:
 
 ```http
 POST /relay/v2/auth/refresh
-Authorization: Bearer <current_rt_...>
+Authorization: Bearer ***
 Content-Type: application/json
 
 {
@@ -144,7 +149,7 @@ A node must prove it is alive. Send a heartbeat every few seconds:
 
 ```http
 POST /relay/v2/discovery/heartbeat
-Authorization: Bearer <rt_...>
+Authorization: Bearer ***
 Content-Type: application/json
 
 {
@@ -155,7 +160,9 @@ Content-Type: application/json
 }
 ```
 
-Recommended interval: **8 seconds**. Server timeout is 5 × heartbeat interval.
+Recommended interval: **8 s (default)**. Server timeout is 5 × heartbeat
+interval (configurable via `heartbeat_interval_seconds` and
+`heartbeat_timeout_multiplier`).
 
 After the first heartbeat an `approved` node moves to `online`. Runtime tokens
 stay valid for both states. A node that misses too many heartbeats is marked
@@ -167,7 +174,7 @@ Once approved and online, claim available work:
 
 ```http
 POST /relay/v2/scheduler/claim
-Authorization: Bearer <rt_...>
+Authorization: Bearer ***
 Content-Type: application/json
 
 {
@@ -180,7 +187,7 @@ work, then complete the stage:
 
 ```http
 POST /relay/v2/scheduler/stages/{stage_id}/complete
-Authorization: Bearer <rt_...>
+Authorization: Bearer ***
 Content-Type: application/json
 
 {
@@ -205,16 +212,24 @@ Common capability names you can register:
 
 A capability name such as `chat` without a suffix is a category. A concrete
 execution offer uses a suffix that describes the mode, for example `chat.ai`
-(local AI handles the request) or `chat.native` (direct rule-based execution).
+(delegates to a local AI) or `chat.native` (direct rule-based execution).
 The relay matches capability names exactly: a stage asking for `chat.ai` will
 only be claimed by a node that currently advertises `chat.ai`.
 
 You can invent your own capability names when the core names do not fit, but
 tasks must reference exactly those names.
 
+For the full capability reference (handler contract, Dynamic Routes, validation)
+see **[docs/node/capabilities.md](docs/node/capabilities.md)**.
+
 ## 9. Example node code
 
-Look at `examples/agent-integration/ai-relay-agent-poller.py` in this
-repository for a KI-capable agent that delegates work to the local Hermes AI.
 For the recommended worker implementation see `nodes/common/node_cli.py`
-and `docs/node/cli-reference.md`.
+and **[docs/node/cli-reference.md](docs/node/cli-reference.md)**.
+
+For specific implementations:
+
+- **[docs/node/ssn.md](docs/node/ssn.md)** — Server-Side Node (runs on the relay host, hosts dashboard pages)
+- **[docs/node/federation.md](docs/node/federation.md)** — Federation Node (bridges capabilities from remote relays)
+- **[docs/node/node-daemon.md](docs/node/node-daemon.md)** — SSE-driven node worker (alternative to polling)
+- `examples/nodes/` — standalone vault and board node examples
