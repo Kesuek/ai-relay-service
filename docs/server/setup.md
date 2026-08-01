@@ -236,15 +236,21 @@ http:
 
 ## 10. Database
 
-The relay uses **SQLite with WAL mode** as its sole database. No external
+The relay uses **SQLite with WAL mode** as its default database. No external
 database server is required.
 
 | Item | Value |
-|---|---|
-| Engine | SQLite 3 + WAL |
+|------|-------|
+| Engine | SQLite 3 + WAL (default) |
 | Default path | `~/.relay/server.db` |
 | Migrations | Automatic, additive, run on startup — no downtime, no manual steps |
-| PostgreSQL | **Not supported.** The relay is a single-server design; Postgres is a future option |
+| Other backends | PostgreSQL and MariaDB stubs exist — see [database-backends.md](../reference/database-backends.md) |
+
+The relay has a **pluggable database abstraction** — a `Database` interface
+with backend-specific implementations. The active backend is selected via a
+single config field (`db_type`). SQLite is the default and fully implemented;
+PostgreSQL and MariaDB stubs are ready for implementation. See
+[database-backends.md](../reference/database-backends.md) for the full guide.
 
 ### Backups
 
