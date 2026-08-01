@@ -9,3 +9,6 @@ mflux_*.png
 /*.svg
 /*.webp
 /*.bmp
+
+# Hermes agent working files (plans, opencode output, project boards)
+.hermes/

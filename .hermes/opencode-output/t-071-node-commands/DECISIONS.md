@@ -1,9 +1,0 @@
-# DECISIONS — T-071
-
-| Decision | Reason |
-|---|---|
-| `node info` fragt `?status=all` und fällt bei leerer Antwort auf den unfilterten Endpunkt zurück | Der Plan verlangt `?status=all`, damit auch offline/pending Nodes gefunden werden. Aktuelle Server-Version interpretiert `"all"` als literalen Status-Filter und liefert leer. Um die CLI auch ohne Server-Restart sofort nutzbar zu machen, fragt sie zuerst `?status=all` an und bricht auf `GET /relay/v2/discovery/nodes` zurück, falls die erste Antwort keine Nodes enthält. |
-| Server: `list_nodes(status=...)` behandelt `"all"` als Keyword (case-insensitiv) | Macht das `?status=all`-Query semantisch korrekt und zukunftssicher (für den Fall, dass der Default-Filter später auf `online` eingeschränkt wird). Minimal-invasiv: nur der `if status:`-Branch wird um `and status.lower() != "all"` ergänzt. |
-| Capabilities-Formatierung `node_name (node_id)` überall einheitlich | In `_cmd_capabilities_server` und `_cmd_capabilities_info` dieselbe Formatierung, damit Node-IDs überall gleich adressierbar sind. `node_name` bleibt primär, `node_id` in Klammern — kompakt und menschenlesbar. |
-| Kein separater `node_id`-Lookup-Endpoint | Der Server hat bereits `GET /relay/v2/discovery/nodes` mit allen Infos. Ein zusätzlicher `GET /nodes/{id}`-Endpoint wäre bequemer, wurde im Plan aber nicht gefordert — daher Client-seitige Suche in der vorhandenen Liste. |
-| Board-Dateien (TASKS.md/DECISIONS.md/PLAN.md im Repo-Root) nicht angelegt | Diese Dateien existieren im Repo nicht; der Schritt im Plan entfällt. Stattdessen werden die Board-Infos in diesem OpenCode-Output-Verzeichnis abgelegt. |
