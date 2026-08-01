@@ -16,3 +16,7 @@ mflux_*.png
 # Python bytecode cache
 __pycache__/
 *.pyc
+
+# Build artifacts
+dist/
+*.tar.gz
