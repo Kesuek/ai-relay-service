@@ -22,6 +22,7 @@ What do you need?
 ├─ Token expired / lost           → node/token-lifecycle.md
 ├─ SSN implementation            → node/ssn.md
 ├─ Federation implementation     → node/federation.md
+├─ SSE-driven node daemon        → node/node-daemon.md
 └─ Concepts & architecture       → concepts.md
 ```
 
