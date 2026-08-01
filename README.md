@@ -6,6 +6,28 @@ and monitors availability. Domain services (Board, Vault, Storage, …) and
 workers run as external nodes that register with the relay over the public v2
 API and advertise their own capabilities.
 
+> **Why "AI-Relay"?** The project started because I wanted my Mac mini to
+> generate images from my Proxmox host. What grew out of it is a generic
+> task distribution system — the name stuck, but the scope is much wider.
+> The relay does not care whether a node runs an LLM, a shell script, or a
+> database query. It just routes tasks by capability.
+
+## Why use it?
+
+- **You have multiple machines** — a Proxmox host, a Mac mini, a NAS, a
+  cloud VM — and want them to work together without SSHing around.
+- **You want to decouple requesters from workers** — submit a task, let the
+  relay decide which node handles it. Add or remove nodes without touching
+  the requesters.
+- **You want capability-based routing** — not hardcoded IPs or queue names.
+  A node says "I can do X", the relay sends it tasks for X.
+- **You want trust-based auth** — token registration + admin approval.
+  No shared secrets, no VPN required.
+- **You want to keep it simple** — one binary, one config file, one SQLite
+  database. No Kubernetes, no message broker, no service mesh.
+- **You want to stay open** — AGPL-3.0, no vendor lock-in, no SaaS
+  dependency. Your cluster, your rules.
+
 - **Port:** 8788
 - **Framework:** FastAPI + uvicorn
 - **DB:** SQLite + WAL (`~/.relay/server.db`)
