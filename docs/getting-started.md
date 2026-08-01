@@ -6,8 +6,10 @@ detailed guide you need — you do not have to read everything.
 ## 1. I just want to run a node
 
 A relay is already running somewhere on your network and you want to connect
-a worker or service node to it.
+a node to it.
 
+→ **[node/concept.md](node/concept.md)** — what a node is (one type,
+  differentiated by capabilities).
 → **[node/setup.md](node/setup.md)** — register the node, get approved,
   publish a capability profile, start the daemon.
 → **[node/token-lifecycle.md](node/token-lifecycle.md)** — keep tokens
@@ -33,18 +35,21 @@ on the same LAN).
 
 ## 3. I want a multi-node cluster
 
-You are building a real cluster: one relay, several nodes (workers +
-service nodes), possibly across hosts or containers.
+You are building a real cluster: one relay, several nodes, possibly across
+hosts or containers.
 
 1. → **[server/setup.md](server/setup.md)** — relay install, HTTPS via a
    reverse proxy (§9), database + backups (§10), config reference (§11),
    systemd (§13).
-2. → **[concepts.md](concepts.md)** — architecture, the two node types,
-   capability naming, the self-care pattern, and the glossary.
-3. → **[node/setup.md](node/setup.md)** — per node (repeat for each).
-4. → **[reference/api.md](reference/api.md)** — full endpoint reference
+2. → **[concepts.md](concepts.md)** — architecture, capabilities, tokens,
+   the self-care pattern, and the glossary.
+3. → **[node/concept.md](node/concept.md)** — what a node is.
+4. → **[node/capability-concept.md](node/capability-concept.md)** — what a
+   capability is.
+5. → **[node/setup.md](node/setup.md)** — per node (repeat for each).
+6. → **[reference/api.md](reference/api.md)** — full endpoint reference
    with cURL examples, payloads, and error codes.
-5. → **[reference/design-board.md](reference/design-board.md)** — if you
+7. → **[reference/design-board.md](reference/design-board.md)** — if you
    plan to run the message board (db-node + board-worker).
 
 ## 4. I want to use the API / write a client
@@ -55,9 +60,11 @@ service nodes), possibly across hosts or containers.
 
 ## 5. I want to understand the concepts
 
-→ **[concepts.md](concepts.md)** — start here. Covers what the relay is,
-  capabilities, tokens, node types, the self-care pattern, and a glossary.
-
+→ **[node/concept.md](node/concept.md)** — what a node is.
+→ **[node/capability-concept.md](node/capability-concept.md)** — what a
+  capability is.
+→ **[concepts.md](concepts.md)** — the relay, tokens, self-care pattern,
+  status system, glossary.
 → **[reference/feature-list.md](reference/feature-list.md)** — the complete
   feature catalogue (22 categories, ~150 features, each with a file/line
   reference to its implementation).
@@ -67,7 +74,7 @@ service nodes), possibly across hosts or containers.
 ```
 What do you want to do?
 │
-├─ Run a node (relay already exists)        → node/setup.md
+├─ Run a node (relay already exists)        → node/concept.md, node/setup.md
 │
 ├─ Set up the relay
 │   ├─ Just me + one node                   → server/setup.md, then node/setup.md
@@ -77,5 +84,5 @@ What do you want to do?
 │
 ├─ Browse every feature / find an implementation  → reference/feature-list.md
 │
-└─ Understand the architecture              → concepts.md
+└─ Understand the architecture              → node/concept.md, node/capability-concept.md, concepts.md
 ```

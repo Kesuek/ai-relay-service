@@ -2,8 +2,13 @@
 
 This document is the central concept reference for the AI Relay Service. It
 explains what the relay is, the architecture it follows, how capabilities and
-tokens work, the three node types, and the self-care pattern that ties them
-together. All other documents link back here for the underlying mental model.
+tokens work, and the self-care pattern that ties them together. All other
+documents link back here for the underlying mental model.
+
+> **New to the relay?** Start with [getting-started.md](getting-started.md) for
+> a scenario-based introduction, then read [node/concept.md](node/concept.md)
+> (what a node is) and [node/capability-concept.md](node/capability-concept.md)
+> (what a capability is) before diving into this reference.
 
 ## What is the AI Relay?
 
@@ -33,15 +38,20 @@ replaceable. All intelligence and all domain data live in the nodes.
            ┌────────────────────────┘  └────────────────────────────┐
            │ heartbeat / claim / complete           register        │
            ▼                                                          ▼
-  ┌────────────────────┐                                     ┌────────────────────┐
-  │  Service Node      │◄─── KI-less: executes work ───────►│  Worker Node       │
-  │  (storage, board)  │         directly over API          │  with local AI     │
-  └────────────────────┘                                     └────────────────────┘
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  Node (one type, differentiated by capabilities)                     │
+  │                                                                      │
+  │  • chat.ai          → LLM chat          (worker on Mac)             │
+  │  • image.gen.mflux  → image generation  (worker on Mac)             │
+  │  • ssn.pages        → host dashboard    (SSN on relay host)        │
+  │  • federation       → bridge relays     (federation node)          │
+  └──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Capability concept
 
 Capabilities are the **routing keys** the relay uses to match stages to nodes.
+For a full introduction see [node/capability-concept.md](node/capability-concept.md).
 
 - A node advertises its capabilities in every heartbeat.
 - The scheduler matches capability names **exactly**. There is no wildcard
@@ -59,8 +69,8 @@ as `chat` or `storage.archive` is a category, not an executable offer, and
 will not match a stage.
 
 | Suffix | Meaning | Example |
-|---|---|---|
-| `.native` | Runs on the relay host / node directly. No local AI. | `storage.archive.native`, `db.board.create.native` |
+|--------|---------|---------|
+| `.native` | Runs on the node directly. No local AI. | `storage.archive.native`, `db.board.create.native` |
 | `.ai` | KI-capable; the node delegates to its local AI. | `chat.ai`, `code.ai` |
 | `.relay` | Relay-internal orchestration capability. | `llm.decide_cleanup.relay` |
 
@@ -77,7 +87,7 @@ names. Use these names when they fit; you may register domain-specific names
 (e.g. `printer.a4.native`) if the core names do not cover your use case.
 
 | Core name | Typical mode | Meaning |
-|---|---|---|
+|-----------|-------------|---------|
 | `chat` | `.ai` | Conversational agent. Answers questions, reasons, interacts with users. |
 | `code` | `.ai` | Coding agent. Writes, reviews, debugs code. |
 | `web` | `.ai` | Research agent. Searches the web, summarises pages. |
@@ -87,6 +97,9 @@ names. Use these names when they fit; you may register domain-specific names
 | `storage.*` | `.native` | Storage services: archive, list, delete, quota checks. |
 | `llm.decide_*` | `.ai` | Decision stages for KI-less service nodes. |
 | `llm.plan_*` | `.ai` | Orchestrator stages that break a request into a task DAG. |
+
+For the full capability reference (handler contract, Dynamic Routes, validation,
+metadata forwarding) see [node/capabilities.md](node/capabilities.md).
 
 ## Token concept
 
@@ -131,139 +144,49 @@ Key rules:
 See [node/token-lifecycle.md](node/token-lifecycle.md) for the full refresh
 and recovery flows.
 
-## Node types
+## Node concept
 
-The relay distinguishes three broad categories of node.
+A **node** is a process that connects to the relay, heartbeats its presence, and
+offers capabilities. There is only one node type — what makes a node useful are
+the **capabilities** it heartbeats.
 
-> **Naming note.** This concept document is written in German-influenced
-> style and uses **KI** (German abbreviation for *Künstliche Intelligenz*)
-> as the noun for AI. The API reference and code use the English **AI**
-> (`/relay/v2`, `.ai` suffix, `chat.ai`). Both terms mean the same thing;
-> pick whichever suits your audience. The node types below are sometimes
-> called **worker node** (KI-capable / AI-capable) and **service node**
-> (KI-less / AI-less) in the docs and dashboard. The third category is
-> the **server-side node (SSN)**.
+For a full introduction see [node/concept.md](node/concept.md).
 
-### KI-capable nodes
+### Common capability patterns
 
-Traditional AI agents. They can:
+| Capability | What the node does | Example node | Documentation |
+|-----------|-------------------|-------------|---------------|
+| `chat.ai` | Runs an LLM to answer chat requests | Worker on Mac mini | [capabilities.md](node/capabilities.md) |
+| `image.generate.mflux` | Generates images via FLUX | Worker on Mac mini | [capabilities.md](node/capabilities.md) |
+| `ssn.pages` + `ssn.proxy` | Hosts dashboard pages + API proxy | SSN on relay host | [ssn.md](node/ssn.md) |
+| `federation` | Bridges capabilities from remote relays | Federation node | [federation.md](node/federation.md) |
 
-- Understand natural-language instructions
-- Plan multi-step workflows
-- Generate content (text, code, images, audio)
-- Make judgement calls
-- Interact with users
+### KI-capable vs KI-less
 
-A KI node claims a stage, reads the payload, hands it to its local AI, and
-returns the result. The local AI chooses which tools to call and how to
-combine them; the node never hard-codes tool calls.
+While there is only one node type, capabilities fall into two broad categories:
 
-| Capability | Example node | Responsibility |
+| | KI-capable (`.ai`) | KI-less (`.native`) |
 |---|---|---|
-| `chat.ai` | Hermes / assistant node | Conversational interface, general questions |
-| `code.ai` | Coding agent node | Write, review, debug code |
-| `web.ai` | Research agent node | Search the web, summarise pages |
-| `vision.ai` | Vision agent node | Analyse images, describe contents |
-| `llm.decide_cleanup.ai` | Storage decision node | Decide which files to delete when quota is hit |
-| `llm.plan_task.ai` | Orchestrator node | Break a user request into relay task DAGs |
+| **Reasoning** | Understands natural language, plans, judges | None — executes exactly what the stage says |
+| **Example** | `chat.ai`, `code.ai`, `web.ai` | `storage.archive.native`, `db.board.create.native` |
+| **Safety** | Validates destructive payloads before approving | Cannot improvise — only does what the stage says |
+| **Cost** | Needs GPU or large model | Runs on constrained devices (NAS, IoT, Docker) |
 
-### KI-less service nodes
+### Self-care pattern
 
-Intentionally "dumb" workers. They have no reasoning capability. They:
+This is the core pattern that connects KI-less capabilities to KI-capable
+capabilities through the relay, without the relay itself having to reason.
 
-- Register narrow, well-defined capabilities (`storage.archive`,
-  `printer.print`, `switch.toggle`, …)
-- Execute only the exact operation described in the stage payload
-- Report success or failure with raw data
-- **Post decision tasks back to the relay** when a judgement call is needed
-
-| Capability | Node | Responsibility |
-|---|---|---|
-| `storage.archive` | NAS storage node | Download artifact from relay, write to NAS |
-| `storage.list` | NAS storage node | List archived files |
-| `storage.delete` | NAS storage node | Delete archived files |
-| `storage.quota` | NAS storage node | Report disk usage |
-| `backup.snapshot` | NAS backup node | Trigger filesystem snapshots |
-| `printer.print` | Printer node | Print documents |
-| `switch.toggle` | IoT relay node | Toggle smart-home switches |
-| `fs.read`, `fs.write` | File-system node | Read or write local files |
-| `camera.capture` | Camera node | Take a photo |
-
-### Server-side nodes (SSN)
-
-A **Server-Side Node (SSN)** is a normal `node-cli` daemon that runs on
-the **same host as the relay server**. It registers, heartbeats, claims
-and completes like any other worker — the relay has no special-case
-code for it. The only difference is placement: it talks to the relay
-over `localhost` instead of the public network, so it needs no external
-port.
-
-SSNs fill the gap between the relay core and external workers. They
-host services that need low latency, access to relay-internal APIs, or
-the ability to orchestrate other nodes without exposing a public
-endpoint. The reference SSN advertises `ssn.capability-pages` and hosts
-HTML dashboard pages for other capabilities — see [ssn.md](node/ssn.md)
-for details.
-
-| Capability | Node | Responsibility |
-|---|---|---|
-| `ssn.capability-pages` | Relay-host SSN | Host/add/update/delete HTML dashboard pages for other capabilities |
-
-### Dynamic Node Routes (T-075)
-
-Since T-075, any node can declare **API routes** in its capability YAML.
-These are HTTP endpoints that the relay proxies to the node's upstream
-service. Routes are registered dynamically on every heartbeat and
-deregistered when the node goes offline.
-
-This enables **server-side capability pages** — instead of the browser
-making API calls directly to the relay (which requires session cookies
-for task-submit and storage), the node runs a local HTTP server that
-handles all relay interactions with its own node token. The browser
-talks to the relay, the relay proxies to the node's local server.
-
-**Use cases:**
-- **SSN Proxy** (T-076): HTMX server for capability pages. The SSN
-  runs a local HTTP server on `127.0.0.1:8790` that submits tasks,
-  polls status, and downloads artifacts — all with the SSN's node token.
-- **Direct node endpoints**: A worker node could register a
-  `POST /api/generate` endpoint that the relay proxies to, enabling
-  real-time interaction without the task lifecycle.
-
-**Auth modes:**
-- `session` — requires a valid dashboard session cookie (default)
-- `node_token` — requires a valid Bearer node token
-- `none` — no authentication (public endpoints)
-
-See [capabilities.md](node/capabilities.md#dynamic-node-routes-t-075) for
-the YAML format and [ssn.md](node/ssn.md) for the SSN Proxy reference
-implementation.
-
-### Why KI-less nodes?
-
-| Benefit | Explanation |
-|---|---|
-| Safety | A dumb node cannot improvise. It only does what the stage says. |
-| Simplicity | Small code base, easy to audit, easy to replace. |
-| Reliability | Fewer moving parts, deterministic behaviour. |
-| Network placement | Can run on constrained devices (NAS, IoT, Docker). |
-| Cost | No GPU or large model required. |
-
-## Self-care pattern
-
-This is the core pattern that connects KI-less nodes to KI-capable nodes
-through the relay, without the relay itself having to reason.
-
-> A service node detects a problem it is not allowed to decide itself. Instead
-> of making a choice, it creates a task for a KI-capable node.
+> A node detects a problem it is not allowed to decide itself. Instead
+> of making a choice, it creates a task for a KI-capable capability.
 
 Example: the storage node notices disk usage above the threshold.
 
 1. Storage node measures disk usage → `0.91`, threshold is `0.85`.
 2. Storage node posts a task with a `llm.decide_cleanup` stage.
    Payload: current file list, usage ratio, threshold.
-3. A KI node claims the stage, analyses the files, and returns a list of
-   candidates to delete.
+3. A node with `llm.decide_cleanup.ai` claims the stage, analyses the files,
+   and returns a list of candidates to delete.
 4. Relay creates a follow-up `storage.delete` stage.
 5. Storage node claims and executes the deletion.
 
@@ -272,8 +195,8 @@ capability; it never interprets the decision.
 
 ### Decision boundaries
 
-| Situation | KI node | Service node |
-|---|---|---|
+| Situation | KI-capable node | KI-less node |
+|-----------|----------------|--------------|
 | User asks "What should I delete?" | Decide | Measure, then ask |
 | Disk full | Analyse and recommend | Report usage, then act on command |
 | Image generation | Compose prompt, call worker | Run the model |
@@ -284,10 +207,20 @@ capability; it never interprets the decision.
 Rule of thumb:
 
 > If the answer to "what should happen next?" requires interpretation,
-> preference, or judgement, it belongs to a KI node.
+> preference, or judgement, it belongs to a KI-capable capability.
 >
 > If the answer is deterministic and reversible or explicitly authorised,
-> it can belong to a service node.
+> it can belong to a KI-less capability.
+
+### Why KI-less capabilities?
+
+| Benefit | Explanation |
+|---------|-------------|
+| Safety | A dumb node cannot improvise. It only does what the stage says. |
+| Simplicity | Small code base, easy to audit, easy to replace. |
+| Reliability | Fewer moving parts, deterministic behaviour. |
+| Network placement | Can run on constrained devices (NAS, IoT, Docker). |
+| Cost | No GPU or large model required. |
 
 ## Node lifecycle
 
@@ -422,7 +355,7 @@ scheduler stage/task transition (claim, complete, fail, time out).
 
 | Term | Meaning |
 |---|---|
-| **Node** | A process that registers with the relay and advertises capabilities. Either a worker node (KI-capable) or a service node (KI-less). |
+| **Node** | A process that registers with the relay and heartbeats capabilities. There is one node type — capabilities define what it does. See [node/concept.md](node/concept.md). |
 | **Capability** | A dot-separated routing key (e.g. `storage.archive.native`) a node advertises; the scheduler matches stages to nodes by exact capability name. |
 | **Capability suffix** | `.native` (no AI, runs directly), `.ai` (delegates to local AI), `.relay` (relay-internal). Required on every concrete capability. |
 | **Stage** | A single unit of work inside a task DAG. Has a capability, a payload, dependencies, and a status. |

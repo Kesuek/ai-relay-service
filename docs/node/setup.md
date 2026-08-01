@@ -6,7 +6,8 @@ short Proxmox LXC example appears at the end.
 
 The guide assumes the relay server is already running and reachable. See
 [../server/setup.md](../server/setup.md) for the server side. For the concepts
-behind nodes, capabilities, and tokens see [../concepts.md](../concepts.md).
+behind nodes, capabilities, and tokens see [../concepts.md](../concepts.md) and
+[node/concept.md](concept.md).
 
 ## Prerequisites
 
