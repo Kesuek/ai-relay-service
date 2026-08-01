@@ -94,7 +94,7 @@ names. Use these names when they fit; you may register domain-specific names
 | `terminal` | `.native` or `.ai` | Executes shell commands, directly or after local AI confirmation. |
 | `file` | `.native` | Filesystem operations: read, write, move, delete. |
 | `storage.*` | `.native` | Storage services: archive, list, delete, quota checks. |
-| `llm.decide_*` | `.ai` | Decision stages for KI-less service nodes. |
+| `llm.decide_*` | `.ai` | Decision stages for nodes without reasoning. |
 | `llm.plan_*` | `.ai` | Orchestrator stages that break a request into a task DAG. |
 
 For the full capability reference (handler contract, Dynamic Routes, validation,

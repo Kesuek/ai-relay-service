@@ -1,6 +1,6 @@
-# AI Relay — Dashboard Guide
+# Relay — Dashboard Guide
 
-The AI Relay dashboard is a web interface for managing nodes, users, tasks, and
+The Relay dashboard is a web interface for managing nodes, users, tasks, and
 tokens. It is available at:
 
 ```
@@ -231,7 +231,7 @@ Click on a node, task, or artifact to see details.
 ## 7. API endpoints used by the dashboard
 
 The dashboard itself is a static HTML page that calls the following endpoints.
-You can also use them from scripts or from KI nodes. See
+You can also use them from scripts or from worker nodes. See
 [../reference/api.md](../reference/api.md) for the full endpoint table.
 
 | Method | Path | Purpose |

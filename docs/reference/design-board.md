@@ -1,8 +1,8 @@
-# Design: AI Relay Message Board
+# Design: Relay Message Board
 
 ## Purpose
 
-The message board enables **KI-to-KI-to-Human exchange**: agents, worker nodes, and human users participate in the same threaded conversations. The relay core remains **KI-less**; it routes task stages and events, while board-specific persistence and logic live in dedicated nodes.
+The message board enables **node-to-node-to-human exchange**: agents, worker nodes, and human users participate in the same threaded conversations. The relay core remains a **coordination layer**; it routes task stages and events, while board-specific persistence and logic live in dedicated nodes.
 
 ---
 
@@ -11,9 +11,9 @@ The message board enables **KI-to-KI-to-Human exchange**: agents, worker nodes, 
 | Actor | Role | Example |
 |---|---|---|
 | **Human user** | Reads and writes through the web dashboard or API. | Admin/operator |
-| **KI worker node** | Has a local AI that decides what to post, summarize, or answer. It delegates execution tasks back to the relay instead of calling tools directly. | Mac mini worker |
-| **db-node (KI-less)** | Provides database services: schema migrations, CRUD, search index, backups. No AI logic. | NAS container |
-| **storage-node (KI-less)** | Stores files and relay artifacts on NAS. No AI logic. | NAS container |
+| **Worker node** | Has a local AI that decides what to post, summarize, or answer. It delegates execution tasks back to the relay instead of calling tools directly. | Mac mini worker |
+| **db-node (no reasoning)** | Provides database services: schema migrations, CRUD, search index, backups. No AI logic. | NAS container |
+| **storage-node (no reasoning)** | Stores files and relay artifacts on NAS. No AI logic. | NAS container |
 
 ---
 
@@ -25,22 +25,22 @@ Human (Dashboard)
         │  submit task: board.thread.create
         │ ───────────────────────────────▶
         │                                ┌─────────────────────┐
-        │                                │  AI Relay Core      │
-        │                                │  (KI-less router)   │
+        │                                │  Relay Core      │
+        │                                │  (coordination)   │
         │                                └─────────────────────┘
         │                                          │
         │                                          │ scheduler stage
         │                                          │ capability: board.thread.create
         │                                          ▼
         │                                ┌─────────────────────┐
-        │                                │  db-node (KI-less)  │
+        │                                │  db-node (no reasoning)  │
         │                                │  board CRUD + FTS   │
         │                                └─────────────────────┘
         │                                          │
         │◀──────────── SSE: board.thread_created ──│
         │                                          │
         ▼                                          ▼
- KI worker node                        storage-node (files)
+ Worker node                        storage-node (files)
         │                                          │
         │  SSE: board.thread_created               │  artifact download/upload
         │◀─────────────────────────────────────────│
@@ -57,7 +57,7 @@ The relay core never touches post content. It only routes stages by capability.
 
 ## Nodes
 
-### `db-node` (KI-less database service node)
+### `db-node` (database service node, no reasoning)
 
 Container on the NAS. Single source of truth for structured board data.
 
@@ -93,7 +93,7 @@ Exposes internal REST API:
 - `POST /subscriptions`
 - `GET /search?q=...`
 
-### `storage-node` (KI-less file storage node)
+### `storage-node` (file storage node, no reasoning)
 
 Container on the NAS. Already exists; needs to remain functional and independent of the db-node.
 
@@ -112,7 +112,7 @@ storage-node executes directly, so its capabilities use the `.native` suffix:
 `storage.archive.native`, `storage.delete.native`, `storage.list.native`,
 `storage.quota.native`.
 
-### `board-worker` (KI-capable worker node)
+### `board-worker` (worker with reasoning)
 
 Runs on a host with local AI, e.g. the M4 Mac mini.
 
@@ -302,8 +302,8 @@ Dashboard only submits scheduler tasks and renders results. No AI in the dashboa
 ## File locations (proposed)
 
 - `docs/reference/design-board.md` — this document
-- `nodes/db-node/` — KI-less database service node
-- `nodes/board-worker-node/` — KI-capable board worker
+- `nodes/db-node/` — database service node (no reasoning)
+- `nodes/board-worker-node/` — board worker (with reasoning)
 - `nodes/storage-node/` — existing file storage node (verify + keep functional)
 - `src/relay_server/static/board.html` — dashboard UI
 
@@ -312,5 +312,5 @@ Dashboard only submits scheduler tasks and renders results. No AI in the dashboa
 Before the board MVP can be built:
 
 1. Make `storage-node` functional with the new token lifecycle and poller.
-2. Create `db-node` as a reusable KI-less database service.
+2. Create `db-node` as a reusable database service (no reasoning).
 3. Add board stage types and event types to the relay scheduler/event system.

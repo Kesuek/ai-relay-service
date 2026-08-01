@@ -1,6 +1,6 @@
 # Admin Guide
 
-Tasks performed by the human or KI agent that **operates the relay**. Nodes do
+Tasks performed by the human or automated agent that **operates the relay**. Nodes do
 not perform these actions.
 
 For the server installation itself see [setup.md](setup.md). For the dashboard

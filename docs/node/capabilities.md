@@ -28,8 +28,8 @@ concrete capability a node advertises — a bare core name such as `chat` or
 
 | Suffix | Meaning | Required for | Example |
 |---|---|---|---|
-| `.native` | Runs directly on the node, no local AI. | **Every KI-less / service node.** | `storage.archive.native`, `db.board.create.native` |
-| `.ai` | KI-capable; the node delegates to its local AI. | KI-capable worker nodes. | `chat.ai`, `code.ai`, `board.reply.generate.ai` |
+| `.native` | Runs directly on the node, no local AI. | **Nodes without local AI.** | `storage.archive.native`, `db.board.create.native` |
+| `.ai` | Delegates to a local AI or LLM for reasoning. | Nodes with local AI. | `chat.ai`, `code.ai`, `board.reply.generate.ai` |
 | `.relay` | Relay-internal orchestration capability. | Relay-internal stages only. | `llm.decide_cleanup.relay` |
 
 > **Rule of thumb:** if a node has no local AI, **all** of its capabilities
@@ -64,18 +64,18 @@ Every capability has a **type** that describes *how* work is executed:
 
 | Type | Suffix | Execution | Example |
 |------|--------|-----------|---------|
-| **KI-capable** | `.ai` | Delegated to a local AI (Hermes, LLM). The AI interprets the payload, chooses tools, and returns a result. | `chat.ai`, `agent.ai`, `code.ai` |
-| **KI-less / tool** | `.native` | Direct execution — a script, binary, or hard-coded handler. No AI involved. | `storage.archive.native`, `image.generate.mflux` |
+| **With reasoning** | `.ai` | Delegated to a local AI (Hermes, LLM). The AI interprets the payload, chooses tools, and returns a result. | `chat.ai`, `agent.ai`, `code.ai` |
+| **Without reasoning / tool** | `.native` | Direct execution — a script, binary, or hard-coded handler. No AI involved. | `storage.archive.native`, `image.generate.mflux` |
 
 A single node can offer **both** types side by side. For example, a worker
-might advertise `chat.ai` (KI-capable, handled by Hermes) and
+might advertise `chat.ai` (with reasoning, handled by Hermes) and
 `image.generate.mflux` (tool, runs FLUX directly) in the same heartbeat.
 The handler for each capability decides how work is executed — the node-cli
 daemon is agnostic to the type.
 
 ## chat.ai vs agent.ai
 
-Both are KI-capable (`.ai` suffix), but they serve different purposes:
+Both are capabilities with reasoning (`.ai` suffix), but they serve different purposes:
 
 | | `chat.ai` | `agent.ai` |
 |---|---|---|
