@@ -1,4 +1,4 @@
-# AI-Relay-Service
+# (AI-)Relay-Service
 
 **One relay. Unlimited worker nodes.**
 Capability-based task routing for distributed workers.
