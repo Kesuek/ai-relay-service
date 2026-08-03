@@ -150,6 +150,102 @@ which is itself an asynchronous message queue) needs no node changes — only a
 new `Transport` class behind the factory. The choice of transport is purely a
 config line; it has no effect on the node, handler, or dashboard.
 
+## Security: message-level end-to-end encryption
+
+Because the transport is open-ended, security must **not** depend on any one
+transport. It lives at the **message layer**: the JSON payload is encrypted by
+the Federation Node *before* it is written to `outbox/`, and decrypted only
+when read from `inbox/`. The transport wrapper moves ciphertext and nothing
+else, so confidentiality, authenticity and integrity hold across HTTP, E-Mail
+and P2P alike. (Security model validated by external review, 2026-08-03.)
+
+### Layered model
+
+| Layer | Mechanism | Role |
+|-------|-----------|------|
+| **Message layer** | `crypto_box` (X25519 + XSalsa20-Poly1305) | End-to-end E2EE — confidentiality, authenticity, integrity in one primitive |
+| **Transport layer** | HTTPS / STARTTLS / DTLS | Defense-in-depth only |
+
+> **Naming correction (OpenAI review, 2026-08-03):** libsodium's classic `crypto_box`
+> uses **XSalsa20-Poly1305**, not XChaCha20-Poly1305. XChaCha20-Poly1305 belongs
+> to `secretstream_xchacha20poly1305` / other AEAD constructions. If XChaCha20 is
+> preferred, use `crypto_kx` + `secretstream_xchacha20poly1305` instead of
+> `crypto_box`.
+
+Transport-level TLS alone is **not** sufficient in an Inbox/Outbox system:
+messages land as files on intermediate file systems, so TLS-only leaves them
+plaintext at rest on disk and vulnerable when a transport lacks native TLS
+(e.g. plain SMTP or P2P). Message-layer E2EE makes relays "blind couriers" —
+compromised nodes, leaked backups, or malicious filesystem access cannot read
+the payload.
+
+### Why TLS-only is not enough (review comparison)
+
+| Security property | Transport TLS only | Message E2EE |
+|-------------------|--------------------|--------------|
+| In-transit | ✅ between hops | ✅ end-to-end |
+| At-rest (`inbox/` on disk) | ❌ plaintext | ✅ stays ciphertext |
+| Intermediary trust | ❌ must trust relay storage | ✅ zero-trust, blind courier |
+| Transport agnosticism | ❌ vulnerable on plain SMTP/P2P | ✅ inherently secure over any transport |
+
+### Crypto scheme
+
+- Each relay has an X25519 keypair; public keys are shared **out-of-band**
+  (e.g. during the `connect` task with the token, or manually).
+- Every message gets a **fresh 24-byte random nonce** via `os.urandom(24)` /
+  libsodium `randombytes_buf`. **Never reuse a nonce with the same keypair** —
+  a collision destroys confidentiality. XChaCha20's 192-bit nonce space makes
+  collisions negligible with random generation.
+- The plaintext envelope carries: a unique message id (`jti`), a strict
+  timestamp, and a **key fingerprint** of the sender's public key so the
+  receiver knows which Curve25519 key to use for decryption.
+
+```python
+import nacl.bindings
+# encrypt: local_sk + remote_pk + nonce → ciphertext
+# decrypt: remote_sk + local_pk + nonce → plaintext
+```
+
+### Hard requirements (built in from day one)
+
+1. **Nonce discipline** — a fresh random nonce per message; never a static
+   counter or reused nonce.
+2. **Replay protection** — because messages are static files in `inbox/`, an
+   attacker could capture a valid ciphertext file and re-inject it. The
+   receiver keeps a stateful set of processed message ids and rejects
+   duplicates.
+3. **DoS protection** — strict file-size limits and cheap structural checks in
+   the transport wrapper *before* the decryption pipeline, so a flood of
+   garbage files cannot exhaust CPU.
+
+### Key management
+
+Out-of-band key distribution is fine for a small trusted federation (2–10
+relays). For rotation/revocation, prefer **TOFU with local config pinning**
+(public keys pinned in `node.yaml`) plus a lightweight signed key directory
+when the federation grows. A leaked private key requires rotating it across
+all federated partners.
+
+Config:
+
+```yaml
+federation:
+  transport_type: http
+  crypto:
+    local_private_key: "..."     # stays on this relay
+    remote_public_key: "..."     # public key of the remote relay
+    key_fingerprint: "..."       # optional: pin the remote key id
+```
+
+### Scalability (future, not V1)
+
+- **Envelope encryption (hybrid)** — for large payloads, encrypt the body with
+  a random one-time ChaCha20 key and wrap only that small key with
+  `crypto_box_seal`. Faster than boxing the whole payload.
+- **DIDComm / Matrix-style protocols** — if the federation grows beyond a
+  point-to-point bridge, these standardize transport-agnostic message E2EE
+  (Curve25519/Ed25519) for agent/relay architectures.
+
 ## Capability
 
 ### `federation`
@@ -289,6 +385,80 @@ inbox/outbox directory. Each connection has its own dashboard card:
 │  └────────────────────────────────────────┘  │
 └──────────────────────────────────────────────┘
 ```
+
+## Reliability & lifecycle (from Gemini + OpenAI reviews, 2026-08-03)
+
+### Message lifecycle + ACK protocol
+
+Give every message an explicit state machine, not implicit states:
+
+```
+CREATED → ENCRYPTED → QUEUED → SENT → ACKED → COMPLETED → ARCHIVED
+                    ↘ FAILED / EXPIRED / REJECTED
+```
+
+- **ACK is mandatory.** Transport success ≠ delivery. The receiver ACKs only
+  after writing the message to `inbox/`; the sender removes the outbox file
+  only after receiving the ACK. Without ACKs, data is eventually lost.
+- **Delivery semantics:** design for **at-least-once** delivery plus
+  **idempotent processing** (deduplicate on `message_id`), not exactly-once —
+  exactly-once is rarely achievable and much more complex.
+
+### Async transport mismatch
+
+Different transports have very different timing. E-Mail is asynchronous while
+HTTP is request/response. A task waiting on an async transport must move to a
+`pending_remote_response` state rather than blocking a worker or connection.
+Do not assume a synchronous request/result cycle.
+
+### SQLite metadata index + directory partitioning
+
+- **SQLite holds message metadata** (message_id, state, retry_count, ownership,
+  timestamps); files hold only payloads. Avoids scanning directories with
+  thousands of files.
+- **Hash-partition** outbox/inbox (`00/ 01/ ... ff/` via
+  `SHA256(message_id)[:2]`) so flat directories don't degrade.
+- **Aggressive cleanup/archival** of files after terminal state — prevents
+  inode exhaustion.
+- **Replay cache** must be TTL-pruned (drop processed ids older than the
+  message expiry window), or it grows unbounded.
+- **File I/O:** write to a temp file (`.tmp_<id>`) then atomic `os.rename()`
+  into place, so readers never see a partially-written file.
+
+### Retry policy
+
+Exponential backoff with jitter (e.g. `30s 1m 2m 4m 8m 16m 30m 60m`), not
+"every 60s forever". Two relays rebooting simultaneously can otherwise
+synchronize their retries. Use a `sync()` cycle (upload → download → ACKs →
+cleanup) rather than separate send/receive.
+
+### Capability pinning + versioning
+
+- **Pin the approved capability** to a hash/interface fingerprint + version.
+  The remote must not silently grow `OCR → OCR+Shell.Execute`. A capability
+  change (schema/version) requires re-review by the admin.
+- Include `schema_hash` / `interface_hash` in the message envelope so interface
+  changes are detected instantly.
+- Treat heartbeats as health signals, **not** registration — capability
+  registration should survive missed heartbeats.
+
+### Back-pressure
+
+- The remote publishes `queue_depth` / `load`; routing adapts. A 500-worker
+  relay must not flood a 2-worker relay.
+- Expand fair-use limits beyond `max_parallel`/`max_daily` to also cover
+  `requests/day`, `bytes/day`, `runtime/day`, `burst`, `priority`.
+- No multi-hop federation in V1 — keep it pairwise (A↔B). Transitive
+  federation (A→B→C) adds routing, trust, policy, latency and failure
+  complexity.
+
+### Observability
+
+Emit structured events from day one:
+`MESSAGE_CREATED MESSAGE_ENCRYPTED MESSAGE_SENT MESSAGE_ACKED MESSAGE_RETRIED
+MESSAGE_DECRYPTED MESSAGE_COMPLETED MESSAGE_FAILED`, with message_id, remote,
+latency, retry count, size. This makes diagnosing issues far easier than
+reconstructing state from files alone.
 
 ## Key properties
 
