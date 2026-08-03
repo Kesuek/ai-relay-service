@@ -135,17 +135,20 @@ def create_transport(cfg: dict[str, Any]) -> Transport:
 
 ### Transport backends
 
-| `transport_type` | Backend | Use case | NAT |
-|------------------|---------|----------|-----|
-| `http` | **HTTP/HTTPS (V1, default)** — `POST /relay/v2/scheduler/task-simple`, poll `/relay/v2/scheduler/tasks/{id}` | Fast LAN / Tailscale | Tailscale or reachable host |
-| `email` | **E-Mail** — himalaya + IMAP-IDLE watcher, Task JSON in mail body, `fed_<id>` subject | Universal fallback, relays that are not both online | None (works everywhere) |
-| `p2p` | **P2P (QUIC/WebRTC)** — later, optional | Fully decentralized, no reachable host | NAT-traversal, no port forwarding |
+The transport is **open-ended** — any backend that can move a JSON file from
+one place to another behind the `Transport` interface works. The table lists
+illustrative examples:
 
-The `email` backend is the natural universal fallback: E-Mail is itself an
-asynchronous message queue, so the Inbox/Outbox pattern maps directly onto it.
-`sync_outbox()` sends task files as mails; `sync_inbox()` (via an existing
-IMAP-IDLE watcher) turns incoming federation mails into inbox files. A
-dedicated mailbox/IMAP folder per remote relay handles addressing.
+| `transport_type` | Example backend | Use case | NAT |
+|------------------|-----------------|----------|-----|
+| `http` | **HTTP/HTTPS (V1, default)** — `POST /relay/v2/scheduler/task-simple`, poll `/relay/v2/scheduler/tasks/{id}` | Fast LAN / Tailscale | Tailscale or reachable host |
+| `email` | **E-Mail** — task JSON in mail body, `fed_<id>` subject | Async fallback (illustrative) | None (works everywhere) |
+| `p2p` | **P2P (QUIC/WebRTC)** — later, optional | Fully decentralized | NAT-traversal, no port forwarding |
+
+A backend that maps naturally onto the Inbox/Outbox pattern (e.g. E-Mail,
+which is itself an asynchronous message queue) needs no node changes — only a
+new `Transport` class behind the factory. The choice of transport is purely a
+config line; it has no effect on the node, handler, or dashboard.
 
 ## Capability
 
@@ -305,7 +308,6 @@ inbox/outbox directory. Each connection has its own dashboard card:
 
 - `nodes/common/federation/transport.py` — `Transport` protocol + `create_transport()` factory
 - `nodes/common/federation/transports/http_transport.py` — HTTP backend (V1)
-- `nodes/common/federation/transports/email_transport.py` — E-Mail backend (T-100)
 - `nodes/common/federation/federation_node.py` — Daemon (claim, forward, complete; inbox/outbox processing)
 - `federation` handler — accepts `connect` task, establishes connection
 - Dashboard HTML (capability page or Dynamic Route) — shows remote capabilities, checkboxes, status
