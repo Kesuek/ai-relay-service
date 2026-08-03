@@ -310,13 +310,23 @@ capability.
 
 When a task arrives for `image.gen.mflux`:
 
-1. Federation Node claims the stage
-2. Node writes a forward file to `outbox/<remote>/`
-3. Transport `sync_outbox()` sends it to the remote relay
-   (`POST /relay/v2/scheduler/task-simple`)
-4. Remote relay processes it (its own Federation Node or worker claims it)
-5. Transport `sync_inbox()` fetches the result, writes it as an inbox file
-6. Node reads the inbox file, completes the stage locally
+1. Federation Node A claims the stage
+2. Node A writes a forward file to `outbox/<remote>/`
+3. Transport A `sync_outbox()` sends it **only to Federation Node B**
+   (over HTTP — it never talks to Relay B's scheduler directly)
+4. Federation Node B receives it and submits it **as a normal task into its
+   own local Relay B** (using B's own node token, `POST /relay/v2/scheduler/task-simple`)
+5. Relay B matches the capability and routes it to its regular worker nodes,
+   which process it normally
+6. Transport A `sync_inbox()` fetches the result from Federation Node B,
+   writes it as an inbox file
+7. Node A reads the inbox file, completes the stage locally
+
+**Key point:** the HTTP transport never reaches the remote relay's scheduler
+directly. It only reaches the remote Federation Node, which then re-submits
+the task into its local relay as an ordinary task. The remote relay treats the
+incoming work exactly like any locally submitted task — its own worker nodes
+claim and execute it, with no knowledge that it came from a federation.
 
 ## Config
 
