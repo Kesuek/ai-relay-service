@@ -397,26 +397,47 @@ list via `discover_capabilities()`:
 [mflux.generate, esrgan.upscale, chat.ai]
 ```
 
-### 4. Dashboard page
+### 4. Dashboard page = the subscription catalog
 
 The node deploys a dashboard page (via the SSN's `ssn.pages` capability or its
-own Dynamic Route). The page shows:
+own Dynamic Route). It acts as a **subscription catalog** — it shows the
+remote peer's offer plus your current subscriptions. Nothing is imported
+automatically.
 
-- **Status:** Connected / Disconnected
-- **Remote relay:** Name + URL
-- **Available capabilities:** List with checkboxes
-- **Capability translation:** Local name (editable) → Remote name
-- **Fair-use limits:** `max_parallel`, `max_daily`
-- **Activity log:** Tasks completed, errors, latency
+| Column | Meaning |
+|--------|---------|
+| **Capability** | Remote name (`chat.ai`, `image.gen.mflux`) + version |
+| **Local name** | Editable translation (`chat.ai@b` → `chat.ai`) |
+| **Status** | `available` / `subscribed` / `paused` / `rejected` |
+| **Fair-use** | `max_parallel`, `max_daily` (set per subscription) |
+| **Pinned version** | `schema_hash` of the approved interface |
+| **Activity** | Tasks completed, errors, latency |
 
-### 5. Admin approves
+Remote capabilities are **only visible here** — they are not in the local
+relay and not heartbeated until explicitly subscribed.
 
-The admin clicks checkboxes in the dashboard:
+### 5. Subscribe (manual approval, default: no import)
+
+The admin reviews each remote capability against a checklist (need, trust
+level, sensitivity, fair-use, version/pinning) and explicitly subscribes to
+the ones worth importing:
 
 ```
-[x] image.gen.mflux  →  mflux.generate    max_parallel: 2
-[ ] image.upscale    →  esrgan.upscale    max_parallel: 1
+[x] chat.ai       →  chat.ai        max_parallel: 2   max_daily: 100
+[x] ocr           →  ocr@b          max_parallel: 1   max_daily: 20
+[ ] image.gen     →  (not needed, we have image.gen locally)
 ```
+
+A subscription is **explicit and reviewed** — no capability is adopted
+automatically just because the peer offers it. This is the "subscription"
+model: you see the offer (auto-discover), choose what to subscribe to (manual
+approval), set per-subscription limits, and the subscription is pinned to a
+specific version (`schema_hash`).
+
+**Pinning against drift:** if the remote later changes a capability (version
+or schema), your existing subscription does **not** silently change. It is
+flagged as "update available" and requires re-review by the admin before it
+takes effect.
 
 ### 6. Node heartbeats approved capabilities
 
