@@ -622,17 +622,61 @@ MESSAGE_DECRYPTED MESSAGE_COMPLETED MESSAGE_FAILED`, with message_id, remote,
 latency, retry count, size. This makes diagnosing issues far easier than
 reconstructing state from files alone.
 
+## Channel model (vision) — a gateway, not just a bridge
+
+The Federation Node is not only a relay-to-relay bridge. It is a **universal
+gateway**: tasks can be distributed and collected over **any channel** a node
+can reach. The core system (Inbox/Outbox, E2EE, subscription, two-sided model)
+is unchanged — each channel is just an adapter behind the same wrapper
+abstraction.
+
+```
+channel_type: http | email | p2p | x | activitypub | web | messaging | ...
+```
+
+Tasks can flow in and out over:
+
+| Channel | How tasks move |
+|---------|----------------|
+| **HTTP/HTTPS** | relay-to-relay (V1) |
+| **E-Mail** | async, works over any NAT |
+| **P2P / Mesh** | discovery + distribution (Phase 23) |
+| **X / Twitter** | post = task, reply = result |
+| **ActivityPub** | Mastodon / Fediverse, decentralized |
+| **Websites** | Federation Nodes listed in web directories |
+| **Messaging** | Matrix, Signal, iMessage, WhatsApp… |
+
+**The three layers stay cleanly separated:**
+
+| Layer | Question | Channels |
+|-------|----------|----------|
+| **Discovery** | where do I find capabilities? | peer config, P2P mesh, web directory, ActivityPub list |
+| **Transport** | how do tasks get through? | HTTP, E-Mail, P2P, X, messaging |
+| **Subscription** | what do I want to use? | catalog + manual approval (unchanged) |
+
+A single channel can serve multiple layers (X can do discovery *and*
+transport). All core principles hold on every channel: subscription model,
+manual approval (default no import), E2EE, Inbox/Outbox.
+
+> **Scale note (2026-08-03):** the Federation Node is expected to grow into a
+> system **as large as the relay server itself**. This is intentional — it is
+> the "Capability Mesh" vision: not just a task router, but an open gateway
+> that distributes and collects tasks over every conceivable medium. Concrete
+> channel integrations (X, ActivityPub, web, messaging) are separate projects
+> with their own pitfalls (API limits, protocol signing, federation models),
+> planned as Phase 24+ when there is need — **none are V1**.
+
 ## Key properties
 
 - **No relay code changes** — Federation is pure node code
 - **Federation is a capability** — the node heartbeats `federation`, nothing else
 - **Transport-agnostic node** — the node only reads/writes inbox/outbox files
-- **Swappable transport** — HTTP / E-Mail / P2P via `create_transport()` factory
+- **Swappable transport/channel** — HTTP / E-Mail / P2P / X / ActivityPub / web / messaging via factory
 - **Crash-safe** — tasks are files; a dropped connection loses nothing
 - **Admin controls what gets heartbeated** — no capability is advertised without dashboard approval
 - **Capability translation** — local name ≠ remote name (admin sets the local name)
-- **Multiple remote relays** — one Federation Node, many connections, one transport each
-- **One hop** — the node forwards directly to the target relay, no chain
+- **Multiple remote relays / channels** — one Federation Node, many connections, one transport each
+- **One hop** — the node forwards directly to the target, no chain
 - **Fair use** — `max_parallel`, `max_daily` as policy mechanism, no money
 - **Temporary bridges** — connect, use, disconnect. No permanent setup needed
 
@@ -641,9 +685,10 @@ reconstructing state from files alone.
 - `nodes/common/federation/transport.py` — `Transport` protocol + `create_transport()` factory
 - `nodes/common/federation/transports/http_transport.py` — HTTP backend (V1)
 - `nodes/common/federation/federation_node.py` — Daemon (claim, forward, complete; inbox/outbox processing)
-- `federation` handler — accepts `connect` task, establishes connection
-- Dashboard HTML (capability page or Dynamic Route) — shows remote capabilities, checkboxes, status
+- `federation` handler — peer management, capability discovery
+- Dashboard HTML (capability page or Dynamic Route) — subscription catalog, peer status
 - Fair-use policy — `max_parallel`, `max_daily` enforcement in the daemon
+- Later: one channel adapter per medium (X, ActivityPub, web, messaging) — Phase 24+
 
 ## See also
 
