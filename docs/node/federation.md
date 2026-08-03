@@ -70,6 +70,42 @@ regular workers of B receive the plaintext under B's internal security
 governance. This is intentional: each relay has its own security concept, and
 the Federation Node is only the bridge between them.
 
+### The relays never meet — only the nodes talk
+
+The two relays **never know each other exists**. Only the Federation Nodes
+communicate with each other over the encrypted channel. There is no
+relay-to-relay connection and no relay ever learns the other relay's identity.
+
+```
+┌── Relay A ────────────┐     ═══ Federation channel ═══     ┌── Relay B ────────────┐
+│                       │         (nodes only,               │                       │
+│  Worker Nodes         │          relays never meet)        │  Worker Nodes         │
+│  ┌─────────────────┐  │                                    │  ┌─────────────────┐  │
+│  │ Relay A ↔ Fed A │  │        Fed A ◄══════► Fed B        │  │ Relay B ↔ Fed B │  │
+│  └─────────────────┘  │       (only nodes talk)            │  └─────────────────┘  │
+│                       │                                    │                       │
+└───────────────────────┘                                    └───────────────────────┘
+```
+
+Consequences that this establishes:
+
+1. **No relay-to-relay knowledge.** Relay A does not know Relay B exists. To A,
+   Fed A is just a normal node offering the remote capabilities. Relay B does
+   not know the tasks come from Relay A — to B, Fed B simply submits tasks.
+   The Fed Node gives away no internals because it knows nothing about its
+   relay beyond the tasks it forwards and receives.
+2. **Federation is purely node-to-node.** The only connection is
+   Fed A ↔ Fed B over the encrypted channel. The task flow inside B happens
+   internally — B never learns that A was the originator.
+3. **Multi-hop is structurally impossible.** Because the relays never meet,
+   there can be no relay chain A→B→C. Federation is strictly pairwise between
+   nodes — this is the OpenAI "no multi-hop in V1" recommendation, now
+   guaranteed structurally rather than being only a design choice.
+4. **The `connect` task is a pure node-to-node handshake.** The `{url, token}`
+   authenticates the nodes against each other, not the relays. The trust anchor
+   lives entirely between the two Federation Nodes; the token is a federation
+   channel credential, not a relay token.
+
 ### Capability addressing: `capability@transport`
 
 Every forwarded capability gets a **unique address** in the form
