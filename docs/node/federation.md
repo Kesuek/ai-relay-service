@@ -335,6 +335,16 @@ federation:
 - **DIDComm / Matrix-style protocols** — if the federation grows beyond a
   point-to-point bridge, these standardize transport-agnostic message E2EE
   (Curve25519/Ed25519) for agent/relay architectures.
+- **P2P as a discovery layer** — the federation's discovery source grows from
+  "out-of-band configured peers" to a P2P mesh as a capability search space.
+  Each Federation Node publishes its offer into the mesh, and any node can
+  search ("who can do `chat.ai`?"). The **subscription model stays unchanged**:
+  P2P only shows the offer — approval stays manual and reviewed (default: no
+  import), and pinning against drift still applies. P2P is a **discovery
+  layer**, not merely another transport backend. The trust anchor remains with
+  the admin (a mesh is not trustless, just a larger search space). This is
+  **not V1** — it only matters once the federation grows beyond a handful of
+  relays.
 
 ## Capability
 
