@@ -346,30 +346,58 @@ the local admin approves them via the dashboard.
 
 ## How it works
 
-### 1. Connect
+### 1. Peer registration (out-of-band, not a connect task)
 
-The admin sends a task to the Federation Node to establish a connection:
+The federation channel credentials are exchanged **out-of-band** by the two
+operators/admins. Each Federation Node has a set of configured peers in
+`node.yaml`. `connect` is not a task — it is the **activation** of an already
+configured peer.
 
-```json
-{
-  "connect": {
-    "url": "https://mac-relay:8788",
-    "token": "rt_..."
-  }
-}
+```yaml
+# node.yaml (Fed A)
+federation:
+  peers:
+    - id: "fed-b"
+      endpoint: "https://fed-b:8791"
+      token: "fed_t_..."          # given to A by B's operator, out-of-band
+      peer_public_key: "..."      # Fed B's X25519 public key (out-of-band)
+      my_public_key: "..."        # Fed A's X25519 public key (shared with B)
 ```
 
-The node builds a transport via `create_transport(cfg)` and connects.
+Peers are managed with the CLI (no config edit needed for temporary bridges):
 
-### 2. Discover
+```bash
+node-cli federation peer add fed-b https://fed-b:8791 fed_t_... <pubkey>
+node-cli federation peer remove fed-b
+node-cli federation peer list
+```
 
-Once connected, the transport fetches the remote relay's capability list via
-`discover_capabilities()`:
+**Why out-of-band (no dynamic handshake endpoint in V1):** the trust anchor is
+the manually shared configuration. There is no initial handshake that would
+itself be an attack surface, and no new endpoint on the Fed-Side. This is the
+same out-of-band pattern already used for the E2EE public-key distribution.
+
+### 2. Mutual authentication (every sync cycle)
+
+Each sync authenticates both directions without any relay involvement:
+
+- **Channel token** (`fed_t_...`) proves "I am the configured peer Fed A".
+- **`crypto_box`** signed with B's public key proves "and I hold the private
+  key matching A's public key, which you received out-of-band".
+
+Together these give mutual authentication between the two Federation Nodes,
+independent of both relays. Once the peer is activated, the node builds the
+transport via `create_transport(cfg)` and starts syncing.
+
+### 3. Discover
+
+Once connected, the transport fetches the remote **peer node's** capability
+list via `discover_capabilities()`:
 ```
 [mflux.generate, esrgan.upscale, chat.ai]
 ```
 
-### 3. Dashboard page
+### 4. Dashboard page
 
 The node deploys a dashboard page (via the SSN's `ssn.pages` capability or its
 own Dynamic Route). The page shows:
@@ -381,7 +409,7 @@ own Dynamic Route). The page shows:
 - **Fair-use limits:** `max_parallel`, `max_daily`
 - **Activity log:** Tasks completed, errors, latency
 
-### 4. Admin approves
+### 5. Admin approves
 
 The admin clicks checkboxes in the dashboard:
 
@@ -390,13 +418,13 @@ The admin clicks checkboxes in the dashboard:
 [ ] image.upscale    →  esrgan.upscale    max_parallel: 1
 ```
 
-### 5. Node heartbeats approved capabilities
+### 6. Node heartbeats approved capabilities
 
 Only after admin approval, the node starts heartbeating the approved
 capabilities locally. The relay now sees `image.gen.mflux` as a local
 capability.
 
-### 6. Task forwarding
+### 7. Task forwarding
 
 When a task arrives for `image.gen.mflux`:
 
@@ -426,9 +454,12 @@ node_name: federation
 description: "Bridge to remote relays"
 federation:
   transport_type: http        # http | email | p2p
-  remote_relay:
-    url: "https://mac-relay:8788"
-    token: "rt_..."           # runtime token of the REMOTE relay
+  peers:
+    - id: "fed-b"
+      endpoint: "https://fed-b:8791"
+      token: "fed_t_..."          # out-of-band, from the remote operator
+      peer_public_key: "..."      # Fed B's X25519 public key (out-of-band)
+      my_public_key: "..."        # Fed A's X25519 public key (shared with B)
 capabilities:
   - name: federation
     type: native
