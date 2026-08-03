@@ -31,6 +31,60 @@ the remote relay.
 └──────────────────────────────────┘       └──────────────────────────────────┘
 ```
 
+### Two-sided model: the node is a bridge
+
+The Federation Node has **two strictly separated sides**:
+
+```
+┌──────────── Relay A ────────────┐          ┌──────────── Relay B ────────────┐
+│                                 │          │                                 │
+│  ┌─────────────────────────┐    │          │  ┌─────────────────────────┐    │
+│  │  Fed Node A              │    │          │  │  Fed Node B              │    │
+│  │                         │    │          │  │                         │    │
+│  │  [Relay-Side]           │    │          │  │  [Relay-Side]           │    │
+│  │  heartbeats like any    │    │          │  │  heartbeats like any    │    │
+│  │  normal node            │    │          │  │  normal node            │    │
+│  │  provides remote caps   │    │          │  │  provides remote caps   │    │
+│  │                         │    │          │  │                         │    │
+│  │  [Fed-Side]             │───►│ Fed-Kanal│◄──│  [Fed-Side]             │    │
+│  │  forwards/receives      │    │          │  │  forwards/receives      │    │
+│  └─────────────────────────┘    │          │  └─────────────────────────┘    │
+└─────────────────────────────────┘          └─────────────────────────────────┘
+```
+
+- **Relay-Side** (inward): behaves exactly like a normal node — heartbeats,
+  claims, completes. It exposes **no internals** of its own relay, only the
+  provided remote capabilities.
+- **Fed-Side** (outward): the actual federation — an encrypted channel to other
+  Federation Nodes; forwards tasks to them or receives tasks from them.
+- The local relay sees **only the Relay-Side** (a normal node). The federation
+  sees **only the Fed-Side** (an encrypted channel).
+
+### E2EE scope
+
+The message-level E2EE protects **only the federation connection A↔B** (the
+Fed-Side). Once Federation Node B decrypts a payload and submits it as a normal
+task into its own local relay, that relay's **own security model applies**
+(tokens, RBAC, etc.). E2EE secures the bridge, not the target relay — the
+regular workers of B receive the plaintext under B's internal security
+governance. This is intentional: each relay has its own security concept, and
+the Federation Node is only the bridge between them.
+
+### Capability addressing: `capability@transport`
+
+Every forwarded capability gets a **unique address** in the form
+`capability@transport` — e.g. `chat.ai@mac-relay`, `image.gen@http://relay-b`.
+
+This solves three problems:
+
+1. **Name collisions** — relay A and relay B can both have `chat.ai`; the
+   addressed form `chat.ai@b` disambiguates them.
+2. **Loop detection** — a task addressed to `chat.ai@b` is processed only by B
+   (it is the target relay); no node forwards an address that belongs to a
+   different peer.
+3. **Targeted routing** — the admin dashboard shows `chat.ai@b`, and tasks in A
+   target that address.
+
 ## Core architecture: Inbox/Outbox + transport-agnostic node
 
 The Federation Node is built on the **Inbox/Outbox message pattern** (the same
