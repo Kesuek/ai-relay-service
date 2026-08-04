@@ -148,17 +148,39 @@ curl http://ai-relay.local:8788/health
 
 ## 9. HTTPS / TLS
 
-The relay core speaks **plain HTTP** only. It has no built-in TLS. Terminate
-TLS in a reverse proxy in front of it — this keeps the core small and lets
-you use standard tooling for certificate management.
+The relay can serve **HTTPS directly** (T-111) or sit behind a reverse proxy.
+For a Homelab default (HTTP over Tailscale/WireGuard) no TLS is needed at all.
 
-Recommended setup:
+### Option A: Native TLS (built-in, T-111)
+
+Since the relay runs on uvicorn, you can give it a TLS certificate directly.
+Set `tls_certfile` and `tls_keyfile` in `~/.relay/config.yaml`:
+
+```yaml
+# ~/.relay/config.yaml
+tls_certfile: /etc/certs/ai-relay/fullchain.pem
+tls_keyfile:  /etc/certs/ai-relay/privkey.pem
+```
+
+When set, the relay serves **HTTPS** on its port and automatically suppresses
+mDNS (TLS implies Internet/Community-Relay mode; mDNS is a LAN mechanism and
+should not advertise publicly). Homelab users with Tailscale can leave these
+unset and keep plain HTTP — the VPN already encrypts the transport.
+
+> **Nodes:** point them at `https://<host>:<port>` via `base_url`. If the relay
+> uses a private/self-signed CA, set `tls_ca_cert` to that CA file in the
+> node's `relay_config.json` so the node trusts it.
+
+### Option B: Reverse proxy (alternative)
+
+If you prefer to terminate TLS outside the relay (e.g. for multiple services on
+one domain), put a reverse proxy in front. Recommended setup:
 
 ```
 Internet / LAN  ──HTTPS──▶  Reverse proxy (TLS)  ──HTTP──▶  relay :8788
 ```
 
-### Caddy (recommended — automatic Let's Encrypt)
+#### Caddy (recommended — automatic Let's Encrypt)
 
 ```caddyfile
 # /etc/caddy/Caddyfile
@@ -170,7 +192,7 @@ ai-relay.example.com {
 Caddy obtains and renews the certificate automatically. Reload with
 `systemctl reload caddy`.
 
-### nginx
+#### nginx
 
 ```nginx
 # /etc/nginx/sites-available/ai-relay
@@ -198,7 +220,7 @@ server {
 
 Obtain the cert with `certbot --nginx -d ai-relay.example.com`.
 
-### Traefik
+#### Traefik
 
 ```yaml
 # /etc/traefik/traefik.yml
@@ -295,6 +317,11 @@ port: 8788
 log_level: "info"            # debug | info | warning | error
 enable_mdns: true
 mdns_hostname: "ai-relay"
+
+# TLS (T-111) — set cert+key to serve HTTPS (Internet mode). Leave unset for
+# plain HTTP over Tailscale/WireGuard (Homelab mode).
+# tls_certfile: "/etc/certs/ai-relay/fullchain.pem"
+# tls_keyfile:  "/etc/certs/ai-relay/privkey.pem"
 
 # Paths
 db_path: "~/.relay/server.db"
