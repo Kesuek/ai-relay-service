@@ -237,20 +237,23 @@ http:
 ## 10. Database
 
 The relay uses **SQLite with WAL mode** as its default database. No external
-database server is required.
+database server is required. PostgreSQL is available as an opt-in backend
+since T-110 (SQLAlchemy Core).
 
 | Item | Value |
 |------|-------|
-| Engine | SQLite 3 + WAL (default) |
+| Default engine | SQLite 3 + WAL |
 | Default path | `~/.relay/server.db` |
 | Migrations | Automatic, additive, run on startup — no downtime, no manual steps |
-| Other backends | PostgreSQL and MariaDB stubs exist — see [database-backends.md](../reference/database-backends.md) |
+| Optional backends | PostgreSQL (implemented, T-110), MariaDB (stub) — see [database-backends.md](../reference/database-backends.md) |
 
 The relay has a **pluggable database abstraction** — a `Database` interface
-with backend-specific implementations. The active backend is selected via a
-single config field (`db_type`). SQLite is the default and fully implemented;
-PostgreSQL and MariaDB stubs are ready for implementation. See
-[database-backends.md](../reference/database-backends.md) for the full guide.
+with backend-specific implementations built on **SQLAlchemy Core**. The
+active backend is selected via a single config field (`db_type`). SQLite is
+the default and fully implemented; PostgreSQL is implemented and activated
+by installing the `[postgres]` extra and pointing `pg_dsn` at a server;
+MariaDB is a stub. See [database-backends.md](../reference/database-backends.md)
+for the full guide.
 
 ### Backups
 
@@ -369,8 +372,10 @@ through the single writer, which is more than enough at this scale.
 
 For larger deployments (hundreds of nodes, very high throughput), consider
 running the relay on a dedicated host with an SSD, and sharding by
-capability namespace. PostgreSQL support is **not yet implemented** but is
-the planned upgrade path — the schema is deliberately simple to port.
+capability namespace. PostgreSQL is available as an opt-in backend (T-110,
+SQLAlchemy Core) — set `db_type: postgres` and `pg_dsn` in `config.yaml`
+and install the `[postgres]` extra. The schema and migrations are portable,
+so the switch is a config change, not a code change.
 
 There is no horizontal scaling story yet: one relay process owns the SQLite
 file. Do not put a load balancer in front of multiple relay instances

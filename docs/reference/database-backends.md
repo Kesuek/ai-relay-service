@@ -1,11 +1,17 @@
 # Database Backend Guide
 
-> **Audience:** Developers who want to add a new database backend to the relay server.
-> **Applies to:** relay-server v2.0.0+
+> **Audience:** Operators who want to switch the relay's database backend,
+> and developers who want to add a new one.
+> **Applies to:** relay-server v2.0.0+ (T-110 SQLAlchemy Core backend).
 
 ## Overview
 
-The relay server uses a **pluggable database abstraction** — a `Database` interface with backend-specific implementations. The active backend is selected via a single config field. Business logic (auth, scheduler, API, dashboard) never touches the database driver directly; it only calls `db.get_conn()`.
+The relay server stores all of its state — nodes, tasks, stages, tokens,
+RBAC, audit logs — in a relational database. Since T-110 the database
+layer is built on **SQLAlchemy Core** (not an ORM): every query goes
+through a database-independent SQLAlchemy expression, so the same code
+runs unchanged on SQLite, PostgreSQL, and (with a driver) MariaDB. The
+active backend is selected with a single config line.
 
 ```
 ┌──────────────┐     get_conn() / init_db()     ┌──────────────┐
@@ -14,111 +20,153 @@ The relay server uses a **pluggable database abstraction** — a `Database` inte
 │   scheduler,  │                                └──────┬───────┘
 │   api, ...)   │                                       │
 └──────────────┘                              ┌──────────┼──────────┐
-                                              ▼          ▼          ▼
-                                        ┌─────────┐ ┌─────────┐ ┌─────────┐
-                                        │ SQLite  │ │Postgres │ │ MariaDB │
-                                        │Database │ │Database │ │Database │
-                                        └─────────┘ └─────────┘ └─────────┘
+                                               ▼          ▼          ▼
+                                         ┌─────────┐ ┌─────────┐ ┌─────────┐
+                                         │ SQLite  │ │Postgres │ │ MariaDB │
+                                         │  (SA    │ │  (SA    │ │  (SA    │
+                                         │  engine)│ │  engine)│ │  engine)│
+                                         └─────────┘ └─────────┘ └─────────┘
 ```
+
+Business logic (auth, scheduler, API, dashboard) never touches the
+database driver directly; it calls `db.get_conn()` and receives a
+SQLAlchemy `Connection`.
 
 ## Supported backends
 
-| Backend | Config value | Driver | Status |
-|---------|-------------|--------|--------|
+| Backend | Config value | Driver / extra | Status |
+|---------|-------------|----------------|--------|
 | SQLite | `sqlite` | `sqlite3` (stdlib) | ✅ Default, fully implemented |
-| PostgreSQL | `postgres` | `asyncpg` | 🚧 Stub — implementation deferred |
+| PostgreSQL | `postgres` | `psycopg` (`pip install .[postgres]`) | ✅ Implemented (T-110) |
 | MariaDB / MySQL | `mariadb` | `pymysql` | 🚧 Stub — implementation deferred |
+
+## Selecting a backend
+
+The backend is chosen in `~/.relay/config.yaml` (or the `RELAY_DB_TYPE`
+env var). SQLite is the default — no configuration needed.
+
+### SQLite (default)
+
+```yaml
+# ~/.relay/config.yaml
+db_type: sqlite
+db_path: ~/.relay/server.db
+```
+
+The on-disk file is the same file the legacy raw-`sqlite3` code used; the
+switch to a SQLAlchemy engine is transparent and existing databases keep
+working unchanged (this is the T-110 hard gate, verified by
+`tests/test_db_backcompat.py`).
+
+### PostgreSQL
+
+```yaml
+# ~/.relay/config.yaml
+db_type: postgres
+pg_dsn: postgresql+psycopg://user:pass@host:5432/relay
+```
+
+Install the PostgreSQL driver extra:
+
+```bash
+pip install ".[postgres]"
+```
+
+The DSN is the SQLAlchemy URL form. `pool_pre_ping` is enabled so stale
+connections from the pool are detected and recycled automatically.
+
+## What changed in T-110
+
+Before T-110 every query was a raw `conn.execute("SELECT ... WHERE id = ?",
+(id,))` string — correct only on SQLite (`?` placeholders, `sqlite3.Row`).
+Switching to PostgreSQL would have required rewriting all 155 query sites
+per backend. T-110 decoupled the dialect:
+
+- **Schema** is declared once as portable `sa.Table` objects in
+  `src/relay_server/core/tables.py`. `metadata.create_all(engine)` builds
+  it on any backend.
+- **Queries** use the `q(sql, params)` helper in `core/db.py`, which
+  rewrites `?`-positional SQL into named bind parameters and lets
+  SQLAlchemy render the correct placeholder per dialect (`?` on SQLite,
+  `$N` on PostgreSQL, `%s` on MySQL). The legacy call shape
+  (`conn.execute(q("... WHERE id = ?", (id,)))`) is preserved, so the
+  155 call sites changed minimally.
+- **`row["col"]` access** keeps working because a small compatibility shim
+  on SQLAlchemy's `Row` forwards string subscripts to `row._mapping[col]`.
+  The 373+ legacy `row["col"]` sites needed no change.
+- **Migrations** are backend-aware: `PRAGMA table_info` on SQLite,
+  `information_schema.columns` on PostgreSQL, centralised in
+  `_column_names()` / `_table_names()`.
+- **Timestamps** stay ISO-8601 **TEXT** strings (as on the existing
+  SQLite database), so the on-disk DB stays byte-identical. PostgreSQL
+  stores TEXT just as well; a TIMESTAMPTZ migration is a later, separate
+  step if desired.
 
 ## Adding a new backend
 
-To add a new database backend (e.g. CockroachDB, SQL Server, PlanetScale), you need **exactly three things**:
+To add a new backend (e.g. CockroachDB, SQL Server) you need **exactly
+three things**:
 
 ### 1. A driver dependency
 
-Add it to `pyproject.toml`:
+Add it as an optional extra in `pyproject.toml`:
 
 ```toml
 [project.optional-dependencies]
 cockroach = [
-    "psycopg2>=2.9",  # CockroachDB speaks PostgreSQL wire protocol
+    "psycopg[binary]>=3.1",  # CockroachDB speaks the PostgreSQL wire protocol
 ]
 ```
 
 ### 2. A backend class
 
-Create `src/relay_server/core/db_cockroach.py`:
+Create `src/relay_server/core/db_cockroach.py`, mirroring
+`db_postgres.py`. Because the schema and migrations are already portable,
+the class is tiny — a SQLAlchemy engine + the shared `init_db`:
 
 ```python
 """CockroachDB backend for the relay server."""
-
-from relay_server.core.db import Database
+import sqlalchemy as sa
+from relay_server.core import tables
+from relay_server.core.db import Database, _run_migrations, _seed_default_rbac
 
 
 class CockroachDatabase(Database):
-    """CockroachDB backend — PostgreSQL-compatible wire protocol."""
-
     def __init__(self, dsn: str):
-        self.dsn = dsn
-        self._conn = None
+        self._dsn = dsn
+        self._engine = None
+
+    def _get_engine(self):
+        if self._engine is None:
+            self._engine = sa.create_engine(self._dsn, pool_pre_ping=True, future=True)
+        return self._engine
 
     def get_conn(self):
-        """Return a database connection."""
-        import psycopg2
-        import psycopg2.extras
+        return self._get_engine().connect()
 
-        if self._conn is None or self._conn.closed:
-            self._conn = psycopg2.connect(self.dsn)
-            self._conn.autocommit = True
-        return self._conn
+    def init_db(self):
+        with self._get_engine().begin() as conn:
+            tables.metadata.create_all(conn)
+            _seed_default_rbac(conn)
+            _run_migrations(conn)
 
-    def init_db(self) -> None:
-        """Create schema and run migrations."""
-        conn = self.get_conn()
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS nodes (
-                node_id TEXT PRIMARY KEY,
-                node_name TEXT UNIQUE NOT NULL,
-                ...
-            )
-        """)
-        # ... all CREATE TABLE statements adapted to CockroachDB SQL
-        # ... run_migrations() equivalent
-        conn.commit()
-
-    def close(self) -> None:
-        """Release resources."""
-        if self._conn and not self._conn.closed:
-            self._conn.close()
+    def close(self):
+        if self._engine is not None:
+            self._engine.dispose()
+            self._engine = None
 ```
-
-The class must implement the `Database` protocol:
-
-| Method | Returns | Purpose |
-|--------|---------|---------|
-| `get_conn()` | A connection object | Return a usable database connection. May create or pool internally. |
-| `init_db()` | `None` | Create all tables, indexes, seed data, and run migrations. |
-| `close()` | `None` | Release connections, close pools, clean up. |
 
 ### 3. A factory entry + config field
 
-In `src/relay_server/core/db.py`, add to the factory:
+In `create_database()` (`core/db.py`):
 
 ```python
-def create_database() -> Database:
-    if settings.db_type == "sqlite":
-        return SqliteDatabase(settings.db_path)
-    elif settings.db_type == "postgres":
-        return PostgresDatabase(settings.pg_dsn)
-    elif settings.db_type == "mariadb":
-        return MariadbDatabase(settings.mariadb_dsn)
-    elif settings.db_type == "cockroach":
-        return CockroachDatabase(settings.cockroach_dsn)
-    else:
-        raise ValueError(f"Unknown db_type: {settings.db_type}")
+elif db_type == "cockroach":
+    from relay_server.core.db_cockroach import CockroachDatabase
+    return CockroachDatabase(settings.cockroach_dsn)
 ```
 
-In `src/relay_server/config.py`, add the config field:
+In `config.py`:
 
 ```python
 cockroach_dsn: str = ""
@@ -127,47 +175,48 @@ cockroach_dsn: str = ""
 ### Config example
 
 ```yaml
-# ~/.relay/config.yaml
 db_type: cockroach
-cockroach_dsn: postgresql://user:pass@host:26257/relay?sslmode=require
+cockroach_dsn: postgresql+psycopg://user:pass@host:26257/relay?sslmode=require
 ```
-
-## What changes per backend
-
-| Aspect | SQLite | PostgreSQL | MariaDB |
-|--------|--------|-----------|--------|
-| **Driver** | `sqlite3` (stdlib) | `asyncpg` | `pymysql` |
-| **Placeholder** | `?` | `$1` | `%s` |
-| **Auto-increment** | `INTEGER PRIMARY KEY AUTOINCREMENT` | `SERIAL PRIMARY KEY` | `INT AUTO_INCREMENT` |
-| **Timestamp** | `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` | `NOW()` | `NOW()` |
-| **Connection** | Per-call (short-lived) | Pool (long-lived) | Per-call or pool |
-| **Schema** | `TEXT`, `BOOLEAN`, `REAL` | `TEXT`, `BOOLEAN`, `DOUBLE PRECISION` | `TEXT`, `BOOLEAN`, `DOUBLE` |
-| **Migrations** | `PRAGMA table_info` + `ALTER TABLE` | `information_schema.columns` + `ALTER TABLE` | `information_schema.columns` + `ALTER TABLE` |
 
 ## What does NOT change
 
-- **All business logic** — auth, users, nodes, scheduler, tasks, stages, artifacts, audit logs, presence, capabilities, routes
-- **All API endpoints** — discovery, scheduling, admin, dashboard, docs
-- **All tests** — they run against SQLite (in-memory or temp file) regardless of the configured backend
-- **The `db.get_conn()` call pattern** — every caller uses the same import
+- **All business logic** — auth, users, nodes, scheduler, tasks, stages,
+  artifacts, audit logs, presence, capabilities, routes.
+- **All API endpoints** — discovery, scheduling, admin, dashboard, docs.
+- **All tests** — they run against SQLite (temp file) regardless of the
+  configured backend, plus the `test_db_backcompat.py` invariant guarding
+  the existing on-disk database.
+- **The `db.get_conn()` / `q()` call pattern** — every caller uses the
+  same imports.
 
 ## Testing a new backend
 
-1. Run the existing test suite with SQLite to confirm no regressions:
+1. Run the existing suite with SQLite to confirm no regressions:
    ```bash
    .venv/bin/python -m pytest tests/ -x -q
    ```
-
-2. Start the relay with your new backend:
+2. Run the backcompat invariant to confirm the existing SQLite DB stays
+   intact:
    ```bash
-   RELAY_DB_TYPE=cockroach RELAY_COCKROACH_DSN="..." relay-server server
+   .venv/bin/python -m pytest tests/test_db_backcompat.py -x -q
    ```
-
-3. Verify the dashboard, node registration, and task scheduling work end-to-end.
+3. Start the relay with the new backend and verify registration,
+   heartbeat, scheduling, and the dashboard end-to-end.
 
 ## Design notes
 
-- **No ORM.** The abstraction is deliberately thin — raw SQL per backend. An ORM would add complexity, slow down queries, and make debugging harder.
-- **No shared query builder.** Each backend writes its own SQL. Shared queries (e.g. `SELECT * FROM nodes WHERE node_id = ?`) are identical across backends and live in the caller code.
-- **Sync interface.** Even though `asyncpg` is async-native, the `Database` interface is sync. The PostgreSQL backend wraps async calls in `asyncio.to_thread()` or uses a sync wrapper. This keeps all callers simple.
-- **Schema is per-backend.** `CREATE TABLE` syntax, data types, and migration logic differ. Each backend has its own `_schema()` and `_run_migrations()` methods.
+- **No ORM.** SQLAlchemy Core (expressions + `text()`), not the ORM. The
+  relay keeps full control of the SQL while gaining dialect portability.
+- **`q()` helper, not a query builder.** The legacy `?`-SQL call shape is
+  preserved; `q()` only rewrites placeholders and binds params. New code
+  may use full `sa.select()` / `sa.insert()` constructs directly.
+- **Sync interface.** The `Database` interface is sync. SQLAlchemy's
+  engine + connection pool is sync-native; the async server runs DB calls
+  in the threadpool via Starlette/FastAPI's standard sync route support.
+- **Schema is shared.** One `tables.metadata` drives `create_all` on every
+  backend. The legacy raw-DDL `_schema()` is kept for the SQLite path so
+  existing databases initialise byte-identically; new backends use
+  `metadata.create_all`.
+- **SQLite stays default.** PostgreSQL is opt-in. There is no migration
+  step for existing deployments — the SQLite file is unchanged.

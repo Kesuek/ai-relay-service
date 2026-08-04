@@ -342,6 +342,29 @@ only status transitions. The event is fired for explicit requests
 (`node-cli node busy`), auto-busy, the offline watchdog, and every
 scheduler stage/task transition (claim, complete, fail, time out).
 
+## Database backends (T-110)
+
+The relay stores all of its state in a relational database. SQLite is the
+default — a single file at `~/.relay/server.db` — and requires no external
+server. Since T-110 the database layer is built on **SQLAlchemy Core**, so
+the same code runs unchanged on PostgreSQL as well: switching backends is a
+config change, not a code change.
+
+- **SQLite (default):** `db_type: sqlite`, `db_path: ~/.relay/server.db`.
+  The on-disk file is identical to what the legacy raw-`sqlite3` code
+  produced; the switch to a SQLAlchemy engine is transparent.
+- **PostgreSQL (opt-in):** `db_type: postgres`,
+  `pg_dsn: postgresql+psycopg://user:pass@host:5432/relay`. Install the
+  `[postgres]` extra. Connection pooling with `pool_pre_ping` is built in.
+- **MariaDB / MySQL:** stub retained; implementation deferred.
+
+Schema, queries and migrations are dialect-independent. The schema lives
+as portable `sa.Table` objects in `core/tables.py`; queries use the `q()`
+helper which rewrites SQLite `?` placeholders to the dialect-appropriate
+form. Timestamps remain ISO-8601 TEXT strings (the existing SQLite DB
+stays byte-identical). See [reference/database-backends.md](reference/database-backends.md)
+for the full guide, including how to add a new backend.
+
 ## Observability (T-109)
 
 The relay is observable through three built-in surfaces, all implemented

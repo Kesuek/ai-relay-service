@@ -6,9 +6,9 @@
 |-------|-------|
 | **Version** | 2.0.0 |
 | **Port** | 8788 |
-| **Framework** | FastAPI + SQLite (WAL) |
+| **Framework** | FastAPI + SQLite (WAL, SQLAlchemy Core) |
 | **Owner** | Ronny Pietschke |
-| **Tests** | 359/359 passed (87 Capability-Pages-Tests included) |
+| **Tests** | 408/408 passed + 1 skipped (live-PG), backcompat invariant intact |
 | **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 → 2222f4b → 7ba5aaf → 1fcf787 → 6a9c83e → 09d0a8c → 122dca6 → c96d71e → f4827c4 → bc70188 → 85a7971 |
 
 ## Phase Status
@@ -107,6 +107,17 @@
   - `/relay/v2/dashboard/api/metrics` (JSON, Session-Auth) + `/relay/v2/dashboard/metrics` (HTML, CSP-konform, externes `metrics.js`)
   - Strukturierte JSON-Logs via `core/logging_setup.py`, per-Request `trace_id` (16-hex) via `contextvars` + `X-Relay-Trace-Id`-Header
 
+### Phase 26 — PostgreSQL-Backend (SQLAlchemy Core) ✅
+- [x] T-110: Database layer decoupled from the SQLite dialect
+  - `core/tables.py` — 17 tables as portable `sa.Table` objects; `metadata.create_all` works on any backend
+  - `SqliteDatabase` backed by a SQLAlchemy engine (lazy, reads `settings.db_path` live); existing on-disk SQLite DB stays byte-identical (hard gate, `tests/test_db_backcompat.py`)
+  - `PostgresDatabase` implemented — engine + `pool_pre_ping` pool, activated via `db_type: postgres` + `pg_dsn` + `pip install ".[postgres]"`
+  - `q(sql, params)` helper rewrites `?` placeholders to named bind params so SQLAlchemy renders per dialect; 155 query call sites ported
+  - `Row["col"]` / `Row.keys()` compat shim keeps the 373+ legacy row-access sites unchanged
+  - Migrations backend-aware: `PRAGMA table_info` (SQLite) vs `information_schema.columns` (Postgres), centralised in `_column_names()` / `_table_names()`
+  - `maintenance.db_vacuum` backend-aware (SQLite WAL checkpoint + VACUUM; Postgres autovacuum)
+  - Timestamps remain ISO-8601 TEXT (no on-disk format change); TIMESTAMPTZ migration is a later, separate step
+
 ---
 
 ## Code Review Summary (historical — all findings resolved)
@@ -137,7 +148,8 @@
 │  auth · discovery · scheduler · artifacts    │
 │  · presence · events · session · users · db  │
 ├──────────────────────────────────────────────┤
-│  SQLite (WAL, FK, Row factory)               │
+│  SQLAlchemy Core (portable schema + queries) │
+│  SQLite (default) · PostgreSQL (opt-in)      │
 │  nodes · tasks · stages · artifacts          │
 │  · users · groups · permissions · seeds      │
 ├──────────────────────────────────────────────┤
