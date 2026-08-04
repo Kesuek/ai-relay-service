@@ -87,3 +87,34 @@ def test_auth_failure_counter_increments():
         # Nach der Anfrage ist der Counter im Metrics-Output
         text = client.get("/metrics").text
         assert "relay_auth_failures_total" in text
+
+
+def test_json_logging_formatter_outputs_json():
+    import logging
+    import io
+
+    from relay_server.core.logging_setup import JsonFormatter
+
+    formatter = JsonFormatter()
+    record = logging.LogRecord(
+        name="relay", level=logging.INFO, pathname=__file__, lineno=1,
+        msg="hello %s", args=("world",), exc_info=None,
+    )
+    out = formatter.format(record)
+    assert '"msg": "hello world"' in out
+    assert '"level": "INFO"' in out
+
+
+def test_trace_id_middleware_sets_header():
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from relay_server.main import app
+
+    with TestClient(app) as client:
+        r = client.get("/health")
+        assert r.status_code == 200
+        trace_id = r.headers.get("X-Relay-Trace-Id")
+        assert trace_id
+        assert len(trace_id) >= 8
