@@ -132,3 +132,28 @@ def test_existing_sqlite_db_has_all_17_tables(monkeypatch, tmp_path):
         "task_stages", "artifacts", "task_notes", "audit_logs",
     }
     assert expected.issubset(names), f"missing tables: {expected - names}"
+
+
+def test_row_supports_string_subscript(monkeypatch, tmp_path):
+    """The Row compatibility shim keeps row[\"col\"] working on SA Row (Kimi)."""
+    db = tmp_path / "server.db"
+    _create_realistic_db(db)
+    monkeypatch.setattr(settings, "db_path", db)
+    init_db()
+
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            sa.text("SELECT node_id, status FROM nodes WHERE node_id = :nid"),
+            {"nid": "N1234567"},
+        ).fetchone()
+        assert row is not None
+        # String subscript must work via the shim.
+        assert row["node_id"] == "N1234567"
+        assert row["status"] == "online"
+        # Integer subscript keeps tuple semantics.
+        assert row[0] == "N1234567"
+        # keys() must be available (discovery.py relies on it).
+        assert "node_id" in row.keys()
+    finally:
+        conn.close()
