@@ -1,18 +1,21 @@
 # API Reference
 
 All endpoints are served under the `/relay/v2` prefix (the v2 router), except
-`/health` which is served at the root. Most node-facing endpoints require a
-`rt_...` runtime token in the `Authorization: Bearer` header. Dashboard API
-endpoints require a signed session cookie.
+`/health`, `/ready` and `/metrics` which are served at the root. Most
+node-facing endpoints require a `rt_...` runtime token in the
+`Authorization: Bearer` header. Dashboard API endpoints require a signed
+session cookie.
 
 For the concepts behind these endpoints see [../concepts.md](../concepts.md).
 For node-side usage see [../node/setup.md](../node/setup.md).
 
-## Health
+## Health & Observability — root
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/health` | none | Liveness check |
+| GET | `/health` | none | Liveness check (process up) |
+| GET | `/ready` | none | Readiness check — probes database, scheduler/maintenance loop and event bus; returns `{"status": "ready"\|"degraded", "database", "scheduler", "event_bus", "maintenance_age_seconds"}` |
+| GET | `/metrics` | none | Prometheus exposition text — In-process counters (`relay_auth_failures_total{endpoint="..."}`) + DB-derived gauges (`relay_nodes_total`, `relay_nodes_online`, `relay_queue_depth`, `relay_tasks{status="..."}`, `relay_stages{status="..."}`) |
 
 ## Auth — `/relay/v2/auth`
 
@@ -126,6 +129,8 @@ Pages and JSON API used by the dashboard UI. Session-cookie auth unless noted.
 | GET | `/relay/v2/dashboard/api/groups` | session | List groups |
 | GET | `/relay/v2/dashboard/api/permissions` | session | List permissions |
 | POST | `/relay/v2/dashboard/api/groups/{group_id}/permissions` | session | Set group permissions |
+| GET | `/relay/v2/dashboard/api/metrics` | session | Bundled metrics JSON for the built-in metrics dashboard (T-109) |
+| GET | `/relay/v2/dashboard/metrics` | session | Built-in metrics dashboard HTML page (T-109) |
 | GET | `/relay/v2/dashboard/static/{filename}` | none | Static dashboard assets |
 
 ## Admin — `/relay/v2/admin`

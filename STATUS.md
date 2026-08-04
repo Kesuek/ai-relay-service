@@ -8,7 +8,7 @@
 | **Port** | 8788 |
 | **Framework** | FastAPI + SQLite (WAL) |
 | **Owner** | Ronny Pietschke |
-| **Tests** | 350/350 passed (87 Capability-Pages-Tests included) |
+| **Tests** | 359/359 passed (87 Capability-Pages-Tests included) |
 | **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 → 2222f4b → 7ba5aaf → 1fcf787 → 6a9c83e → 09d0a8c → 122dca6 → c96d71e → f4827c4 → bc70188 → 85a7971 |
 
 ## Phase Status
@@ -98,6 +98,14 @@
 
 ### Phase 19 — Node-Konfiguration umbenennen ✅
 - [x] T-087: `capability_loader.py` → `node_config.py`, `capabilities.active.yaml` → `node.yaml`, `capabilities.active.profile` → `node.profile`, `capabilities.d/` → `profiles.d/`; Schema gelockert (`capabilities` optional, `additionalProperties` auf Root, `node_name`/`description` Top-Level-Properties); `write_active_status()` regex-basiert; Migration beim ersten Start (`_migrate_old_paths()`); Doku + Tests + CLI-Referenzen aktualisiert
+
+### Phase 25 — Observability ✅
+- [x] T-109: Observability — Metrics + eingebautes Dashboard + strukturierte Logs
+  - `core/metrics.py` — Registry (In-Process-Counter), DB-Gauges (Tasks/Stages/Nodes/Queue), `render_prometheus()`
+  - `/metrics` (offen, Prometheus-Text) + `/ready` (DB/Scheduler/Event-Bus) in `main.py`
+  - Auth-Failure-Counter via Middleware (401/403/429 → `relay_auth_failures_total{endpoint="..."}`)
+  - `/relay/v2/dashboard/api/metrics` (JSON, Session-Auth) + `/relay/v2/dashboard/metrics` (HTML, CSP-konform, externes `metrics.js`)
+  - Strukturierte JSON-Logs via `core/logging_setup.py`, per-Request `trace_id` (16-hex) via `contextvars` + `X-Relay-Trace-Id`-Header
 
 ---
 

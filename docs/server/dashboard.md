@@ -194,6 +194,22 @@ The dashboard home page shows:
 
 Click on a node, task, or artifact to see details.
 
+### 4.1 Built-in metrics dashboard (T-109)
+
+The relay ships a small built-in observability page at
+`/relay/v2/dashboard/metrics` (session auth required). It fetches
+`/relay/v2/dashboard/api/metrics` and renders:
+
+- Number cards for **nodes total**, **nodes online**, **queue depth** and
+  task/stage totals.
+- Horizontal bar charts for **tasks by status** and **stages by status**.
+- In-process counters (e.g. `relay_auth_failures_total{endpoint="..."}`).
+
+The page refreshes itself every 15 seconds. For a plain-machine scrape
+by an external Prometheus server, use the root endpoint `/metrics`
+instead (no auth, Prometheus text format). See
+[../reference/api.md](../reference/api.md#health--observability--root).
+
 ## 5. Security best practices
 
 ### Master seed

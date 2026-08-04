@@ -342,6 +342,41 @@ only status transitions. The event is fired for explicit requests
 (`node-cli node busy`), auto-busy, the offline watchdog, and every
 scheduler stage/task transition (claim, complete, fail, time out).
 
+## Observability (T-109)
+
+The relay is observable through three built-in surfaces, all implemented
+without external dependencies (no Prometheus server, no Grafana):
+
+- **`/metrics`** (root, no auth) — Prometheus exposition text. Scrapes
+  in-process counters (`relay_auth_failures_total{endpoint="..."}`) and
+  DB-derived gauges (`relay_nodes_total`, `relay_nodes_online`,
+  `relay_queue_depth`, `relay_tasks{status="..."}`,
+  `relay_stages{status="..."}`). A future Prometheus server can scrape
+  it without any code change.
+- **`/ready`** (root, no auth) — readiness check. Probes the database
+  (`SELECT 1`), the maintenance loop age (`maintenance_age_seconds`,
+  freshly stamped by `_maintenance_loop`) and the event bus. Returns
+  `{"status": "ready"|"degraded", "database", "scheduler", "event_bus",
+  "maintenance_age_seconds"}`.
+- **Built-in metrics dashboard** at `/relay/v2/dashboard/metrics`
+  (session auth) — renders the same data as cards and minimal bar
+  charts. JSON backing API: `/relay/v2/dashboard/api/metrics`.
+
+Auth failures (HTTP 401/403/429) are counted globally by a middleware
+without touching `auth.py`. `/metrics` and `/ready` are intentionally
+open — like `/health` — because the output carries no secrets
+(Homelab-Pragmatism).
+
+### Structured JSON logs
+
+Logging uses a small JSON formatter (`core/logging_setup.py`) on the
+standard `logging` module — one JSON object per line with `ts`,
+`level`, `logger`, `msg`, `trace_id`. A middleware sets a per-request
+`trace_id` (16-hex) via `contextvars` and echoes it back as the
+`X-Relay-Trace-Id` response header. The same `trace_id` appears in
+every log line of that request, so a single failing request can be
+filtered with `grep "<trace_id>"` in the journal.
+
 ## Security model
 
 - **One runtime token per node.** Refreshing it invalidates the previous one.
