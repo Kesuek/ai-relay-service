@@ -51,3 +51,25 @@ def test_render_prometheus_outputs_valid_lines():
     assert '{endpoint="/auth/login"}' in text
     # Header-Kommentar für den Prometheus-Typ
     assert "# TYPE" in text or text.startswith("# HELP") or "relay_auth_failures_total" in text
+
+
+def test_health_and_ready_and_metrics_endpoints():
+    from fastapi.testclient import TestClient
+
+    from relay_server.main import app
+
+    with TestClient(app) as client:
+        r_health = client.get("/health")
+        assert r_health.status_code == 200
+        assert r_health.json()["status"] == "ok"
+
+        r_ready = client.get("/ready")
+        assert r_ready.status_code == 200
+        body = r_ready.json()
+        assert body["database"] == "ok"
+        assert "scheduler" in body
+        assert "event_bus" in body
+
+        r_metrics = client.get("/metrics")
+        assert r_metrics.status_code == 200
+        assert "relay_nodes_total" in r_metrics.text
