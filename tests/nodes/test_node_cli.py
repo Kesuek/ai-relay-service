@@ -1251,13 +1251,23 @@ def _make_daemon(isolated_paths: Path, cfg: dict | None = None):
         full_cfg.update(cfg)
 
     class _StubClient:
+        _BACKOFF_THRESHOLD = cli.RelayClient._BACKOFF_THRESHOLD
+        _BACKOFF_BASE = cli.RelayClient._BACKOFF_BASE
+        _BACKOFF_MAX = cli.RelayClient._BACKOFF_MAX
+
         def __init__(self):
             self.meta = meta
             self.base_url = meta["base_url"]
             self.token = "rt_test"
+            # T-108: backoff helpers required by _write_status/_heartbeat_loop.
+            self._auth_fail_streak = 0
             # Placeholder callables so monkeypatch.setattr can replace them.
             self.claim = lambda name: None
             self.complete = lambda task_id, stage_id, result: {}
+
+        _register_backoff_failure = cli.RelayClient._register_backoff_failure
+        _register_backoff_success = cli.RelayClient._register_backoff_success
+        _current_backoff = cli.RelayClient._current_backoff
 
     stub = _StubClient()
     return cli.Daemon(stub, full_cfg), stub
@@ -1938,16 +1948,25 @@ def test_proactive_refresh_before_expiry(isolated_paths: Path, monkeypatch):
     # exercised without a real network. We capture whether _refresh_token
     # was invoked.
     class _StubClient:
+        _BACKOFF_THRESHOLD = cli.RelayClient._BACKOFF_THRESHOLD
+        _BACKOFF_BASE = cli.RelayClient._BACKOFF_BASE
+        _BACKOFF_MAX = cli.RelayClient._BACKOFF_MAX
+
         def __init__(self):
             self.meta = {"node_id": "n1", "base_url": "http://relay.test"}
             self.base_url = "http://relay.test"
             self.token = "rt_soon"
             self.token_expires_at = soon
             self.heartbeat = lambda caps, inflight: {"status": "ok"}
+            self._auth_fail_streak = 0
 
         def _refresh_token(self):
             refreshed["called"] = True
             return True
+
+        _register_backoff_failure = cli.RelayClient._register_backoff_failure
+        _register_backoff_success = cli.RelayClient._register_backoff_success
+        _current_backoff = cli.RelayClient._current_backoff
 
     stub = _StubClient()
 
@@ -1990,16 +2009,25 @@ def test_proactive_refresh_skipped_when_fresh(isolated_paths: Path, monkeypatch)
     refreshed = {"called": False}
 
     class _StubClient:
+        _BACKOFF_THRESHOLD = cli.RelayClient._BACKOFF_THRESHOLD
+        _BACKOFF_BASE = cli.RelayClient._BACKOFF_BASE
+        _BACKOFF_MAX = cli.RelayClient._BACKOFF_MAX
+
         def __init__(self):
             self.meta = {"node_id": "n1", "base_url": "http://relay.test"}
             self.base_url = "http://relay.test"
             self.token = "rt_fresh"
             self.token_expires_at = later
             self.heartbeat = lambda caps, inflight: {"status": "ok"}
+            self._auth_fail_streak = 0
 
         def _refresh_token(self):
             refreshed["called"] = True
             return True
+
+        _register_backoff_failure = cli.RelayClient._register_backoff_failure
+        _register_backoff_success = cli.RelayClient._register_backoff_success
+        _current_backoff = cli.RelayClient._current_backoff
 
     stub = _StubClient()
 
@@ -2036,16 +2064,25 @@ def test_proactive_refresh_ignored_without_expires_at(isolated_paths: Path, monk
     refreshed = {"called": False}
 
     class _StubClient:
+        _BACKOFF_THRESHOLD = cli.RelayClient._BACKOFF_THRESHOLD
+        _BACKOFF_BASE = cli.RelayClient._BACKOFF_BASE
+        _BACKOFF_MAX = cli.RelayClient._BACKOFF_MAX
+
         def __init__(self):
             self.meta = {"node_id": "n1", "base_url": "http://relay.test"}
             self.base_url = "http://relay.test"
             self.token = "rt_no_expiry"
             self.token_expires_at = None
             self.heartbeat = lambda caps, inflight: {"status": "ok"}
+            self._auth_fail_streak = 0
 
         def _refresh_token(self):
             refreshed["called"] = True
             return True
+
+        _register_backoff_failure = cli.RelayClient._register_backoff_failure
+        _register_backoff_success = cli.RelayClient._register_backoff_success
+        _current_backoff = cli.RelayClient._current_backoff
 
     stub = _StubClient()
 
@@ -2098,3 +2135,216 @@ def test_capabilities_server_uses_get_with_retry(isolated_paths: Path, monkeypat
     assert rc == 0
     # Two GETs happened: the initial 401 + the retry after refresh.
     assert calls["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# T-108: Token-Loop-Härtung — reload from disk, exponential backoff,
+#       degraded auth-loop status
+# ---------------------------------------------------------------------------
+
+
+def _t108_client(isolated_paths: Path) -> "cli.RelayClient":
+    """Build a RelayClient with a valid config + meta + token on disk."""
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({
+        "base_url": "http://relay:8788", "request_timeout": 5,
+        "heartbeat_interval": 8, "claim_interval": 8, "max_retries": 2,
+    }))
+    _write(base / "ai-relay-agent.json", json.dumps({
+        "node_id": "N1", "registration_secret": "rs_x",
+    }))
+    _write_json_token(base, "rt_initial")
+    meta = json.loads((base / "ai-relay-agent.json").read_text())
+    cfg = json.loads((base / "relay_config.json").read_text())
+    return cli.RelayClient(meta, cfg)
+
+
+def test_refresh_reloads_token_from_disk_on_failure(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Bei 401+Recovery-Fehler: wenn die Token-Datei inzwischen einen
+    gültigen Token enthält, muss self.token neu geladen werden (T-108 Task 1)."""
+    from nodes.common import node_utils as nu
+
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({
+        "base_url": "http://relay:8788", "request_timeout": 5,
+        "heartbeat_interval": 8, "claim_interval": 8, "max_retries": 2,
+    }))
+    _write(base / "ai-relay-agent.json", json.dumps({
+        "node_id": "NODE1", "registration_secret": "rs_x",
+    }))
+    _write_json_token(base, "rt_STALE")
+
+    client = cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+    # initialer (invalider) token
+    client.token = "rt_STALE"
+    # jetzt korrigiert jemand die datei extern
+    nu.save_token("rt_FRESH", expires_at=None)
+
+    # alle refreshes schlagen fehl (401 / 404)
+    class _R:
+        status_code = 401
+        text = "unauthorized"
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("e", request=None, response=self)
+        def json(self):
+            return {}
+
+    def fake_post(url, headers=None, json=None, timeout=None, **kw):
+        return _R()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    ok = client._refresh_token()
+    assert ok is False
+    # neu geladen trotz fehlgeschlagenem refresh
+    assert client.token == "rt_FRESH"
+
+
+def test_backoff_interval_extends_after_repeated_failures(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Nach wiederholten Auth-Fehlschlägen erhöht sich der Backoff (T-108 Task 2).
+
+    Formel (aus dem Plan): ab _BACKOFF_THRESHOLD (3) exponentiell
+    10s → 20s → 40s → 80s → 160s, gecapt auf _BACKOFF_MAX.
+    """
+    client = _t108_client(isolated_paths)
+    assert client._current_backoff() == 0
+    client._register_backoff_failure()   # 1. fehlschlag
+    client._register_backoff_failure()   # 2.
+    # unterhalb des Thresholds (3) kein Backoff
+    assert client._current_backoff() == 0
+    client._register_backoff_failure()   # 3. → Backoff beginnt
+    assert client._current_backoff() == client._BACKOFF_BASE  # 10s
+    # weiterer fehlschlag → exponentiell grösser (20s)
+    second = client._current_backoff()
+    client._register_backoff_failure()
+    assert client._current_backoff() > second
+    assert client._current_backoff() == client._BACKOFF_BASE * 2  # 20s
+    # erfolg setzt zurück
+    client._register_backoff_success()
+    assert client._current_backoff() == 0
+
+
+def test_backoff_caps_at_max(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Der Backoff wird auf _BACKOFF_MAX begrenzt (T-108 Task 2)."""
+    client = _t108_client(isolated_paths)
+    for _ in range(50):
+        client._register_backoff_failure()
+    assert client._current_backoff() <= client._BACKOFF_MAX
+
+
+def test_status_marks_auth_loop_degraded(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Bei anhaltendem Auth-Fehler markiert _write_status auth_loop=true (T-108 Task 3)."""
+    from nodes.common import node_utils as nu
+
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({
+        "base_url": "http://relay:8788", "request_timeout": 5,
+        "heartbeat_interval": 8, "claim_interval": 8, "max_retries": 2,
+    }))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "N1", "registration_secret": "rs"}))
+    _write_json_token(base, "rt_test")
+    _write(base / "node.yaml", "capabilities: []\n")
+
+    meta = json.loads((base / "ai-relay-agent.json").read_text())
+    cfg = json.loads((base / "relay_config.json").read_text())
+    daemon = cli.Daemon(cli.RelayClient(meta, cfg), cfg)
+
+    # auth-fail-streak hochtreiben
+    for _ in range(6):
+        daemon.client._register_backoff_failure()
+    daemon._write_status(error="http 401")
+    status = json.loads(nu.STATUS_PATH.read_text())
+    assert status.get("error") and "auth" in status.get("error", "").lower()
+    assert status.get("auth_loop", False) is True
+    assert status.get("auth_backoff_seconds", 0) > 0
+
+
+def test_status_no_auth_loop_when_no_backoff(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Ohne laufenden Auth-Loop bleibt auth_loop=false (T-108 Task 3)."""
+    from nodes.common import node_utils as nu
+
+    base = isolated_paths
+    _write(base / "relay_config.json", json.dumps({
+        "base_url": "http://relay:8788", "request_timeout": 5,
+        "heartbeat_interval": 8, "claim_interval": 8, "max_retries": 2,
+    }))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "N1", "registration_secret": "rs"}))
+    _write_json_token(base, "rt_test")
+    _write(base / "node.yaml", "capabilities: []\n")
+
+    meta = json.loads((base / "ai-relay-agent.json").read_text())
+    cfg = json.loads((base / "relay_config.json").read_text())
+    daemon = cli.Daemon(cli.RelayClient(meta, cfg), cfg)
+
+    daemon._write_status(error="http 401")
+    status = json.loads(nu.STATUS_PATH.read_text())
+    assert status.get("auth_loop", False) is False
+    assert status.get("auth_backoff_seconds", 0) == 0
+
+
+def test_backoff_success_registered_on_refresh_success(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Bei erfolgreichem Refresh wird der Backoff-Streak zurückgesetzt (T-108 Task 2)."""
+    client = _t108_client(isolated_paths)
+    # streak aufbauen
+    for _ in range(5):
+        client._register_backoff_failure()
+    assert client._current_backoff() > 0
+
+    class _R:
+        status_code = 200
+        def json(self):
+            return {"token": "rt_new", "expires_at": "2027-01-01T00:00:00+00:00"}
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(httpx, "post", lambda url, **kw: _R())
+    ok = client._refresh_token()
+    assert ok is True
+    assert client._current_backoff() == 0
+
+
+def test_backoff_failure_registered_on_refresh_failure(
+    isolated_paths: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Bei fehlgeschlagenem Refresh wird der Backoff-Streak erhöht (T-108 Task 2).
+
+    Ein einzelner Fehlschlag reicht noch nicht für Backoff (Threshold = 3),
+    aber wiederholte _refresh_token-Aufrufe treiben den Streak hoch.
+    """
+    client = _t108_client(isolated_paths)
+    assert client._current_backoff() == 0
+
+    class _R:
+        status_code = 401
+        text = "nope"
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("e", request=None, response=self)
+        def json(self):
+            return {}
+
+    monkeypatch.setattr(httpx, "post", lambda url, **kw: _R())
+    # einmaliger refresh → streak 1 (noch kein Backoff)
+    ok = client._refresh_token()
+    assert ok is False
+    assert client._auth_fail_streak == 1
+    assert client._current_backoff() == 0
+    # weitere refreshes → ab Threshold 3 Backoff aktiv
+    client._refresh_token()
+    client._refresh_token()
+    assert client._auth_fail_streak == 3
+    assert client._current_backoff() > 0

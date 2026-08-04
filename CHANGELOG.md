@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **node-daemon & node-cli daemon: Token-Auth-Loop-Selbstheilung (T-108)**: Ein Daemon konnte bei einem invaliden Token-Zustand 21h in einem `Heartbeat 401 → Refresh 401 → Recovery 404`-Loop festhängen (~24k Requests). Drei unabhängige Härtungen im geteilten `RelayClient` (`nodes/common/node_cli.py`) greifen jetzt für beide Daemons: (1) Token-Datei wird bei fehlgeschlagenem Refresh+Recovery neu eingelesen — so heilt sich der Daemon selbst, sobald die Datei extern korrigiert wurde; (2) exponentieller Backoff (10s → 20s → 40s → 80s → 160s, max 300s) ab drei aufeinanderfolgenden 401/403-Fehlern im Heartbeat-/Claim-Loop (nicht bei Verbindungsfehlern, Streak wird bei Erfolg sofort zurückgesetzt); (3) Loop-Detection schreibt bei anhaltendem Auth-Fehler-Loop einen klaren Degraded-Status (`auth_loop=true` + `auth_backoff_seconds`) plus angereichertem Fehler-String in `worker_status.json` — sichtbar in `node-cli daemon status`/Dashboard/Log. Behebt Bug-Report `references/bug-node-daemon-401-loop.md`.
+
 ### Added
 
 - **Federation Node — Konzept** (2026-08-01): Neues Node-Konzept für Relay-übergreifende Capabilities. Ein Federation Node heartbeatet `federation` als Capability, verbindet sich zu Remote-Relays und forwardet Tasks. Dashboard-gesteuerte Capability-Freigabe (Admin klickt frei, Node heartbeatet erst dann). Client-Server-Modell: Server bietet Caps an, Client subscribed. P2P-Transport (QUIC/WebRTC) für Internet, HTTP für LAN. Siehe `docs/node/federation.md` und `IDEAS.md`.

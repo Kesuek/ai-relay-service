@@ -107,6 +107,46 @@ node-cli daemon foreground
 | 0 | Action completed (including `start` when already running) |
 | 1 | Inner process exited early, or daemon did not stop, or `status` reports not running |
 
+### Auth-Fehler & Backoff (T-108)
+
+Wenn der Daemon wiederholt Auth-Fehler erhält (401/403, z.B. weil der
+Runtime-Token invalide wurde und ein Refresh+Recovery scheitert), greift
+eine dreistufige Selbstheilung im geteilten `RelayClient` (greift für
+`node-cli daemon` und `node-daemon` gleichermaßen):
+
+1. **Token-Reload aus Datei.** Nach jedem fehlgeschlagenen Refresh+Recovery
+   liest der Daemon die Token-Datei neu ein. So heilt sich der Daemon
+   selbst, sobald ein externer Prozess (oder ein manueller Eingriff) die
+   Datei korrigiert hat — `node-cli node register` oder ein händisches
+   Überschreiben von `~/.relay/ai-relay-agent.token`.
+
+2. **Exponentieller Backoff.** Ab drei aufeinanderfolgenden
+   Auth-Fehlschlägen erhöht der Daemon den Heartbeat-/Claim-Abstand
+   exponentiell: **10s → 20s → 40s → 80s → 160s**, gedeckelt auf
+   **max. 300s (5 min)**. Das verhindert, dass ein Daemon bei einem
+   invaliden Token z.B. 21h lang in einem 401-Loop ~24k Requests erzeugt.
+   Ein einzelner erfolgreicher Refresh setzt den Streak sofort zurück.
+   Backoff greift **nur** bei Auth-Fehlern (401/403), nicht bei
+   Verbindungsfehlern (connection refused/timeout) — damit ein
+   vorübergehender Netzwerkausfall die Reaktionszeit nicht verlängert.
+
+3. **Degraded-Status (`auth_loop`).** Hängt der Daemon in einem
+   Auth-Fehler-Loop fest, schreibt er in `worker_status.json`:
+
+   ```json
+   {
+     "error": "http 401 | AUTH-LOOP: token invalid — Datei prüfen oder Daemon neu starten",
+     "auth_loop": true,
+     "auth_backoff_seconds": 80
+   }
+   ```
+
+   `auth_loop=true` + `auth_backoff_seconds>0` signalisieren dem Operator
+   über `node-cli daemon status`, das Dashboard und das Log, dass der
+   Daemon degrade ist und ein manueller Eingriff (Token-Datei prüfen
+   oder Daemon neu starten) nötig ist. Die beiden Felder sind rein
+   additiv und brechen keine bestehenden Consumer.
+
 ---
 
 ## heartbeat

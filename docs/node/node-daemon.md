@@ -68,6 +68,25 @@ The daemon subscribes to `stage_claimed` and `task_created` events. When either 
 
 If the SSE connection drops (server restart, network issue), the daemon waits 5 seconds and reconnects automatically. The heartbeat thread keeps the node alive during reconnection.
 
+## Auth-Fehler & Backoff (T-108)
+
+`node-daemon` teilt sich die `RelayClient`-Klasse mit `node-cli daemon`,
+deshalb greift die Token-Loop-Selbstheilung aus [cli-reference.md →
+Auth-Fehler & Backoff](cli-reference.md#auth-fehler--backoff-t-108)
+auch hier:
+
+- **Token-Reload aus Datei** bei fehlgeschlagenem Refresh+Recovery,
+- **exponentieller Backoff** (10s → 20s → 40s → 80s → 160s, max 300s) ab
+  drei aufeinanderfolgenden 401/403-Fehlern — angewendet auf den
+  Heartbeat-Loop. Der SSE-Reconnect bleibt separat über seinen festen
+  5s-Delay (`_RECONNECT_DELAY`), da er andere Fehlerursachen (Netzwerk,
+  Server-Restart) abdeckt und nicht von Auth-Problemen abhängen soll.
+- **Degraded-Status** `auth_loop=true` + `auth_backoff_seconds` in
+  `worker_status.json` bei anhaltendem Auth-Fehler-Loop.
+
+Bei Erfolg (erfolgreicher Refresh/Recovery) wird der Backoff-Streak
+sofort zurückgesetzt.
+
 ## systemd Service
 
 The service file is at `systemd/ai-relay-node-daemon.service`. It expects:

@@ -104,6 +104,10 @@ def _make_daemon(
         full_cfg.update(cfg)
 
     class _StubClient:
+        _BACKOFF_THRESHOLD = RelayClient._BACKOFF_THRESHOLD
+        _BACKOFF_BASE = RelayClient._BACKOFF_BASE
+        _BACKOFF_MAX = RelayClient._BACKOFF_MAX
+
         def __init__(self):
             self.meta = meta
             self.base_url = meta["base_url"]
@@ -111,6 +115,12 @@ def _make_daemon(
             self.claim = lambda name: None
             self.complete = lambda task_id, stage_id, result: {}
             self.heartbeat = lambda caps, inflight: {"status": "ok"}
+            # T-108: backoff helpers required by _write_status/_heartbeat_loop.
+            self._auth_fail_streak = 0
+
+        _register_backoff_failure = RelayClient._register_backoff_failure
+        _register_backoff_success = RelayClient._register_backoff_success
+        _current_backoff = RelayClient._current_backoff
 
     stub = _StubClient()
     daemon = nd.SseDaemon(stub, full_cfg)
