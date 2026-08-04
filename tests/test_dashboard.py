@@ -870,3 +870,39 @@ def test_dashboard_index_has_no_cache_headers():
     cc = r.headers.get("Cache-Control", "")
     assert "no-cache" in cc
     assert "must-revalidate" in cc
+
+
+# ---------------------------------------------------------------------------
+# T-109: Observability — Metrics API + built-in metrics dashboard
+# ---------------------------------------------------------------------------
+
+
+def _admin_login_cookies():
+    """Log in as a human admin and return the session cookies."""
+    create_user(
+        "adminuser", "strong-passphrase-42", group_names=["admin"], force_password_change=False,
+    )
+    r = _human_login("adminuser", "strong-passphrase-42")
+    return r.cookies
+
+
+def test_metrics_api_and_dashboard_page():
+    cookies = _admin_login_cookies()
+
+    r = client.get("/relay/v2/dashboard/api/metrics", cookies=cookies)
+    assert r.status_code == 200
+    body = r.json()
+    assert "tasks_by_status" in body
+    assert "stages_by_status" in body
+    assert "nodes_online" in body
+    assert "queue_depth" in body
+
+    r2 = client.get("/relay/v2/dashboard/metrics", cookies=cookies)
+    assert r2.status_code == 200
+    assert r2.headers["content-type"].startswith("text/html")
+
+
+def test_metrics_api_requires_dashboard_auth():
+    """Without a session cookie the metrics API must reject the request."""
+    r = client.get("/relay/v2/dashboard/api/metrics")
+    assert r.status_code in (401, 403)
