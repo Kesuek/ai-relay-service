@@ -73,3 +73,17 @@ def test_health_and_ready_and_metrics_endpoints():
         r_metrics = client.get("/metrics")
         assert r_metrics.status_code == 200
         assert "relay_nodes_total" in r_metrics.text
+
+
+def test_auth_failure_counter_increments():
+    from fastapi.testclient import TestClient
+
+    from relay_server.core import metrics as _metrics_mod
+    from relay_server.main import app
+
+    with TestClient(app) as client:
+        # Ungültiger Bearer-Token -> 401 -> Counter steigt
+        client.get("/relay/v2/discovery/nodes", headers={"Authorization": "Bearer rt_invalid"})
+        # Nach der Anfrage ist der Counter im Metrics-Output
+        text = client.get("/metrics").text
+        assert "relay_auth_failures_total" in text
