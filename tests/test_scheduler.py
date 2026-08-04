@@ -14,7 +14,7 @@ os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-producti
 
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.main import app
 
 
@@ -44,8 +44,7 @@ def _seed_admin() -> str:
     secret = generate_secret("adm_")
     conn = get_conn()
     conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()
@@ -417,8 +416,7 @@ def test_enforce_timeouts_marks_overdue_stages():
     conn = get_conn()
     old_time = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).isoformat()
     conn.execute(
-        "UPDATE task_stages SET claimed_at = ? WHERE stage_id = ?",
-        (old_time, stage_id),
+        q("UPDATE task_stages SET claimed_at = ? WHERE stage_id = ?", (old_time, stage_id)),
     )
     conn.commit()
     conn.close()
@@ -641,8 +639,7 @@ def test_claim_stage_respects_owner_node_id():
     # The stage is still pending — Node B was skipped, not claimed.
     conn = get_conn()
     row = conn.execute(
-        "SELECT status, claimed_by FROM task_stages WHERE stage_id = ?",
-        (stage_id,),
+        q("SELECT status, claimed_by FROM task_stages WHERE stage_id = ?", (stage_id,)),
     ).fetchone()
     conn.close()
     assert row["status"] == "pending"
@@ -1242,8 +1239,7 @@ def _backdate_claim_expiry(stage_id: str) -> None:
     past = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).isoformat()
     conn = get_conn()
     conn.execute(
-        "UPDATE task_stages SET claim_expires_at = ? WHERE stage_id = ?",
-        (past, stage_id),
+        q("UPDATE task_stages SET claim_expires_at = ? WHERE stage_id = ?", (past, stage_id)),
     )
     conn.commit()
     conn.close()
@@ -1272,7 +1268,7 @@ def test_release_or_fail_claims_releases_within_budget():
 
     conn = get_conn()
     row = conn.execute(
-        "SELECT status, retry_count FROM task_stages WHERE stage_id = ?", (stage_id,)
+        q("SELECT status, retry_count FROM task_stages WHERE stage_id = ?", (stage_id,))
     ).fetchone()
     conn.close()
     assert row["status"] == "pending"
@@ -1298,7 +1294,7 @@ def test_release_or_fail_claims_fails_after_max_retries():
     # new_count = 3 > 2 → stage failed.
     conn = get_conn()
     conn.execute(
-        "UPDATE task_stages SET retry_count = 2 WHERE stage_id = ?", (stage_id,)
+        q("UPDATE task_stages SET retry_count = 2 WHERE stage_id = ?", (stage_id,))
     )
     conn.commit()
     conn.close()
@@ -1313,10 +1309,10 @@ def test_release_or_fail_claims_fails_after_max_retries():
 
     conn = get_conn()
     stage_row = conn.execute(
-        "SELECT status, retry_count FROM task_stages WHERE stage_id = ?", (stage_id,)
+        q("SELECT status, retry_count FROM task_stages WHERE stage_id = ?", (stage_id,))
     ).fetchone()
     task_row = conn.execute(
-        "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
+        q("SELECT status FROM tasks WHERE task_id = ?", (task_id,))
     ).fetchone()
     conn.close()
     assert stage_row["status"] == "failed"
@@ -1352,7 +1348,7 @@ def test_stage_row_to_dict_exposes_retry_count():
 
     # Bump retry_count directly and read the stage back via get_task.
     conn = get_conn()
-    conn.execute("UPDATE task_stages SET retry_count = 2 WHERE stage_id = ?", (stage_id,))
+    conn.execute(q("UPDATE task_stages SET retry_count = 2 WHERE stage_id = ?", (stage_id,)))
     conn.commit()
     conn.close()
 

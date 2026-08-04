@@ -10,7 +10,7 @@ from relay_server.api.v2.auth import limiter as auth_limiter
 from relay_server.api.v2.dashboard import limiter as dashboard_limiter
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.main import app
 
 client = TestClient(app)
@@ -45,9 +45,8 @@ def _admin_bootstrap():
     conn = get_conn()
     secret = generate_secret("adm_")
     conn.execute(
-        "INSERT OR REPLACE INTO admin_seeds "
-        "(seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT OR REPLACE INTO admin_seeds "
+        "(seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()
@@ -114,9 +113,8 @@ def test_register_admin_rate_limit_blocks_after_five_per_minute():
         secret = generate_secret("adm_")
         conn = get_conn()
         conn.execute(
-            "INSERT OR REPLACE INTO admin_seeds "
-            "(seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-            (f"master-{i}", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+            q("INSERT OR REPLACE INTO admin_seeds "
+            "(seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", (f"master-{i}", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
         )
         conn.commit()
         conn.close()

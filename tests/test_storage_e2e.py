@@ -11,7 +11,7 @@ from relay_server.core.auth import (
     generate_secret,
     hash_secret,
 )
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.main import app
 
 client = TestClient(app)
@@ -23,9 +23,8 @@ def _admin_bootstrap():
     conn = get_conn()
     secret = generate_secret("adm_")
     conn.execute(
-        "INSERT OR REPLACE INTO admin_seeds "
-        "(seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT OR REPLACE INTO admin_seeds "
+        "(seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()

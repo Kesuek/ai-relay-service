@@ -13,7 +13,7 @@ os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-producti
 
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.main import app
 
 
@@ -42,8 +42,7 @@ def _seed_admin() -> str:
     secret = generate_secret("adm_")
     conn = get_conn()
     conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()

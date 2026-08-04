@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 os.environ["RELAY_SESSION_SECRET"] = "test-secret-32-chars-minimum!!!"
 
 from relay_server.config import settings
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.main import app
 
 
@@ -31,15 +31,13 @@ def client():
         # Seed a node first (FOREIGN KEY constraint)
         conn = get_conn()
         conn.execute(
-            "INSERT INTO nodes (node_id, node_name, status, role, last_seen, registered_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            ("test-node", "test-node", "online", "worker", "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+            q("INSERT INTO nodes (node_id, node_name, status, role, last_seen, registered_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)", ("test-node", "test-node", "online", "worker", "2026-01-01T00:00:00", "2026-01-01T00:00:00")),
         )
         # Seed a route in the DB
         conn.execute(
-            "INSERT INTO node_routes (node_id, path, method, auth, upstream, description) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            ("test-node", "/api/test", "GET", "session", "http://localhost:9999/api/test", "Test route"),
+            q("INSERT INTO node_routes (node_id, path, method, auth, upstream, description) "
+            "VALUES (?, ?, ?, ?, ?, ?)", ("test-node", "/api/test", "GET", "session", "http://localhost:9999/api/test", "Test route")),
         )
         conn.commit()
         conn.close()
@@ -95,7 +93,7 @@ class TestRouteRegistry:
         """Verify routes are stored and retrievable from DB."""
         conn = get_conn()
         row = conn.execute(
-            "SELECT * FROM node_routes WHERE node_id = ?", ("test-node",)
+            q("SELECT * FROM node_routes WHERE node_id = ?", ("test-node",))
         ).fetchone()
         assert row is not None
         assert row["path"] == "/api/test"
@@ -106,10 +104,10 @@ class TestRouteRegistry:
     def test_route_clear_on_offline(self, client: TestClient):
         """Verify routes are cleared when a node goes offline."""
         conn = get_conn()
-        conn.execute("DELETE FROM node_routes WHERE node_id = ?", ("test-node",))
+        conn.execute(q("DELETE FROM node_routes WHERE node_id = ?", ("test-node",)))
         conn.commit()
         row = conn.execute(
-            "SELECT * FROM node_routes WHERE node_id = ?", ("test-node",)
+            q("SELECT * FROM node_routes WHERE node_id = ?", ("test-node",))
         ).fetchone()
         assert row is None
         conn.close()

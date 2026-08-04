@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from relay_server.config import settings
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.main import app
 
 client = TestClient(app)
@@ -31,43 +31,35 @@ def _seed_data():
     conn = get_conn()
     now = "2026-07-29T20:00:00+00:00"
     conn.execute(
-        "INSERT INTO nodes (node_id, node_name, endpoint, capabilities, status, role, load, queue_depth, last_seen, registered_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("node1", "felix-cyberfox", "http://10.0.0.1:8788", json.dumps([{"name": "chat.ai"}, {"name": "code.ai"}]), "online", "worker", 62.0, 1, now, now),
+        q("INSERT INTO nodes (node_id, node_name, endpoint, capabilities, status, role, load, queue_depth, last_seen, registered_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", ("node1", "felix-cyberfox", "http://10.0.0.1:8788", json.dumps([{"name": "chat.ai"}, {"name": "code.ai"}]), "online", "worker", 62.0, 1, now, now)),
     )
     conn.execute(
-        "INSERT INTO nodes (node_id, node_name, endpoint, capabilities, status, role, load, queue_depth, last_seen, registered_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("node2", "m4-macmini", "http://10.0.0.2:8788", json.dumps([{"name": "image.gen.mflux"}]), "busy", "worker", 91.0, 3, now, now),
+        q("INSERT INTO nodes (node_id, node_name, endpoint, capabilities, status, role, load, queue_depth, last_seen, registered_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", ("node2", "m4-macmini", "http://10.0.0.2:8788", json.dumps([{"name": "image.gen.mflux"}]), "busy", "worker", 91.0, 3, now, now)),
     )
     conn.execute(
-        "INSERT INTO nodes (node_id, node_name, endpoint, capabilities, status, role, load, queue_depth, last_seen, registered_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("__dashboard_admin__", "Dashboard Admin", "", "[]", "online", "admin", 0.0, 0, now, now),
+        q("INSERT INTO nodes (node_id, node_name, endpoint, capabilities, status, role, load, queue_depth, last_seen, registered_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", ("__dashboard_admin__", "Dashboard Admin", "", "[]", "online", "admin", 0.0, 0, now, now)),
     )
     conn.execute(
-        "INSERT INTO tasks (task_id, task_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        ("T-001", "Test task", "completed", now, now),
+        q("INSERT INTO tasks (task_id, task_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", ("T-001", "Test task", "completed", now, now)),
     )
     conn.execute(
-        "INSERT INTO task_stages (stage_id, task_id, stage_name, capability, status, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("S-001", "T-001", "default", "chat.ai", "completed", now, now),
+        q("INSERT INTO task_stages (stage_id, task_id, stage_name, capability, status, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)", ("S-001", "T-001", "default", "chat.ai", "completed", now, now)),
     )
     conn.execute(
-        "INSERT INTO artifacts (artifact_id, name, mime_type, size_bytes, storage_path, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        ("art-001", "test.png", "image/png", 1024, "/tmp/test.png", now),
+        q("INSERT INTO artifacts (artifact_id, name, mime_type, size_bytes, storage_path, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)", ("art-001", "test.png", "image/png", 1024, "/tmp/test.png", now)),
     )
     conn.execute(
-        "INSERT INTO users (user_id, username, password_hash, is_active, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        ("u-001", "ronny", "$2b$12$dummyhashdummyhashdummyhashdummyhashdummyhashdummyhash", 1, "active", now),
+        q("INSERT INTO users (user_id, username, password_hash, is_active, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", ("u-001", "ronny", "$2b$12$dummyhashdummyhashdummyhashdummyhashdummyhashdummyhash", 1, "active", now)),
     )
     # Groups are seeded by init_db() — just add the user-group link.
     conn.execute(
-        "INSERT OR IGNORE INTO user_groups (user_id, group_id, granted_at) VALUES (?, "
-        "(SELECT group_id FROM groups WHERE group_name = 'admin'), ?)",
-        ("u-001", now),
+        q("INSERT OR IGNORE INTO user_groups (user_id, group_id, granted_at) VALUES (?, "
+        "(SELECT group_id FROM groups WHERE group_name = 'admin'), ?)", ("u-001", now)),
     )
     conn.commit()
     conn.close()

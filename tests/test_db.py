@@ -10,7 +10,7 @@ os.environ.setdefault("RELAY_DB_PATH", "")
 os.environ.setdefault("RELAY_SESSION_SECRET", "test-session-secret-do-not-use-in-production")
 
 from relay_server.config import settings  # noqa: E402
-from relay_server.core.db import _redact_secrets, get_conn, init_db, log_audit_event  # noqa: E402
+from relay_server.core.db import _redact_secrets, get_conn, init_db, log_audit_event, q  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -85,8 +85,8 @@ def test_audit_event_redacts_secrets_before_persisting():
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT details FROM audit_logs WHERE action = ? ORDER BY created_at DESC LIMIT 1",
-            ("test.action",),
+            q("SELECT details FROM audit_logs WHERE action = ? ORDER BY created_at DESC LIMIT 1",
+              ("test.action",))
         ).fetchone()
     finally:
         conn.close()

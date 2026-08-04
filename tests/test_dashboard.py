@@ -12,7 +12,7 @@ os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-producti
 
 from relay_server.config import settings
 from relay_server.core.auth import init_master_seed
-from relay_server.core.db import init_db
+from relay_server.core.db import init_db, q
 from relay_server.core.session import generate_csrf_token, sign_user_cookie
 from relay_server.core.users import create_user
 from relay_server.main import app
@@ -92,13 +92,12 @@ def test_security_headers_present():
 def _admin_node_token():
     """Create an approved admin node and return its runtime token."""
     from relay_server.core.auth import generate_secret, hash_secret
-    from relay_server.core.db import get_conn
+    from relay_server.core.db import get_conn, q
 
     conn = get_conn()
     secret = generate_secret("adm_")
     conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()
@@ -725,8 +724,7 @@ def _seed_admin_token() -> str:
     conn = get_conn()
     secret = generate_secret("adm_")
     conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()

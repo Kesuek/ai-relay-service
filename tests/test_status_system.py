@@ -20,7 +20,7 @@ os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-producti
 
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.core.events import event_bus
 from relay_server.main import app
 
@@ -53,8 +53,7 @@ def _seed_admin() -> str:
     secret = generate_secret("adm_")
     conn = get_conn()
     conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()
@@ -101,7 +100,7 @@ def _register_and_approve_worker(name: str, caps: list) -> tuple[str, str]:
 
 def _node_status(node_id: str) -> str:
     conn = get_conn()
-    row = conn.execute("SELECT status FROM nodes WHERE node_id = ?", (node_id,)).fetchone()
+    row = conn.execute(q("SELECT status FROM nodes WHERE node_id = ?", (node_id,))).fetchone()
     conn.close()
     return row["status"] if row else None
 
@@ -109,7 +108,7 @@ def _node_status(node_id: str) -> str:
 def _node_consecutive_high_load(node_id: str) -> int:
     conn = get_conn()
     row = conn.execute(
-        "SELECT consecutive_high_load FROM nodes WHERE node_id = ?", (node_id,)
+        q("SELECT consecutive_high_load FROM nodes WHERE node_id = ?", (node_id,))
     ).fetchone()
     conn.close()
     return int(row["consecutive_high_load"] or 0) if row else 0
@@ -172,7 +171,7 @@ def test_heartbeat_invalid_status_ignored():
     )
     # Force offline.
     conn = get_conn()
-    conn.execute("UPDATE nodes SET status = 'offline' WHERE node_id = ?", (worker_id,))
+    conn.execute(q("UPDATE nodes SET status = 'offline' WHERE node_id = ?", (worker_id,)))
     conn.commit()
     conn.close()
 

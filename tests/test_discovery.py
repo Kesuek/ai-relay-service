@@ -13,7 +13,7 @@ os.environ["RELAY_DB_PATH"] = ""
 
 from relay_server.config import settings
 from relay_server.core.auth import generate_secret, hash_secret
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.core.discovery import mark_offline_nodes
 from relay_server.core.events import event_bus
 from relay_server.main import app
@@ -40,8 +40,7 @@ def _seed_admin() -> str:
     secret = generate_secret("adm_")
     conn = get_conn()
     conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()
@@ -406,10 +405,10 @@ def test_stale_nodes_marked_offline():
     # Simulate old heartbeat by moving last_seen back in time.
     from datetime import datetime, timedelta, timezone
 
-    from relay_server.core.db import get_conn
+    from relay_server.core.db import get_conn, q
     old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
     conn = get_conn()
-    conn.execute("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, worker_id))
+    conn.execute(q("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, worker_id)))
     conn.commit()
     conn.close()
 
@@ -447,7 +446,7 @@ def test_register_without_capabilities_then_set_via_heartbeat():
     # The pending node must have no capabilities recorded yet.
     conn = get_conn()
     row = conn.execute(
-        "SELECT capabilities FROM nodes WHERE node_id = ?", (worker_id,)
+        q("SELECT capabilities FROM nodes WHERE node_id = ?", (worker_id,))
     ).fetchone()
     conn.close()
     assert row["capabilities"] in (None, "", "[]", "null")
@@ -475,7 +474,7 @@ def test_register_without_capabilities_then_set_via_heartbeat():
     # The capability must be persisted on the node row…
     conn = get_conn()
     row = conn.execute(
-        "SELECT capabilities FROM nodes WHERE node_id = ?", (worker_id,)
+        q("SELECT capabilities FROM nodes WHERE node_id = ?", (worker_id,))
     ).fetchone()
     conn.close()
     caps = json.loads(row["capabilities"]) if row["capabilities"] else []
@@ -572,7 +571,7 @@ def test_get_capabilities_fallback_to_json_when_index_empty():
     # Pretend the index was never populated (simulates a pre-T-026 node
     # that has not heartbeated since the migration backfill ran).
     conn = get_conn()
-    conn.execute("DELETE FROM node_capabilities WHERE node_id = ?", (worker_id,))
+    conn.execute(q("DELETE FROM node_capabilities WHERE node_id = ?", (worker_id,)))
     conn.commit()
     conn.close()
 
@@ -623,7 +622,7 @@ def test_heartbeat_with_empty_replace_capabilities_clears_index():
 
 def test_mark_offline_fails_claimed_stages():
     """When a node goes offline its claimed stages are failed (T-061)."""
-    from relay_server.core.db import get_conn
+    from relay_server.core.db import get_conn, q
 
     secret = _seed_admin()
     admin_id, admin_token = _register_admin(secret)
@@ -657,7 +656,7 @@ def test_mark_offline_fails_claimed_stages():
 
     old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
     conn = get_conn()
-    conn.execute("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, worker_id))
+    conn.execute(q("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, worker_id)))
     conn.commit()
     conn.close()
 
@@ -666,10 +665,10 @@ def test_mark_offline_fails_claimed_stages():
 
     conn = get_conn()
     stage_row = conn.execute(
-        "SELECT status, claimed_by FROM task_stages WHERE stage_id = ?", (stage_id,)
+        q("SELECT status, claimed_by FROM task_stages WHERE stage_id = ?", (stage_id,))
     ).fetchone()
     task_row = conn.execute(
-        "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
+        q("SELECT status FROM tasks WHERE task_id = ?", (task_id,))
     ).fetchone()
     conn.close()
     assert stage_row["status"] == "failed"
@@ -680,7 +679,7 @@ def test_mark_offline_fails_claimed_stages():
 
 def test_mark_offline_does_not_fail_other_nodes_stages():
     """Failing a node's claims must not touch stages claimed by another node."""
-    from relay_server.core.db import get_conn
+    from relay_server.core.db import get_conn, q
 
     secret = _seed_admin()
     admin_id, admin_token = _register_admin(secret)
@@ -735,7 +734,7 @@ def test_mark_offline_does_not_fail_other_nodes_stages():
 
     old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
     conn = get_conn()
-    conn.execute("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, dying_id))
+    conn.execute(q("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, dying_id)))
     conn.commit()
     conn.close()
 
@@ -743,10 +742,10 @@ def test_mark_offline_does_not_fail_other_nodes_stages():
 
     conn = get_conn()
     dying_row = conn.execute(
-        "SELECT status FROM task_stages WHERE stage_id = ?", (dying_stage_id,)
+        q("SELECT status FROM task_stages WHERE stage_id = ?", (dying_stage_id,))
     ).fetchone()
     healthy_row = conn.execute(
-        "SELECT status FROM task_stages WHERE stage_id = ?", (healthy_stage_id,)
+        q("SELECT status FROM task_stages WHERE stage_id = ?", (healthy_stage_id,))
     ).fetchone()
     conn.close()
     assert dying_row["status"] == "failed"
@@ -756,7 +755,7 @@ def test_mark_offline_does_not_fail_other_nodes_stages():
 
 def test_mark_offline_task_not_failed_when_other_stages_pending():
     """A task with another still-pending stage is not failed when one node goes offline."""
-    from relay_server.core.db import get_conn
+    from relay_server.core.db import get_conn, q
 
     secret = _seed_admin()
     admin_id, admin_token = _register_admin(secret)
@@ -792,7 +791,7 @@ def test_mark_offline_task_not_failed_when_other_stages_pending():
 
     old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
     conn = get_conn()
-    conn.execute("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, dying_id))
+    conn.execute(q("UPDATE nodes SET last_seen = ? WHERE node_id = ?", (old, dying_id)))
     conn.commit()
     conn.close()
 
@@ -800,10 +799,10 @@ def test_mark_offline_task_not_failed_when_other_stages_pending():
 
     conn = get_conn()
     stage_row = conn.execute(
-        "SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,)
+        q("SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,))
     ).fetchone()
     task_row = conn.execute(
-        "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
+        q("SELECT status FROM tasks WHERE task_id = ?", (task_id,))
     ).fetchone()
     conn.close()
     assert stage_row["status"] == "failed"

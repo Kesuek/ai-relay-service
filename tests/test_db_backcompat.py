@@ -15,6 +15,7 @@ os.environ.setdefault("RELAY_DB_PATH", "")
 os.environ.setdefault("RELAY_SESSION_SECRET", "test-session-secret-do-not-use-in-production")
 
 import pytest  # noqa: E402
+import sqlalchemy as sa  # noqa: E402
 
 from relay_server.config import settings  # noqa: E402
 from relay_server.core.db import (  # noqa: E402
@@ -54,7 +55,8 @@ def test_existing_sqlite_db_readable_after_sqlalchemy(monkeypatch, tmp_path):
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT node_id, status FROM nodes WHERE node_id = ?", ("N1234567",)
+            sa.text("SELECT node_id, status FROM nodes WHERE node_id = :nid"),
+            {"nid": "N1234567"},
         ).fetchone()
         assert row is not None
         assert row["node_id"] == "N1234567"
@@ -62,7 +64,8 @@ def test_existing_sqlite_db_readable_after_sqlalchemy(monkeypatch, tmp_path):
 
         # The RBAC seeds must survive the re-init.
         grp = conn.execute(
-            "SELECT group_name FROM groups WHERE group_id = ?", ("grp_admin",)
+            sa.text("SELECT group_name FROM groups WHERE group_id = :gid"),
+            {"gid": "grp_admin"},
         ).fetchone()
         assert grp is not None
         assert grp["group_name"] == "admin"
@@ -80,9 +83,16 @@ def test_existing_sqlite_db_writable_after_sqlalchemy(monkeypatch, tmp_path):
     conn = get_conn()
     try:
         conn.execute(
-            "INSERT INTO nodes (node_id, node_name, status, last_seen, registered_at) "
-            "VALUES (?, ?, 'pending', ?, ?)",
-            ("N7654321", "second-node", "2026-02-02T00:00:00Z", "2026-02-02T00:00:00Z"),
+            sa.text(
+                "INSERT INTO nodes (node_id, node_name, status, last_seen, registered_at) "
+                "VALUES (:nid, :name, 'pending', :ls, :ra)"
+            ),
+            {
+                "nid": "N7654321",
+                "name": "second-node",
+                "ls": "2026-02-02T00:00:00Z",
+                "ra": "2026-02-02T00:00:00Z",
+            },
         )
         conn.commit()
     finally:
@@ -109,7 +119,7 @@ def test_existing_sqlite_db_has_all_17_tables(monkeypatch, tmp_path):
     conn = get_conn()
     try:
         rows = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            sa.text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         ).fetchall()
         names = {r["name"] for r in rows}
     finally:

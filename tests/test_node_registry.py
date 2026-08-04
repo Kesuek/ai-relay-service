@@ -14,7 +14,7 @@ import pytest
 os.environ["RELAY_DB_PATH"] = ""
 
 from relay_server.config import settings
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.core.node_registry import (
     NODE_ID_ALPHABET,
     NODE_ID_LENGTH,
@@ -262,9 +262,8 @@ def test_registry_create_node_reuses_candidate_after_db_collision():
     conn = get_conn()
     try:
         conn.execute(
-            "INSERT INTO nodes (node_id, node_name, endpoint, capabilities, last_seen, "
-            "registered_at, status, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
+            q("INSERT INTO nodes (node_id, node_name, endpoint, capabilities, last_seen, "
+            "registered_at, status, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
                 "X",
                 "Preseeded",
                 None,
@@ -273,7 +272,7 @@ def test_registry_create_node_reuses_candidate_after_db_collision():
                 "2026-01-01T00:00:00+00:00",
                 "pending",
                 "worker",
-            ),
+            )),
         )
         conn.commit()
     finally:

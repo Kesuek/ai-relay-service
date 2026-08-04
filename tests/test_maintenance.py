@@ -14,7 +14,7 @@ os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-producti
 from relay_server.config import settings
 from relay_server.core.artifacts import cleanup_orphaned_artifacts, store_artifact
 from relay_server.core.auth import generate_secret, hash_secret
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.core.maintenance import MaintenanceScheduler
 from relay_server.core.scheduler import Scheduler
 from relay_server.main import app
@@ -147,9 +147,8 @@ def _insert_task(task_id: str = "task_exists") -> None:
     conn = get_conn()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO tasks (task_id, task_name, status, priority, owner_node_id, "
-        "timeout_seconds, created_at, updated_at) VALUES (?, ?, 'pending', 0, NULL, 300, ?, ?)",
-        (task_id, "Existing", now, now),
+        q("INSERT INTO tasks (task_id, task_name, status, priority, owner_node_id, "
+        "timeout_seconds, created_at, updated_at) VALUES (?, ?, 'pending', 0, NULL, 300, ?, ?)", (task_id, "Existing", now, now)),
     )
     conn.commit()
     conn.close()
@@ -159,7 +158,7 @@ def _backdate_artifact(artifact_id: str, days: float = 8.0) -> None:
     old = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     conn = get_conn()
     conn.execute(
-        "UPDATE artifacts SET created_at = ? WHERE artifact_id = ?", (old, artifact_id)
+        q("UPDATE artifacts SET created_at = ? WHERE artifact_id = ?", (old, artifact_id))
     )
     conn.commit()
     conn.close()
@@ -183,7 +182,7 @@ def test_cleanup_orphaned_artifacts():
     # DB row gone.
     conn = get_conn()
     row = conn.execute(
-        "SELECT artifact_id FROM artifacts WHERE artifact_id = ?", (artifact_id,)
+        q("SELECT artifact_id FROM artifacts WHERE artifact_id = ?", (artifact_id,))
     ).fetchone()
     conn.close()
     assert row is None
@@ -236,8 +235,7 @@ def _seed_admin() -> str:
     secret = generate_secret("adm_")
     conn = get_conn()
     conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()
@@ -321,10 +319,10 @@ def test_fail_orphaned_stages():
 
     conn = get_conn()
     stage_row = conn.execute(
-        "SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,)
+        q("SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,))
     ).fetchone()
     task_row = conn.execute(
-        "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
+        q("SELECT status FROM tasks WHERE task_id = ?", (task_id,))
     ).fetchone()
     conn.close()
     assert stage_row["status"] == "failed"
@@ -351,7 +349,7 @@ def test_fail_orphaned_stages_keeps_known():
 
     conn = get_conn()
     row = conn.execute(
-        "SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,)
+        q("SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,))
     ).fetchone()
     conn.close()
     assert row["status"] == "pending"
@@ -374,8 +372,7 @@ def test_fail_orphaned_stages_ignores_offline_nodes():
     conn = get_conn()
     old = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     conn.execute(
-        "UPDATE nodes SET status = 'offline', last_seen = ? WHERE node_id = ?",
-        (old, worker_id),
+        q("UPDATE nodes SET status = 'offline', last_seen = ? WHERE node_id = ?", (old, worker_id)),
     )
     # Offline node still advertises the capability, but we only count
     # approved/online nodes as covering it.

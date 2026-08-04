@@ -11,7 +11,7 @@ os.environ["RELAY_DB_PATH"] = ""
 os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-production"
 
 from relay_server.config import settings
-from relay_server.core.db import get_conn, init_db
+from relay_server.core.db import get_conn, init_db, q
 from relay_server.main import app
 
 
@@ -54,11 +54,11 @@ def test_auth_init_master_and_register_admin():
     assert secret_entropy_bits(seed) >= 200
 
     # Verify the stored hash is NOT the plaintext seed and uses salted format.
-    from relay_server.core.db import get_conn
+    from relay_server.core.db import get_conn, q
 
     conn = get_conn()
     row = conn.execute(
-        "SELECT seed_hash FROM admin_seeds WHERE seed_id = ?", ("master",)
+        q("SELECT seed_hash FROM admin_seeds WHERE seed_id = ?", ("master",))
     ).fetchone()
     conn.close()
     assert row is not None
@@ -156,20 +156,19 @@ def test_admin_approval_flow():
     from relay_server.core.auth import hash_secret
 
     conn = get_conn()
-    row = conn.execute("SELECT seed_hash FROM admin_seeds WHERE seed_id='master'").fetchone()
+    row = conn.execute(q("SELECT seed_hash FROM admin_seeds WHERE seed_id='master'")).fetchone()
     if row is None:
         from relay_server.core.auth import init_master_seed
         secret = init_master_seed()
         assert secret is not None
     else:
         # For tests, re-initialize with a known secret.
-        conn.execute("DELETE FROM admin_seeds")
+        conn.execute(q("DELETE FROM admin_seeds"))
         conn.commit()
         from relay_server.core.auth import generate_secret
         secret = generate_secret("adm_")
         conn.execute(
-            "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-            ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+            q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
         )
         conn.commit()
     conn.close()
@@ -211,8 +210,7 @@ def test_refresh_token():
     conn = get_conn()
     secret = generate_secret("adm_")
     conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()
@@ -313,8 +311,7 @@ def test_online_node_token_still_valid():
     conn = get_conn()
     secret = generate_secret("adm_")
     conn.execute(
-        "INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)",
-        ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) VALUES (?, ?, ?, ?)", ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()
@@ -450,15 +447,14 @@ def test_human_user_without_permission_gets_403():
 
 def test_human_user_with_explicit_node_permissions():
     """A non-admin human user with explicit nodes:approve/token permissions can use them."""
-    from relay_server.core.db import get_conn
+    from relay_server.core.db import get_conn, q
     from relay_server.core.users import create_user, set_group_permissions
 
     init_db()
 
     conn = get_conn()
     conn.execute(
-        "INSERT INTO groups (group_id, group_name, description, created_at) VALUES (?, ?, ?, ?)",
-        ("grp_nodemgr", "nodemgr", "Node managers", "2026-01-01T00:00:00+00:00"),
+        q("INSERT INTO groups (group_id, group_name, description, created_at) VALUES (?, ?, ?, ?)", ("grp_nodemgr", "nodemgr", "Node managers", "2026-01-01T00:00:00+00:00")),
     )
     conn.commit()
     conn.close()
@@ -640,7 +636,7 @@ def test_refresh_registration_secret_with_runtime_token():
 def test_expired_registration_secret_cannot_recover_runtime_token():
     """When the registration secret expires, recovery is impossible."""
     from relay_server.core.auth import approve_node, register_pending_node
-    from relay_server.core.db import get_conn
+    from relay_server.core.db import get_conn, q
 
     init_db()
 
@@ -655,8 +651,7 @@ def test_expired_registration_secret_cannot_recover_runtime_token():
     # Artificially expire the registration secret in the database.
     conn = get_conn()
     conn.execute(
-        "UPDATE nodes SET registration_secret_expires_at = ? WHERE node_id = ?",
-        ("2020-01-01T00:00:00+00:00", node_id),
+        q("UPDATE nodes SET registration_secret_expires_at = ? WHERE node_id = ?", ("2020-01-01T00:00:00+00:00", node_id)),
     )
     conn.commit()
     conn.close()
