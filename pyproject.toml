@@ -18,6 +18,7 @@ dependencies = [
     "zeroconf>=0.63",
     "slowapi>=0.1",
     "markdown>=3.6",
+    "sqlalchemy>=2.0",
 ]
 
 [project.optional-dependencies]
