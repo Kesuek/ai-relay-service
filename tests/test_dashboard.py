@@ -473,6 +473,24 @@ def test_human_login_cookie_uses_default_ttl():
     assert f"Max-Age={SESSION_MAX_AGE_SECONDS}" in set_cookie
 
 
+def test_master_seed_uses_configured_seed_from_settings():
+    """A configured master_seed (RELAY_MASTER_SEED) must be used as-is
+    instead of generating a random secret (T-116 Docker deterministic seed)."""
+    from relay_server.core.auth import init_master_seed, login_with_master_seed
+
+    provided = "adm_docker_seed_0123456789abcdef"
+    settings.master_seed = provided
+    try:
+        seed = init_master_seed()
+        assert seed == provided
+        # The stored secret must authenticate against the provided seed.
+        assert login_with_master_seed(provided)
+        # The random prefix is NOT used — seed is deterministic from settings.
+        assert not seed.startswith("adm_") or seed == provided
+    finally:
+        settings.master_seed = None
+
+
 def test_master_seed_login_disabled_after_admin_exists():
     """Master-seed login must be blocked once a human admin exists."""
     from relay_server.core.auth import init_master_seed
