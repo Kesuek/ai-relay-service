@@ -15,7 +15,7 @@ For node-side usage see [../node/setup.md](../node/setup.md).
 |---|---|---|---|
 | GET | `/health` | none | Liveness check (process up) |
 | GET | `/ready` | none | Readiness check — probes database, scheduler/maintenance loop and event bus; returns `{"status": "ready"\|"degraded", "database", "scheduler", "event_bus", "maintenance_age_seconds"}` |
-| GET | `/metrics` | none | Prometheus exposition text — In-process counters (`relay_auth_failures_total{endpoint="..."}`) + DB-derived gauges (`relay_nodes_total`, `relay_nodes_online`, `relay_queue_depth`, `relay_tasks{status="..."}`, `relay_stages{status="..."}`) |
+| GET | `/metrics` | none | Prometheus exposition text — In-process counters (`relay_auth_failures_total{endpoint="..."}`) + DB-derived gauges (`relay_nodes_total`, `relay_nodes_online`, `relay_queue_depth`, `relay_tasks{status="..."}`, `relay_stages{status="..."}`) + T-115 latency histograms (`relay_stage_duration_seconds`, `relay_claim_duration_seconds`, `relay_task_duration_seconds` — `_bucket`/`_sum`/`_count`), retry rate (`relay_stages_retried_total`, `relay_stages_total`, `relay_stages_retry_ratio`), per-node gauges (`relay_node_load`, `relay_node_queue_depth`, `relay_node_online` — labels `node_id`/`node_name`) and throughput (`relay_tasks_created_5m`, `relay_tasks_completed_5m`) |
 
 ## Auth — `/relay/v2/auth`
 

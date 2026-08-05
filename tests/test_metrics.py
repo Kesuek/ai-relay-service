@@ -10,7 +10,7 @@ os.environ.setdefault("RELAY_SESSION_SECRET", "test-session-secret-do-not-use-in
 
 from relay_server.config import settings
 from relay_server.core import metrics
-from relay_server.core.db import init_db
+from relay_server.core.db import get_conn, init_db, q
 
 
 @pytest.fixture(autouse=True)
@@ -118,3 +118,104 @@ def test_trace_id_middleware_sets_header():
         trace_id = r.headers.get("X-Relay-Trace-Id")
         assert trace_id
         assert len(trace_id) >= 8
+
+
+def _seed_completed_task(task_id: str, start: str, end: str, retry_count: int = 0):
+    """Insert a completed task + one completed stage (T-115 latency test)."""
+    conn = get_conn()
+    try:
+        conn.execute(q(
+            "INSERT INTO tasks (task_id, task_name, status, created_at, updated_at, completed_at) "
+            "VALUES (?, ?, 'completed', ?, ?, ?)",
+            (task_id, "t", start, end, end),
+        ))
+        conn.execute(q(
+            "INSERT INTO task_stages (stage_id, task_id, stage_name, capability, status, "
+            "claimed_at, completed_at, created_at, updated_at, retry_count) "
+            "VALUES (?, ?, 's', 'cap', 'completed', ?, ?, ?, ?, ?)",
+            (f"{task_id}_s", task_id, start, end, start, end, retry_count),
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_latency_histograms_computed():
+    """Completed stages/tasks produce latency histograms."""
+    _seed_completed_task("T1", "2026-08-04T00:00:00Z", "2026-08-04T00:00:30Z")  # 30s
+    _seed_completed_task("T2", "2026-08-04T00:00:00Z", "2026-08-04T00:02:00Z")  # 120s
+
+    data = metrics.collect_metrics()
+    latency = data["latency"]
+    # 2 completed stages; stage duration (created→completed) = 30s + 120s
+    stage_hist = latency["relay_stage_duration_seconds"]
+    assert stage_hist["count"] == 2
+    assert stage_hist["sum"] == 150.0  # 30 + 120
+    # claim duration (claimed_at→completed_at) = 30s + 120s
+    claim_hist = latency["relay_claim_duration_seconds"]
+    assert claim_hist["count"] == 2
+    assert claim_hist["sum"] == 150.0
+    # 30s falls in bucket le="30.0" (only 30s obs); 120s falls in le="120.0" (both)
+    assert stage_hist["buckets"]["30.0"] == 1
+    assert stage_hist["buckets"]["120.0"] == 2
+
+
+def test_retry_rate_computed():
+    """Stages with retry_count > 0 are counted as retried."""
+    _seed_completed_task("T1", "2026-08-04T00:00:00Z", "2026-08-04T00:00:30Z", retry_count=2)
+    _seed_completed_task("T2", "2026-08-04T00:00:00Z", "2026-08-04T00:00:30Z")  # retry_count=0
+
+    data = metrics.collect_metrics()
+    retry = data["retry"]
+    assert retry["total"] == 2
+    assert retry["retried"] == 1
+    assert retry["ratio"] == 0.5
+
+
+def test_node_gauges_per_node():
+    """Per-node load/queue_depth/online gauges."""
+    conn = get_conn()
+    try:
+        conn.execute(q(
+            "INSERT INTO nodes (node_id, node_name, status, load, queue_depth, last_seen, registered_at) "
+            "VALUES (?, ?, 'online', ?, ?, ?, ?)",
+            ("N1", "node-a", 30.0, 2, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        ))
+        conn.execute(q(
+            "INSERT INTO nodes (node_id, node_name, status, load, queue_depth, last_seen, registered_at) "
+            "VALUES (?, ?, 'offline', ?, ?, ?, ?)",
+            ("N2", "node-b", 0.0, 0, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+    data = metrics.collect_metrics()
+    nodes = {n["node_name"]: n for n in data["nodes"]}
+    assert nodes["node-a"]["load"] == 30.0
+    assert nodes["node-a"]["queue_depth"] == 2
+    assert nodes["node-a"]["online"] == 1
+    assert nodes["node-b"]["online"] == 0
+
+
+def test_prometheus_renders_latency_and_retry():
+    """Prometheus output includes histogram buckets, retry, node gauges."""
+    _seed_completed_task("T1", "2026-08-04T00:00:00Z", "2026-08-04T00:00:30Z", retry_count=2)
+    conn = get_conn()
+    try:
+        conn.execute(q(
+            "INSERT INTO nodes (node_id, node_name, status, load, queue_depth, last_seen, registered_at) "
+            "VALUES (?, ?, 'online', ?, ?, ?, ?)",
+            ("N1", "node-a", 10.0, 0, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+    text = metrics.render_prometheus()
+    assert "relay_stage_duration_seconds_bucket{le=\"30.0\"}" in text
+    assert "relay_stage_duration_seconds_count 1" in text
+    assert "relay_stages_retried_total 1" in text
+    assert 'relay_node_load{node_id="N1",node_name="node-a"} 10.0' in text
+    assert "relay_tasks_created_5m" in text
+    assert "relay_tasks_completed_5m" in text
