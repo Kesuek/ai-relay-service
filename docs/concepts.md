@@ -323,6 +323,15 @@ stages. As soon as the load drops back below the cap, the node reverts
 to `idle` automatically. The `consecutive_high_load` counter is stored
 per node and resets to 0 on every below-cap heartbeat.
 
+**GPU-aware auto-busy (T-113):** in addition to the load-based rule, a
+node with `queue_depth >= 1` (i.e. it already has a task in flight) is
+transitioned to `busy` immediately, regardless of its CPU `load`. This
+handles AI/ML workloads where the GPU is saturated but the CPU is idle —
+a node running one FLUX/MLX job must not be handed a second job just
+because its CPU load is low. The node reverts to `idle` when the queue
+drains (`queue_depth == 0`) *and* load is below the cap (so a
+load-busy node is not prematurely released).
+
 ### `status_changed` SSE event
 
 Every status transition publishes a `status_changed` event on the event

@@ -108,6 +108,50 @@ def test_heartbeat_updates_node():
     assert nodes[worker_id]["available"] is True
 
 
+def test_queue_depth_triggers_auto_busy():
+    """T-113: queue_depth >= 1 marks the node busy regardless of load (GPU-agnostic)."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register_admin(secret)
+    worker_id, _ = _register_worker("Worker Q", [{"name": "image", "version": "1.0.0"}])
+    r = client.post(
+        f"/relay/v2/admin/nodes/{worker_id}/approve",
+        json={"role": "service", "capabilities": [{"name": "image", "version": "1.0.0"}]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    runtime = r.json()["token"]
+
+    # Heartbeat with LOW load (e.g. GPU job, CPU idle) but queue_depth=1.
+    r = client.post(
+        "/relay/v2/discovery/heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"load": 5.0, "queue_depth": 1, "available": True},
+    )
+    assert r.status_code == 200
+
+    r = client.get(
+        "/relay/v2/discovery/nodes",
+        headers={"Authorization": f"Bearer {runtime}"},
+    )
+    nodes = {n["node_id"]: n for n in r.json()["nodes"]}
+    # Node must be busy even though load is low, because it has a task in flight.
+    assert nodes[worker_id]["status"] == "busy"
+
+    # Queue drains → node reverts to idle (no explicit busy, no load pending).
+    r = client.post(
+        "/relay/v2/discovery/heartbeat",
+        headers={"Authorization": f"Bearer {runtime}"},
+        json={"load": 5.0, "queue_depth": 0, "available": True},
+    )
+    assert r.status_code == 200
+
+    r = client.get(
+        "/relay/v2/discovery/nodes",
+        headers={"Authorization": f"Bearer {runtime}"},
+    )
+    nodes = {n["node_id"]: n for n in r.json()["nodes"]}
+    assert nodes[worker_id]["status"] == "idle"
+
+
 def test_capability_query():
     secret = _seed_admin()
     admin_id, admin_token = _register_admin(secret)
