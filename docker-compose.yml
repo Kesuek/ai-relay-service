@@ -48,7 +48,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-relay}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env for the postgres profile}
+      # NOTE: not `:?` — that would break the default (sqlite) build, since
+      # compose interpolates every service's env even when the profile is off.
+      # Postgres only starts with --profile postgres, where .env must set it.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relay}
       POSTGRES_DB: ${POSTGRES_DB:-relay}
     volumes:
       - postgres-data:/var/lib/postgresql/data
