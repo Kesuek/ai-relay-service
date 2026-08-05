@@ -21,6 +21,11 @@ __pycache__/
 dist/
 *.tar.gz
 
+# Environment / secrets — never commit real .env
+.env
+.env.*
+!.env.example
+
 # Legacy SSN shell handler — superseded by the Python implementation
 # (kept out of tracking on purpose; do not re-add)
 nodes/handlers/ssn-capability-pages.sh

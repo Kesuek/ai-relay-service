@@ -1,0 +1,63 @@
+# AI-Relay-Service — docker compose.
+#
+# Default: the relay server on SQLite (DB file in the named volume `relay-data`).
+# PostgreSQL: opt in via the `postgres` profile:
+#
+#   docker compose --profile postgres up -d
+#
+# and set RELAY_DB_TYPE=postgres + RELAY_PG_DSN in .env. See docs/docker.md.
+
+name: ai-relay
+
+services:
+  relay:
+    build:
+      context: .
+      dockerfile: Dockerfile.relay
+    image: ai-relay-server:local
+    container_name: ai-relay-server
+    restart: unless-stopped
+    ports:
+      - "8788:8788"
+    environment:
+      # Master admin seed — pin it in .env so it survives container rebuilds
+      # (never auto-generated on every up). The seed lives in the DB.
+      RELAY_MASTER_SEED: ${RELAY_MASTER_SEED:-}
+      # Backend selection: sqlite (default) or postgres (--profile postgres).
+      RELAY_DB_TYPE: ${RELAY_DB_TYPE:-sqlite}
+      RELAY_PG_DSN: ${RELAY_PG_DSN:-}
+      # Session secret for signed dashboard cookies. Provide a stable value.
+      RELAY_SESSION_SECRET: ${RELAY_SESSION_SECRET:-}
+      # Dashboard cookie Secure flag — false over plain http on a LAN/NAS.
+      RELAY_SESSION_COOKIE_SECURE: ${RELAY_SESSION_COOKIE_SECURE:-true}
+    volumes:
+      # SQLite DB + artifacts + config survive `down` / rebuilds.
+      - relay-data:/app/.relay
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8788/health', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Optional PostgreSQL backend. Only started with `--profile postgres`.
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    container_name: ai-relay-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-relay}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env for the postgres profile}
+      POSTGRES_DB: ${POSTGRES_DB:-relay}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-relay} -d ${POSTGRES_DB:-relay}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  relay-data:
+  postgres-data:

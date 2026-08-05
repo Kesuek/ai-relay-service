@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1
+# AI-Relay-Service — Server image.
+#
+# Builds the relay server + node tooling. Installs the `postgres` extra so
+# both SQLite (default) and PostgreSQL backends are available; the backend is
+# selected at runtime via RELAY_DB_TYPE / RELAY_PG_DSN.
+#
+# Two-stage: a builder that assembles a wheel, and a slim runtime that only
+# carries the wheel + a non-root user (PUID/PGID-overridable).
+
+# ---- build stage ---------------------------------------------------------
+FROM python:3.11-slim AS builder
+WORKDIR /build
+
+# Build backend + core build deps in one layer.
+RUN pip install --no-cache-dir build
+
+# Copy only what hatchling needs to resolve the project.
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY nodes ./nodes
+
+# Build an sdist+wheel so the runtime stage installs from the wheel only.
+RUN python -m build --wheel --outdir /build/dist
+
+# ---- runtime stage -------------------------------------------------------
+FROM python:3.11-slim AS runtime
+
+# tini as PID 1 so signals (SIGTERM/SIGINT) reach uvicorn cleanly on stop.
+RUN apt-get update && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install the wheel + the `postgres` extra (psycopg binary). `.[postgres]` on
+# a wheel needs the base install plus the extra; we install both explicitly
+# from the wheel to keep the runtime image lean and offline-buildable.
+COPY --from=builder /build/dist/*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/*.whl "psycopg[binary]>=3.1" && rm -rf /tmp/*.whl
+
+# --- appuser ---------------------------------------------------------------
+# Non-root runtime user. PUID/PGID are overridable so a NAS operator can map
+# the container's file ownership to their host user for bind-mounted volumes.
+ARG PUID=1000
+ARG PGID=1000
+RUN groupadd -g ${PGID} appuser \
+    && useradd -m -u ${PUID} -g appuser appuser \
+    && install -d -o appuser -g appuser /app /app/.relay /app/.ssn
+
+# The app resolves ~/.relay via Path.home(); ensure HOME is the appuser's.
+ENV HOME=/home/appuser
+ENV PATH="/home/appuser/.local/bin:${PATH}"
+ENV PYTHONUNBUFFERED=1
+
+USER appuser
+
+# Entrypoint runs DB init + seed init, then execs the server.
+COPY --chown=appuser:appuser docker-entrypoint.sh /app/docker-entrypoint.sh
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]
+
+EXPOSE 8788
+CMD ["relay-server", "server"]
