@@ -52,6 +52,27 @@ The `postgres` service is a container named `ai-relay-postgres`; the relay
 reaches it at hostname `postgres` on the compose network (see `RELAY_PG_DSN`).
 Its data lives in the `postgres-data` volume.
 
+#### Postgres pitfalls
+
+1. **Hostname is `postgres`, not `localhost`.** The relay runs in its own
+   container on the same compose network; `localhost` would point at the relay
+   container itself, not the database.
+2. **DSN dialect must be `postgresql+psycopg://`.** `postgres://` alone is not
+   enough — the server uses the psycopg dialect explicitly.
+3. **`RELAY_PG_DSN` and `POSTGRES_PASSWORD` must carry the same password.** A
+   mismatch fails fast at the entrypoint (visible in `docker compose logs`),
+   not as a silent half-failure.
+
+Example `.env` block (note the same password in both lines):
+
+```dotenv
+RELAY_DB_TYPE=postgres
+RELAY_PG_DSN=postgresql+psycopg://relay:MEIN_PASSWORT@postgres:5432/relay
+POSTGRES_USER=relay
+POSTGRES_PASSWORD=MEIN_PASSWORT
+POSTGRES_DB=relay
+```
+
 ## Master admin seed
 
 The master seed is **stored (hashed) in the database**. Set it in `.env` as
