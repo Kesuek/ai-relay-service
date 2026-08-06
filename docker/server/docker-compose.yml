@@ -30,11 +30,19 @@ services:
       RELAY_SESSION_SECRET: ${RELAY_SESSION_SECRET:-}
       # Dashboard cookie Secure flag — false over plain http on a LAN/NAS.
       RELAY_SESSION_COOKIE_SECURE: ${RELAY_SESSION_COOKIE_SECURE:-true}
+      # TLS (T-111): set both cert + key to serve HTTPS. Paths are inside the
+      # container; mount the certs via the `certs` volume (see below).
+      RELAY_TLS_CERTFILE: ${RELAY_TLS_CERTFILE:-}
+      RELAY_TLS_KEYFILE: ${RELAY_TLS_KEYFILE:-}
     volumes:
       # SQLite DB + artifacts + config survive `down` / rebuilds.
       - relay-data:/app/.relay
+      # TLS certificates — mount your cert/key directory read-only. The paths
+      # in RELAY_TLS_CERTFILE/KEYFILE must match the container-side paths.
+      - ${RELAY_TLS_CERTS_DIR:-./certs}:/certs:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8788/health', timeout=5)"]
+      # Works with or without TLS: tries http, then https.
+      test: ["CMD", "python", "/app/healthcheck.py"]
       interval: 30s
       timeout: 5s
       retries: 5

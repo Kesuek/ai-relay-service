@@ -100,6 +100,25 @@ the `postgres-data` volume.
    `docker compose logs`), not as a silent half-failure. In Option A only the
    DSN matters — the password lives in the DSN itself.
 
+## TLS (HTTPS)
+
+The relay serves HTTPS when both `RELAY_TLS_CERTFILE` and `RELAY_TLS_KEYFILE`
+are set (T-111). In the container, the certs directory is mounted read-only at
+`/certs`; the env paths must point at the container-side locations.
+
+```dotenv
+RELAY_TLS_CERTS_DIR=./certs        # host dir mounted at /certs
+RELAY_TLS_CERTFILE=/certs/fullchain.pem
+RELAY_TLS_KEYFILE=/certs/privkey.pem
+```
+
+- Leave the TLS vars empty to serve plain http.
+- The healthcheck tries `http` first, then `https`, so it works either way.
+- When serving HTTPS, set `RELAY_SESSION_COOKIE_SECURE=true` (the default) so
+  the dashboard cookie is only sent over TLS.
+- The container runs as a non-root user; the cert files must be world-readable
+  (or readable by the container UID) for uvicorn to load them.
+
 ## Master admin seed
 
 The master seed is **stored (hashed) in the database**. Set it in `.env` as
