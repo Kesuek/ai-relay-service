@@ -4,6 +4,9 @@ Run the relay server in a container with `docker compose`. This is the
 primary deployment path for NAS owners and anyone without a Python/systemd
 setup.
 
+> **Übersicht aller Docker-Setups:** siehe [`docker/README.md`](../../docker/README.md).
+> Dieses Dokument beschreibt nur das Server-Setup (`docker/server/`).
+
 ## Quick start (SQLite — default)
 
 ```bash
