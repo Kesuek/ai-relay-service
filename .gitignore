@@ -29,3 +29,7 @@ dist/
 # Legacy SSN shell handler — superseded by the Python implementation
 # (kept out of tracking on purpose; do not re-add)
 nodes/handlers/ssn-capability-pages.sh
+
+# Local analysis artifacts (not part of the repo)
+_split_cli.py
+reports/
