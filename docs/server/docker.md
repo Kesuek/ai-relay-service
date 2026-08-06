@@ -131,7 +131,7 @@ the `relay-data` volume (and `postgres-data`) intact — do not run
 - `psycopg[binary]` is installed, so both SQLite and Postgres work out of the box.
 
 All Docker files live in the `docker/` subdirectory (server under
-`docker/server/`, node under `docker/node/`). Build from the repo root with
+`docker/server/`). Build from the repo root with
 `-f docker/server/docker-compose.yml` (the build context is the repo root, so
 `COPY src` / `COPY nodes` resolve correctly).
 

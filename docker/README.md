@@ -28,7 +28,12 @@ docker compose -f docker/server/docker-compose.yml up -d --build
 Vollständige Anleitung, DB-Wahl und Troubleshooting:
 [`docs/server/docker.md`](../docs/server/docker.md)
 
-## Node (geplant)
+## Special Nodes (noch nicht final)
 
-Ein `docker/node/`-Setup für den Worker-Node (externer Relay-Modus) ist
-geplant, aber noch nicht umgesetzt.
+Die spezialisierten Nodes (z.B. Storage-Node, SSN) sind **noch nicht
+containerisiert** — das Konzept wird aktuell überarbeitet, kein special node
+ist derzeit wirklich fertig. Sobald die Richtung steht, bekommt jeder
+finale special node hier einen eigenen Unterordner (`docker/<node>/`).
+
+> Hinweis: Das ältere `nodes/storage-node/`-Docker-Setup ist **veraltet** und
+> wird nicht weitergepflegt.
