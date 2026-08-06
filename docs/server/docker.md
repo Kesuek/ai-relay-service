@@ -8,12 +8,12 @@ setup.
 
 ```bash
 # 1. Create your environment (generate a real seed!)
-cp .env.example .env
+cp docker/.env.example .env
 #    edit .env: set RELAY_MASTER_SEED, RELAY_SESSION_SECRET, and
 #    RELAY_SESSION_COOKIE_SECURE=false (plain http on LAN)
 
-# 2. Build & start
-docker compose up -d --build
+# 2. Build & start (from the repo root)
+docker compose -f docker/docker-compose.yml up -d --build
 
 # 3. Open the dashboard
 #    http://<host>:8788
@@ -58,7 +58,7 @@ RELAY_PG_DSN=postgresql+psycopg://relay:MEIN_PASSWORT@192.168.1.50:5432/relay
 Start the relay alone (no `--profile postgres`):
 
 ```bash
-docker compose up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 The DSN host can be any reachable address: an IP, a hostname, or a Tailscale
@@ -77,7 +77,7 @@ POSTGRES_DB=relay
 Start relay + postgres together:
 
 ```bash
-docker compose --profile postgres up -d --build
+docker compose -f docker/docker-compose.yml --profile postgres up -d --build
 ```
 
 The `postgres` service is a container named `ai-relay-postgres`; the relay
@@ -121,18 +121,22 @@ the `relay-data` volume (and `postgres-data`) intact — do not run
 
 ## Image & user
 
-- `Dockerfile.relay`: multi-stage; runtime is `python:3.11-slim` with `tini` as
-  PID 1 and a non-root `appuser`.
+- `docker/Dockerfile.relay`: multi-stage; runtime is `python:3.11-slim` with
+  `tini` as PID 1 and a non-root `appuser`.
 - The user is overridable via build args: `--build-arg PUID=1000 --build-arg PGID=1000`
   to match your NAS host user for bind-mounted volumes.
 - `psycopg[binary]` is installed, so both SQLite and Postgres work out of the box.
 
+All Docker files live in the `docker/` subdirectory. Build from the repo root
+with `-f docker/docker-compose.yml` (the build context is the repo root, so
+`COPY src` / `COPY nodes` resolve correctly).
+
 ## Troubleshooting
 
-- **Healthcheck:** `docker compose ps` shows `(healthy)` once the `/health`
-  endpoint responds.
-- **Logs:** `docker compose logs -f relay` shows the entrypoint (seed created /
-  already exists) and uvicorn output.
+- **Healthcheck:** `docker compose -f docker/docker-compose.yml ps` shows
+  `(healthy)` once the `/health` endpoint responds.
+- **Logs:** `docker compose -f docker/docker-compose.yml logs -f relay` shows
+  the entrypoint (seed created / already exists) and uvicorn output.
 - **"master seed already exists":** means the DB already has a seed — your
   login is unchanged. This is normal on restart.
 - **Wrong `RELAY_PG_DSN`:** the container fails fast with an init-master error;

@@ -12,8 +12,8 @@ name: ai-relay
 services:
   relay:
     build:
-      context: .
-      dockerfile: Dockerfile.relay
+      context: ..
+      dockerfile: docker/Dockerfile.relay
     image: ai-relay-server:local
     container_name: ai-relay-server
     restart: unless-stopped

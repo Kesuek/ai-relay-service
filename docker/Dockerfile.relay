@@ -55,7 +55,7 @@ ENV PYTHONUNBUFFERED=1
 USER appuser
 
 # Entrypoint runs DB init + seed init, then execs the server.
-COPY --chown=appuser:appuser docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY --chown=appuser:appuser docker/docker-entrypoint.sh /app/docker-entrypoint.sh
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]
 
 EXPOSE 8788
