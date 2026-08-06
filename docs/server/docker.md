@@ -36,34 +36,35 @@ offered.
 
 ### PostgreSQL
 
-```bash
-# 1. in .env:
-RELAY_DB_TYPE=postgres
-RELAY_PG_DSN=postgresql+psycopg://relay:CHANGE_ME@postgres:5432/relay
-POSTGRES_USER=relay
-POSTGRES_PASSWORD=CHANGE_ME
-POSTGRES_DB=relay
+PostgreSQL can be used in two ways:
 
-# 2. start relay + postgres together
-docker compose --profile postgres up -d --build
+- **External database on another host** (existing Postgres server, another
+  machine, a managed DB). No `postgres` service is needed — just point
+  `RELAY_PG_DSN` at it and start the relay normally.
+- **Bundled `postgres` container** (via the `postgres` profile) for a
+  self-contained setup.
+
+In both cases the relay only needs `RELAY_DB_TYPE=postgres` and a valid
+`RELAY_PG_DSN`. The `POSTGRES_*` variables are **only** used to configure the
+bundled `postgres` container — they are irrelevant for an external database.
+
+#### Option A — external Postgres on another host
+
+```dotenv
+RELAY_DB_TYPE=postgres
+RELAY_PG_DSN=postgresql+psycopg://relay:MEIN_PASSWORT@192.168.1.50:5432/relay
 ```
 
-The `postgres` service is a container named `ai-relay-postgres`; the relay
-reaches it at hostname `postgres` on the compose network (see `RELAY_PG_DSN`).
-Its data lives in the `postgres-data` volume.
+Start the relay alone (no `--profile postgres`):
 
-#### Postgres pitfalls
+```bash
+docker compose up -d --build
+```
 
-1. **Hostname is `postgres`, not `localhost`.** The relay runs in its own
-   container on the same compose network; `localhost` would point at the relay
-   container itself, not the database.
-2. **DSN dialect must be `postgresql+psycopg://`.** `postgres://` alone is not
-   enough — the server uses the psycopg dialect explicitly.
-3. **`RELAY_PG_DSN` and `POSTGRES_PASSWORD` must carry the same password.** A
-   mismatch fails fast at the entrypoint (visible in `docker compose logs`),
-   not as a silent half-failure.
+The DSN host can be any reachable address: an IP, a hostname, or a Tailscale
+name. The relay container must be able to reach it (network/firewall).
 
-Example `.env` block (note the same password in both lines):
+#### Option B — bundled `postgres` container
 
 ```dotenv
 RELAY_DB_TYPE=postgres
@@ -72,6 +73,29 @@ POSTGRES_USER=relay
 POSTGRES_PASSWORD=MEIN_PASSWORT
 POSTGRES_DB=relay
 ```
+
+Start relay + postgres together:
+
+```bash
+docker compose --profile postgres up -d --build
+```
+
+The `postgres` service is a container named `ai-relay-postgres`; the relay
+reaches it at hostname `postgres` on the compose network. Its data lives in
+the `postgres-data` volume.
+
+#### Postgres pitfalls
+
+1. **DSN dialect must be `postgresql+psycopg://`.** `postgres://` alone is not
+   enough — the server uses the psycopg dialect explicitly.
+2. **In Option B the DSN host is `postgres`, not `localhost`.** The relay runs
+   in its own container on the same compose network; `localhost` would point at
+   the relay container itself, not the database. In Option A the host is your
+   external server's address.
+3. **In Option B, `RELAY_PG_DSN` and `POSTGRES_PASSWORD` must carry the same
+   password.** A mismatch fails fast at the entrypoint (visible in
+   `docker compose logs`), not as a silent half-failure. In Option A only the
+   DSN matters — the password lives in the DSN itself.
 
 ## Master admin seed
 
