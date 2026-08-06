@@ -118,6 +118,10 @@ def _make_daemon(
             # T-108: backoff helpers required by _write_status/_heartbeat_loop.
             self._auth_fail_streak = 0
 
+        # T-118: proactive refresh hook called by the heartbeat loop.
+        def maybe_refresh_token(self):
+            return None
+
         _register_backoff_failure = RelayClient._register_backoff_failure
         _register_backoff_success = RelayClient._register_backoff_success
         _current_backoff = RelayClient._current_backoff

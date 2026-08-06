@@ -23,6 +23,9 @@ def fresh_db():
         settings.db_path = db_path
         settings.session_secret = "test-session-secret-do-not-use-in-production"
         settings.session_cookie_secure = False
+        # Isolate from any RELAY_MASTER_SEED in the environment / docker .env
+        # so init_master_seed() generates a fresh high-entropy seed.
+        settings.master_seed = None
         # Reset cached pepper so each test re-evaluates session_secret.
         import relay_server.core.auth as auth_mod
 

@@ -5,14 +5,15 @@ from __future__ import annotations
 import json
 import subprocess
 import textwrap
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 import pytest
 import yaml
 
-from nodes.common import node_config as cl
 from nodes.common import node_cli as cli
+from nodes.common import node_config as cl
 from nodes.common import node_utils
 
 # ---------------------------------------------------------------------------
@@ -1401,7 +1402,6 @@ def test_daemon_status_file_includes_failed_tasks(isolated_paths: Path, monkeypa
 # T-062: update check / update apply
 # ---------------------------------------------------------------------------
 
-from nodes.common import node_utils  # noqa: E402 — alias for clarity below
 
 
 def _make_repo(tmp_path: Path) -> Path:
@@ -1928,6 +1928,72 @@ def test_recover_runtime_token_saves_expires_at(isolated_paths: Path, monkeypatc
     assert on_disk == {"token": new_token, "expires_at": new_expires}
 
 
+# ---------------------------------------------------------------------------
+# maybe_refresh_token (T-118) — proactive refresh, centralized in RelayClient
+# ---------------------------------------------------------------------------
+
+def _make_client_with_expiry(base: Path, expires_at: str | None, cfg_extra: dict | None = None):
+    """Build a RelayClient with a given token expiry and optional cfg."""
+    cfg = {"base_url": "http://relay:8788", "request_timeout": 10}
+    if cfg_extra:
+        cfg.update(cfg_extra)
+    _write(base / "relay_config.json", json.dumps(cfg))
+    _write(base / "ai-relay-agent.json", json.dumps({"node_id": "n1", "registration_secret": "rs_abc"}))
+    _write_json_token(base, "rt_test", expires_at=expires_at)
+    return cli.RelayClient(
+        json.loads((base / "ai-relay-agent.json").read_text()),
+        json.loads((base / "relay_config.json").read_text()),
+    )
+
+
+def test_maybe_refresh_token_refreshes_when_within_margin(isolated_paths: Path, monkeypatch):
+    """Token expiring within rt_refresh_before_seconds (24h) triggers a refresh."""
+    base = isolated_paths
+    soon = (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat()
+    client = _make_client_with_expiry(base, soon)
+
+    new_token = "rt_fresh"
+    new_expires = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return {"token": new_token, "expires_at": new_expires, "token_type": "runtime"}
+
+    monkeypatch.setattr(httpx, "post", lambda url, **kw: FakeResp())
+
+    client.maybe_refresh_token()
+    assert client.token == new_token
+    assert client.token_expires_at == new_expires
+
+
+def test_maybe_refresh_token_skips_when_far_from_expiry(isolated_paths: Path, monkeypatch):
+    """Token expiring well beyond the margin is NOT refreshed (no churn)."""
+    base = isolated_paths
+    far = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    client = _make_client_with_expiry(base, far)
+
+    called = {"n": 0}
+    monkeypatch.setattr(client, "_refresh_token", lambda: called.__setitem__("n", called["n"] + 1) or True)
+
+    client.maybe_refresh_token()
+    assert called["n"] == 0
+    assert client.token == "rt_test"
+
+
+def test_maybe_refresh_token_refreshes_when_expires_at_missing(isolated_paths: Path, monkeypatch):
+    """Legacy token without expires_at is still refreshed periodically (T-118)."""
+    base = isolated_paths
+    client = _make_client_with_expiry(base, None)  # legacy plaintext -> expires_at None
+
+    called = {"n": 0}
+    monkeypatch.setattr(client, "_refresh_token", lambda: called.__setitem__("n", called["n"] + 1) or True)
+
+    # First call: no expires_at -> refresh immediately (unknown expiry is risky).
+    client.maybe_refresh_token()
+    assert called["n"] == 1
+
+
 def test_proactive_refresh_before_expiry(isolated_paths: Path, monkeypatch):
     """When the token expires in <1h, the heartbeat loop calls _refresh_token."""
     from datetime import datetime, timedelta, timezone
@@ -1963,6 +2029,11 @@ def test_proactive_refresh_before_expiry(isolated_paths: Path, monkeypatch):
         def _refresh_token(self):
             refreshed["called"] = True
             return True
+
+        # T-118: the daemon now calls the centralized hook; delegate to
+        # _refresh_token so the "expires soon" path is still exercised.
+        def maybe_refresh_token(self):
+            self._refresh_token()
 
         _register_backoff_failure = cli.RelayClient._register_backoff_failure
         _register_backoff_success = cli.RelayClient._register_backoff_success
