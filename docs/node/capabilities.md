@@ -262,6 +262,98 @@ is reachable at `POST /relay/v2/dashboard/api/node-routes/3P4KEWGE/api/task-subm
 When a node goes offline (heartbeat timeout), all its routes are automatically
 cleared. No manual cleanup needed.
 
+**DELETE is not proxied.** The proxy handles `GET`, `POST`, `PUT`, and
+`PATCH`. `DELETE` is reserved for unregistering a route (see temp routes
+below) — a node that needs to expose a DELETE-capable upstream route must
+register it under a different method.
+
+#### Temporary bridge routes (T-123 – T-126)
+
+Permanent routes (above) are replaced on every heartbeat. For large-file
+handoff (storage upload/download channels) that is too eager — the route
+would be wiped while the transfer is still running. **Temporary bridge
+routes** live outside the heartbeat cycle, carry a TTL, and are tied to a
+`channel_id`.
+
+A node registers one via the task-driven register endpoint (Bearer
+node-token auth, **not** a dashboard session):
+
+```
+POST /relay/v2/dashboard/api/node-routes/register
+Authorization: Bearer rt-...
+{
+  "path": "/upload/abc123",
+  "method": "POST",
+  "ttl_seconds": 3600,
+  "upstream": "http://storage-node:8791/upload/abc123",
+  "channel_id": "ch_abc123",
+  "description": "channel upload"
+}
+```
+
+The route is stored with `auth = "node_token"`, an
+`expires_at = now + ttl_seconds`, and the given `channel_id`. A later
+heartbeat does **not** replace it (only permanent routes with
+`expires_at IS NULL` are synced). The route is reaped automatically by the
+`temp_route_cleanup` watchdog after it expires; the owner can also
+revoke it early:
+
+```
+DELETE /relay/v2/dashboard/api/node-routes/{node_id}/{path}?method=POST
+Authorization: Bearer rt-...
+```
+
+Path allowlist: temp routes must be under `/upload/` or `/download/` so a
+compromised node cannot shadow arbitrary dashboard routes. The TTL is
+capped by `temp_route_max_ttl_seconds` (default 24h). Node-side helpers:
+`RelayClient.register_temp_route()` / `unregister_temp_route()`.
+
+##### Manual management: `node-cli route` (T-136)
+
+The `node-cli route` subcommand gives an operator manual control over a
+node's own temp routes (the same endpoints the bridge handlers use
+internally). Each subcommand has `--json` output for scripting.
+
+```
+# Open a temp route (1h TTL, tied to a channel_id).
+node-cli route register --path /upload/x --method POST \
+    --upstream http://storage-node:8791/upload/x \
+    --ttl 3600 --channel ch_x [--description "note"]
+
+# Revoke it before the TTL lapses.
+node-cli route unregister --path /upload/x --method POST
+
+# List all of this node's own routes (temp + permanent), with expires_at.
+node-cli route list
+```
+
+`route list` calls `GET /api/node-routes` (Bearer node-token), which
+returns only the calling node's routes — it cannot list another node's
+routes.
+
+##### Bridge upload/download channel flow (T-127 / T-128 / T-129)
+
+The storage node exposes `storage.upload_channel` / `storage.download_channel`
+as **claimable** tasks. A caller submits such a task; the storage node
+claims it, and the handler:
+
+1. Registers a temp bridge route (`POST /api/node-routes/register`)
+   pointing at its local **bridge server** (`docker/storage/bridge_server.py`,
+   T-128) — a small Starlette server on `0.0.0.0:8791` that only accepts
+   requests from the relay server's IP (Source-IP-Allowlist middleware,
+   resolved from `RELAY_URL` DNS; `RELAY_SERVER_IP` overrides).
+2. Completes the task with `{upload_url|download_url, channel_id, ttl}`.
+
+The caller then streams the large file through that URL. The relay proxy
+(T-129) streams the request body (`request.stream()`) and the upstream
+response (`client.send(stream=True)` + `StreamingResponse`) **chunkwise**
+so large files never sit fully in the relay's RAM. The bridge server
+streams the body onto the NAS (`POST /upload/{channel_id}`) or streams a
+stored file back (`GET /download/{channel_id}`) — also chunkwise.
+
+This keeps the relay a pure proxy: the file bytes flow caller → relay →
+bridge server → NAS, never buffered as a single blob in any hop.
+
 Publish flow:
 
 ```

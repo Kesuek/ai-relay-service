@@ -8,7 +8,7 @@
 | **Port** | 8788 |
 | **Framework** | FastAPI + SQLite (WAL, SQLAlchemy Core) |
 | **Owner** | Ronny Pietschke |
-| **Tests** | 419/419 passed (T-113 +1, T-115 +5, T-111 +4, backcompat invariant intact) |
+| **Tests** | 512/512 passed (T-127–T-129 + T-136 +69, backcompat invariant intact) |
 | **Last Commits** | ed50b3e → e33a982 → f4aec86 → 4b624d2 → 2222f4b → 7ba5aaf → 1fcf787 → 6a9c83e → 09d0a8c → 122dca6 → c96d71e → f4827c4 → bc70188 → 85a7971 |
 
 ## Phase Status
@@ -118,6 +118,34 @@
   - `maintenance.db_vacuum` backend-aware (SQLite WAL checkpoint + VACUUM; Postgres autovacuum)
   - Timestamps remain ISO-8601 TEXT (no on-disk format change); TIMESTAMPTZ migration is a later, separate step
 
+### Phase 27 — Node-Client-Härtungen + Refactor ✅
+- [x] T-111: Native TLS (tls_certfile/tls_keyfile), mDNS suppression, node `tls_ca_cert`
+- [x] T-112: Shared `RelayClient` extracted into `nodes/common/relay_client.py`
+- [x] T-113: GPU-aware auto-busy via `queue_depth >= 1`
+- [x] T-114: Deterministic session-secret fixture (cross-module test isolation)
+- [x] T-115: Observability metrics — latency histograms, retry rate, per-node gauges, throughput
+- [x] T-116: Relay server Docker image + compose (SQLite/PostgreSQL backend choice)
+- [x] T-117: node-cli split into `cli/cli_*` submodules, `_read_pid`/`_pid_running` → `node_utils`
+- [x] T-118: Centralized proactive token refresh in `RelayClient.maybe_refresh_token`
+
+### Phase 28 — Docker-Basis + Spezial-Node-Katalog (Plan A) ✅
+- [x] T-119: Node base image `docker/base/` — installs the node stack from the project wheel; entrypoint translates `RELAY_URL`/`NODE_NAME`/`NODE_PROFILE` into `relay_config.json`+`node.yaml`, registers the node on first start, execs `node-daemon`; healthcheck reads the daemon status file
+- [x] T-120: Storage service image `docker/storage/` — `FROM ai-relay-node-base`, layers `node.yaml` + stub handlers (return `{"error": "not implemented yet"}`); real handlers land in Plan B (Phase 30)
+- [x] T-121: Legacy `nodes/storage-node/` removed (storage_node.py, register.py, Dockerfile, compose, service unit, build-bundle/deploy scripts); `_safe_path` logic preserved as reference in `docker/storage/handlers/REFERENCE_safe_path.md` for Plan B
+- [x] T-122: `docker/README.md` — special-node catalog: base image + service-image pattern, env reference, "how to add a new service" walkthrough, storage example
+
+### Phase 29 — Temporäre Bridge-Routen (TTL-basiert) ✅
+- [x] T-123: `node_routes` extended with `expires_at` + `channel_id`; `_lookup_route()` treats expired temp routes as 404; additive migration for existing SQLite DBs; `proxy_node_route` no longer proxies DELETE (reserved for unregister)
+- [x] T-124: `POST /api/node-routes/register` (Bearer node-token auth, TTL + channel_id validation, UPSERT) + `DELETE /api/node-routes/{node_id}/{path}` (owner-only); bridge routes get `auth = "node_token"`
+- [x] T-125: `temp_route_cleanup` watchdog reaps expired temp routes (`expires_at < now AND channel_id IS NOT NULL`); permanent heartbeat routes (`expires_at IS NULL`) untouched; interval configurable via `temp_route_cleanup_interval_seconds` (default 300s)
+- [x] T-126: `RelayClient.register_temp_route()` + `unregister_temp_route()` — node-side helpers for T-124 endpoints; `unregister` swallows 404 (already expired/reaped)
+
+### Phase 30 — Storage-Node Core + Bridge-Handler + Streaming-Fix + node-cli route (Plan B) ✅
+- [x] T-136: `node-cli route register`/`unregister`/`list` subcommand (`--json` support); server `GET /api/node-routes` (Bearer node-token) lists the caller's own routes; `RelayClient.list_temp_routes()` helper
+- [x] T-127: Real Python storage handlers replace shell stubs — `store` (data_base64 inline OR artifact_id stream), `fetch`, `delete` (recursive), `list` (prefix), `quota` (disk_usage + threshold), `stat`, `move`; shared `_common.py` with `_safe_path` (path-traversal + symlink-escape guard, ported from legacy storage_node.py); `node.yaml` handler paths switched to `.py`, all `.sh` stubs removed
+- [x] T-128: `docker/storage/bridge_server.py` — Starlette server on `0.0.0.0:8791` serving `POST /upload/{channel_id}` + `GET /download/{channel_id}`; Source-IP-Allowlist middleware (server IP from RELAY_URL DNS, `RELAY_SERVER_IP` override); non-matching → 403, fail-closed when unresolved; streaming chunkwise; storage Dockerfile launches it alongside node-daemon
+- [x] T-129: `upload_channel`/`download_channel` claimable tasks register a temp bridge route + complete with the public URL; relay proxy in `route_registry.py` streams request body (`request.stream()`) AND upstream response (`client.send(stream=True)` + `StreamingResponse`) chunkwise — OOM fix for large files; `_forward_headers` keeps `content-length` for streaming
+
 ---
 
 ## Code Review Summary (historical — all findings resolved)
@@ -154,6 +182,7 @@
 │  · users · groups · permissions · seeds      │
 ├──────────────────────────────────────────────┤
 │  Node Clients                                │
-│  node-cli · storage-node                    │
+│  node-cli · node-daemon · docker/base +      │
+│  docker/storage (service images)             │
 └──────────────────────────────────────────────┘
 ```

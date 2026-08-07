@@ -51,6 +51,7 @@ capabilities validate/publish/diff). Pure-local subcommands
 | [`reload`](#reload) | Send SIGHUP to running daemon |
 | [`artifact`](#artifact) | Artifact upload / download |
 | [`docs`](#docs) | Read relay documentation from the server |
+| [`route`](#route) | Manage temporary bridge routes (register / unregister / list) |
 
 ---
 
@@ -917,6 +918,87 @@ node-cli docs node-cli-reference
 |---|---|
 | 0 | Document list fetched and printed, or document fetched and rendered |
 | 1 | Document not found (404), or HTTP / network error |
+
+---
+
+## route
+
+Manage this node's **temporary bridge routes** (T-136). These are the
+TTL-based routes (see [Temporary bridge routes](capabilities.md#temporary-bridge-routes-t123--t126))
+that live outside the heartbeat cycle and are used for large-file
+handoff (storage upload/download channels). Every subcommand supports
+`--json` for scripting.
+
+### Subcommands
+
+| Subcommand | Purpose |
+|---|---|
+| `route register` | Open a temporary bridge route (TTL, tied to a channel_id) |
+| `route unregister` | Revoke a temp route before its TTL lapses |
+| `route list` | List all of this node's own routes (temp + permanent) |
+
+### route register
+
+```
+node-cli route register --path <path> --method <METHOD> \
+    --upstream <url> --ttl <seconds> --channel <channel_id> \
+    [--description "..."]
+```
+
+| Flag | Required | Description |
+|---|---|---|
+| `--path` | yes | Route path (must start with `/upload/` or `/download/`) |
+| `--method` | yes | HTTP method (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`) |
+| `--upstream` | yes | Upstream URL the relay proxies to |
+| `--ttl` | yes | Time-to-live in seconds (capped by `temp_route_max_ttl_seconds`) |
+| `--channel` | yes | `channel_id` tying this route to a session |
+| `--description` | no | Optional human-readable note |
+
+Text output prints path, method, channel_id and `expires_at`. `--json`
+prints the full server response.
+
+### route unregister
+
+```
+node-cli route unregister --path <path> --method <METHOD>
+```
+
+Revokes a temp route owned by this node. A 404 (route already
+expired/reaped) is swallowed — the command succeeds.
+
+### route list
+
+```
+node-cli route list
+```
+
+Calls `GET /relay/v2/dashboard/api/node-routes` (Bearer node-token)
+and lists every route owned by this node — both permanent heartbeat
+routes (`expires_at IS NULL`) and live temp routes — with their
+`expires_at` and `channel_id`. The endpoint only returns the calling
+node's own routes; it cannot list another node's routes.
+
+### Examples
+
+```bash
+# Open a 1-hour upload channel.
+node-cli route register --path /upload/abc --method POST \
+    --upstream http://storage-node:8791/upload/abc \
+    --ttl 3600 --channel ch_abc --description "session upload"
+
+# Revoke it.
+node-cli route unregister --path /upload/abc --method POST
+
+# List all own routes (JSON for scripting).
+node-cli --json route list
+```
+
+### Exit codes
+
+| Code | Condition |
+|---|---|
+| 0 | Route registered/unregistered/listed successfully |
+| 1 | Server rejected the request, or HTTP / network error |
 
 ---
 

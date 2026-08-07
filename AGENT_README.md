@@ -230,6 +230,7 @@ and **[docs/node/cli-reference.md](docs/node/cli-reference.md)**.
 For specific implementations:
 
 - **[docs/node/ssn.md](docs/node/ssn.md)** — Server-Side Node (runs on the relay host, hosts dashboard pages)
+- **[docs/node/storage.md](docs/node/storage.md)** — Storage Node (NAS-backed file storage with bridge server + streaming channels)
 - **[docs/node/federation.md](docs/node/federation.md)** — Federation Node (bridges capabilities from remote relays)
 - **[docs/node/node-daemon.md](docs/node/node-daemon.md)** — SSE-driven node worker (alternative to polling)
 - `examples/nodes/` — standalone vault and board node examples

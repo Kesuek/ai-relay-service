@@ -413,6 +413,7 @@ def test_register_defaults_registers_all_expected_tasks():
         "chunked_upload_cleanup",
         "orphaned_stage_cleanup",
         "db_vacuum",
+        "temp_route_cleanup",
     }
 
 
@@ -430,6 +431,7 @@ def test_register_defaults_run_all_does_not_raise():
         "chunked_upload_cleanup",
         "orphaned_stage_cleanup",
         "db_vacuum",
+        "temp_route_cleanup",
     }
     # No task should have raised an error.
     for name, result in results.items():

@@ -94,6 +94,7 @@ EXPECTED_SUBCOMMANDS = {
     "artifact",
     "docs",
     "update",
+    "route",
 }
 
 
@@ -152,6 +153,10 @@ def test_all_subcommands_parse_without_errors():
         ["update", "check"],
         ["update", "apply"],
         ["update", "apply", "--service-unit", "custom.service"],
+        ["route", "register", "--path", "/upload/x", "--method", "POST",
+         "--upstream", "http://x", "--ttl", "60", "--channel", "ch_x"],
+        ["route", "unregister", "--path", "/upload/x", "--method", "POST"],
+        ["route", "list"],
     ]
     for argv in cases:
         ns = parser.parse_args(argv)
