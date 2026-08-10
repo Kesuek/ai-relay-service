@@ -127,6 +127,8 @@
 - [x] T-116: Relay server Docker image + compose (SQLite/PostgreSQL backend choice)
 - [x] T-117: node-cli split into `cli/cli_*` submodules, `_read_pid`/`_pid_running` → `node_utils`
 - [x] T-118: Centralized proactive token refresh in `RelayClient.maybe_refresh_token`
+- [x] T-137: Offline-Node mit gültigem frischem Registration-Secret kann Runtime-Token recoveren (Recovery-Gate blockiert nur noch `pending`)
+- [x] T-137a: `node-cli update apply` startet den aktiven `node-daemon`-Service (SERVICE_UNIT default)
 
 ### Phase 28 — Docker-Basis + Spezial-Node-Katalog (Plan A) ✅
 - [x] T-119: Node base image `docker/base/` — installs the node stack from the project wheel; entrypoint translates `RELAY_URL`/`NODE_NAME`/`NODE_PROFILE` into `relay_config.json`+`node.yaml`, registers the node on first start, execs `node-daemon`; healthcheck reads the daemon status file

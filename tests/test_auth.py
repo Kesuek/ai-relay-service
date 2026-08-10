@@ -670,6 +670,44 @@ def test_expired_registration_secret_cannot_recover_runtime_token():
     assert r.status_code == 401
 
 
+def test_offline_node_with_valid_secret_can_recover_runtime_token():
+    """An offline node with a valid fresh registration secret may recover its runtime token."""
+    from relay_server.core.auth import approve_node, register_pending_node
+    from relay_server.core.db import get_conn, q
+
+    init_db()
+
+    node_id, _, reg_secret = register_pending_node(
+        node_name="Offline Recover",
+        endpoint="http://offline.local",
+        capabilities=[{"name": "board", "version": "1.0.0"}],
+        role="service",
+    )
+    _runtime_token = approve_node(node_id, role="service")
+
+    # Simulate the node going offline (e.g. after a reboot).
+    conn = get_conn()
+    conn.execute(
+        q("UPDATE nodes SET status = ? WHERE node_id = ?", ("offline", node_id)),
+    )
+    conn.commit()
+    conn.close()
+
+    # Offline node with a valid secret must be able to recover a runtime token.
+    r = client.post(
+        "/relay/v2/auth/refresh",
+        json={
+            "node_id": node_id,
+            "requested_credential": "runtime_token",
+            "registration_secret": reg_secret,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["token_type"] == "runtime"
+    assert body["token"].startswith("rt_")
+
+
 def test_token_pepper_fails_without_session_secret():
     """_get_token_pepper() muss fail-fast wenn session_secret fehlt."""
     from relay_server.core.auth import _get_token_pepper

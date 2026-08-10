@@ -15,6 +15,13 @@ from relay_server.core.users import create_user, list_users, set_user_active
 from relay_server.main import app
 
 
+def test_service_unit_defaults_to_node_daemon():
+    """The default systemd unit for update apply must be the active SSE daemon."""
+    from nodes.common import node_utils
+
+    assert node_utils.SERVICE_UNIT == "ai-relay-node-daemon.service"
+
+
 def test_recovery_cli_deactivates_admin_and_re_enables_seed_login():
     """Recovery CLI deactivates human admins so the master seed can log in again."""
     from relay_server.api.v2.dashboard import has_admin_user
