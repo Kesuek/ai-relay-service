@@ -139,12 +139,18 @@ print(json.dumps({
 PY
     )
     # Register. We use python+httpx (installed in the base image) rather
-    # than curl so we don't add a system dependency.
+    # than curl so we don't add a system dependency. The payload is passed
+    # as a JSON file (not string-interpolated) so `null`/`true`/`false`
+    # values survive — interpolating JSON into Python source breaks on
+    # `null` (NameError: name 'null' is not defined).
+    REGISTER_PAYLOAD_FILE="${RELAY_DIR}/register-payload.json"
+    printf '%s' "${REGISTER_PAYLOAD}" > "${REGISTER_PAYLOAD_FILE}"
     python3 - <<PY
 import json, os, sys
 import httpx
 base_url = os.environ["RELAY_URL"].rstrip("/")
-payload = ${REGISTER_PAYLOAD}
+with open(os.path.expanduser("~/.relay/register-payload.json")) as f:
+    payload = json.load(f)
 headers = {}
 secret = os.environ.get("NODE_REGISTRATION_SECRET")
 if secret:
@@ -175,6 +181,7 @@ print(f"[entrypoint] registered node_id={data['node_id']} status={status}")
 if status == "pending":
     print("[entrypoint] node is pending approval — approve it via dashboard or admin API")
 PY
+    rm -f "${REGISTER_PAYLOAD_FILE}"
 else
     echo "[entrypoint] reusing existing metadata (${META_JSON})"
 fi
