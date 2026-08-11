@@ -43,6 +43,10 @@ Das Bundle enthält beide Images: `ai-relay-storage:latest` und
 
 **Variante A — per `docker run` (SSH):**
 
+> **⚠️ Wichtig:** Gib immer `-v ai-relay-storage-state:/home/appuser/.relay` mit.
+> Container Station erstellt **kein** Volume automatisch — ohne dieses Volume verliert
+> der Node seine Identität (node_id + token) bei jedem Neustart und registriert sich neu.
+
 ```bash
 docker run -d \
   --name ai-relay-storage \
@@ -57,11 +61,16 @@ docker run -d \
 
 **Variante B — per Container Station (GUI):**
 
+> **⚠️ Wichtig:** Lege im Container-Station-Dialog ein **Volume** an, das auf
+> `/home/appuser/.relay` zeigt (z.B. `ai-relay-storage-state`). Ohne dieses Volume
+> verliert der Node seine Identität bei jedem Neustart.
+
 1. Öffne **Container Station** → **Übersicht** → **Erstellen** → **Image**.
 2. Wähle `ghcr.io/kesuek/ai-relay-storage:latest` (oder `ai-relay-storage:latest` nach `docker load`).
 3. Setze die Umgebungsvariablen (siehe Tabelle unten).
 4. Mounte `/storage` auf einen NAS-Ordner (z.B. `/share/Container/ai-relay-storage`).
-5. Starte den Container.
+5. Lege ein Volume für `/home/appuser/.relay` an (persistiert die Node-Identität).
+6. Starte den Container.
 
 ### 3. Node approven
 
@@ -78,13 +87,17 @@ curl -X POST http://<relay-ip>:8788/relay/v2/admin/nodes/<node_id>/approve \
 
 | Variable | Pflicht | Default | Beschreibung |
 |----------|---------|---------|--------------|
-| `RELAY_URL` | **ja** | — | Relay-Basis-URL, z.B. `http://192.168.1.50:8788` |
+| `RELAY_URL` | **ja** | — | Relay-Basis-URL, z.B. `http://192.168.1.50:8788`. **Es gibt keinen mDNS-Fallback** — ohne diese Variable startet der Node nicht. |
 | `NODE_NAME` | nein | Hostname | Anzeigename im Dashboard |
 | `NODE_ENDPOINT` | nein | — | Endpoint, über den der Relay den Node erreicht (für Bridge-Routen), z.B. `http://<qnap-ip>:8791` |
 | `NODE_ROLE` | nein | `worker` | `service` für Storage (im Image gesetzt) |
 | `NODE_REGISTRATION_SECRET` | nein | — | Vorab erstelltes `rs_...`-Secret für die Registrierung |
 | `RELAY_SERVER_IP` | nein | aus RELAY_URL | Explizite Relay-Server-IP für die Bridge-Source-IP-Allowlist |
 | `RELAY_STORAGE_PATH` | nein | `/storage` | Basis-Verzeichnis für Dateien (im Image gesetzt) |
+
+> **⚠️ `RELAY_URL` ist Pflicht.** Der Node macht kein mDNS-Scannen — er verbindet sich
+> nur zu der URL, die du angibst. Ohne sie startet der Container nicht (fail-fast).
+> mDNS wird nur vom Relay-Server zum Advertisen genutzt (`ai-relay.local`), nicht vom Node.
 
 ## Volumes
 
