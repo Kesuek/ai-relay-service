@@ -135,3 +135,41 @@ class TestBackupCreate:
     def test_create_missing_source(self, tmp_path: Path):
         result = _run("backup_create.py", {"type": "full", "data_base64": "aGVsbG8="}, tmp_path)
         assert "source" in _err_text(result).lower()
+
+
+class TestBackupList:
+    def test_list_empty(self, tmp_path: Path):
+        result = _run("backup_list.py", {}, tmp_path)
+        assert result["status"] == "listed"
+        assert result["count"] == 0
+        assert result["backups"] == []
+
+    def test_list_after_create(self, tmp_path: Path):
+        _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        result = _run("backup_list.py", {}, tmp_path)
+        assert result["count"] == 1
+        assert result["backups"][0]["source"] == "projects"
+        assert result["backups"][0]["type"] == "full"
+
+    def test_list_filter_source(self, tmp_path: Path):
+        _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        _run("backup_create.py", {"source": "photos", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        result = _run("backup_list.py", {"source": "photos"}, tmp_path)
+        assert result["count"] == 1
+        assert result["backups"][0]["source"] == "photos"
+
+
+class TestBackupInfo:
+    def test_info_returns_manifest(self, tmp_path: Path):
+        created = _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        backup_id = created["backup_id"]
+        result = _run("backup_info.py", {"backup_id": backup_id}, tmp_path)
+        assert result["status"] == "info"
+        assert result["backup_id"] == backup_id
+        assert result["source"] == "projects"
+        assert result["type"] == "full"
+        assert result["size_bytes"] == 5
+
+    def test_info_missing(self, tmp_path: Path):
+        result = _run("backup_info.py", {"backup_id": "bk_deadbeef"}, tmp_path)
+        assert "not found" in _err_text(result).lower()
