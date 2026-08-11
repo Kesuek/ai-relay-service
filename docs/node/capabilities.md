@@ -338,7 +338,7 @@ as **claimable** tasks. A caller submits such a task; the storage node
 claims it, and the handler:
 
 1. Registers a temp bridge route (`POST /api/node-routes/register`)
-   pointing at its local **bridge server** (`docker/storage/bridge_server.py`,
+   pointing at its local **bridge server** (`docker/nodes/storage/bridge_server.py`,
    T-128) — a small Starlette server on `0.0.0.0:8791` that only accepts
    requests from the relay server's IP (Source-IP-Allowlist middleware,
    resolved from `RELAY_URL` DNS; `RELAY_SERVER_IP` overrides).

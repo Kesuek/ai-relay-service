@@ -3,7 +3,7 @@
 The storage node is a **service node** (role `service`, not `worker`)
 that provides NAS-backed file storage to the relay. It is the first
 concrete service image built on top of the node base image
-(`docker/base/`), shipped as `docker/storage/`.
+(`docker/nodes/base/`), shipped as `docker/nodes/storage/`.
 
 ## What it offers
 
@@ -27,7 +27,7 @@ concrete service image built on top of the node base image
 | `backup.delete` | ✅ | Mark a backup `deleted` (manifest kept for audit, data removed). |
 | `backup.retention` | ✅ | Apply a retention policy to a source (keep_last / max_age_days / GFS). |
 
-The core handlers live in `docker/storage/handlers/*.py` and share a
+The core handlers live in `docker/nodes/storage/handlers/*.py` and share a
 common `_common.py` that enforces the path-traversal guard `_safe_path`
 (ported from the legacy `storage_node.py`) — every caller-supplied path
 is resolved relative to `/storage` and rejected if it escapes after
@@ -39,7 +39,7 @@ For large files, the regular task-complete path (returning `data_base64`
 in the result) would load the whole file into RAM. Instead, the storage
 node runs a small HTTP server alongside the daemon:
 
-- `docker/storage/bridge_server.py` — Starlette server on `0.0.0.0:8791`.
+- `docker/nodes/storage/bridge_server.py` — Starlette server on `0.0.0.0:8791`.
 - Endpoints: `POST /upload/{channel_id}` (stream body → NAS) and
   `GET /download/{channel_id}` (stream NAS file → caller).
 - **Source-IP-Allowlist middleware**: every request's source IP is
@@ -98,10 +98,10 @@ See [`docker/README.md`](../../docker/README.md) for the build + compose
 walkthrough. The short version:
 
 ```
-docker build -t ai-relay-node-base -f docker/base/Dockerfile .
-docker build -t ai-relay-storage  -f docker/storage/Dockerfile .
+docker build -t ai-relay-node-base -f docker/nodes/base/Dockerfile .
+docker build -t ai-relay-storage  -f docker/nodes/storage/Dockerfile .
 RELAY_URL=https://relay.example.com STORAGE_DIR=/mnt/nas \
-    docker compose -f docker/storage/docker-compose.yml up -d
+    docker compose -f docker/nodes/storage/docker-compose.yml up -d
 ```
 
 The node registers on first start (status `pending`) — approve it via
@@ -170,7 +170,7 @@ Result: `{status: "applied", source, deleted: [backup_id, ...], count}`.
 
 ### Retention watchdog
 
-A background process (`docker/storage/retention_watchdog.py`) applies
+A background process (`docker/nodes/storage/retention_watchdog.py`) applies
 configured retention policies periodically, analogous to the server's
 `MaintenanceScheduler`. Policies are read from `~/.relay/retention.yaml`
 (or `RELAY_RETENTION_CONFIG`):

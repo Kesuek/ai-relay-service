@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **T-148 Docker-Node-Struktur umbenannt (2026-08-11)**: `docker/base/` → `docker/nodes/base/` und `docker/storage/` → `docker/nodes/storage/`. Konsistente Struktur: `docker/server/` (Relay-Server) + `docker/nodes/` (Node-Images). `base` = nackter Basis-Node (nur Stack, keine Capabilities), `storage` = voll definierter Node der `base` importiert. Alle Referenzen aktualisiert: Dockerfile-COPY-Pfade, docker-compose, docker/README.md, docs/node/storage.md, docs/node/capabilities.md, Tests (test_storage_handlers, test_bridge_channel_handlers, test_bridge_server), STATUS.md.
+
 ### Added
 
 - **T-133 / T-135 / T-134 Ordner-Übertragung als `.tar.gz` (2026-08-11)**: Der Storage-Node kann Ordner als einzelne `.tar.gz` übertragen, wobei der Uploader entscheidet, ob entpackt oder liegen gelassen wird (DECISIONS 2026-08-06, kein FUSE). (1) **T-133 `storage.store` mit `action`**: neues optionales Feld `action: "extract" | "store_as_is"` (Default `store_as_is`). `extract` entpackt die tar.gz in ein Verzeichnis (benannt nach dem Zielpfad), `store_as_is` legt sie unangetastet ab. Entpacken lehnt Path-Traversal-Einträge (`..`, absolute Pfade) und Symlinks ab — ein Archiv, das das Zielverzeichnis verlassen will, failt die Stage. Funktioniert für `data_base64`-Inline UND `artifact_id`-Stream (Stream → Temp-Datei → Entpacken). (2) **T-135 `storage.extract` + `storage.archive`**: nachträgliches Entpacken/Packen. `storage.extract {path}` entpackt eine abgelegte tar.gz in ein Verzeichnis (Archivname minus Suffix), `storage.archive {path, target}` packt einen Ordner in eine tar.gz. Beide mit Traversal-Schutz. (3) **T-134 Doku**: `docs/node/storage.md` um Ordner-Übertragung erweitert (action-Flag, extract/archive-Referenz, typischer Flow). Alle Capabilities in `node.yaml` deklariert. 9 neue Tests in `tests/nodes/test_storage_handlers.py`.

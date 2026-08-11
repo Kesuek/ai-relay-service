@@ -18,10 +18,10 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-HANDLERS = Path(__file__).resolve().parents[2] / "docker" / "storage" / "handlers"
+HANDLERS = Path(__file__).resolve().parents[2] / "docker" / "nodes" / "storage" / "handlers"
 
 # Add the handlers dir to sys.path so ``import _common`` / the handler
-# modules resolve. The handlers live under docker/storage/handlers which
+# modules resolve. The handlers live under docker/nodes/storage/handlers which
 # is not a package; add it once for the whole module.
 sys.path.insert(0, str(HANDLERS))
 

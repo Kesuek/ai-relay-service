@@ -2,7 +2,7 @@
 #
 # Declares the storage capabilities the node advertises to the relay. The
 # core handlers (storage.store / fetch / delete / list / quota / stat /
-# move) are real Python scripts in docker/storage/handlers/ — they read
+# move) are real Python scripts in docker/nodes/storage/handlers/ — they read
 # a JSON stage payload on stdin and write a JSON result on stdout; see
 # nodes/common/handler_runner.py.
 #

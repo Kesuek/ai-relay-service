@@ -131,9 +131,9 @@
 - [x] T-137a: `node-cli update apply` startet den aktiven `node-daemon`-Service (SERVICE_UNIT default)
 
 ### Phase 28 — Docker-Basis + Spezial-Node-Katalog (Plan A) ✅
-- [x] T-119: Node base image `docker/base/` — installs the node stack from the project wheel; entrypoint translates `RELAY_URL`/`NODE_NAME`/`NODE_PROFILE` into `relay_config.json`+`node.yaml`, registers the node on first start, execs `node-daemon`; healthcheck reads the daemon status file
-- [x] T-120: Storage service image `docker/storage/` — `FROM ai-relay-node-base`, layers `node.yaml` + stub handlers (return `{"error": "not implemented yet"}`); real handlers land in Plan B (Phase 30)
-- [x] T-121: Legacy `nodes/storage-node/` removed (storage_node.py, register.py, Dockerfile, compose, service unit, build-bundle/deploy scripts); `_safe_path` logic preserved as reference in `docker/storage/handlers/REFERENCE_safe_path.md` for Plan B
+- [x] T-119: Node base image `docker/nodes/base/` — installs the node stack from the project wheel; entrypoint translates `RELAY_URL`/`NODE_NAME`/`NODE_PROFILE` into `relay_config.json`+`node.yaml`, registers the node on first start, execs `node-daemon`; healthcheck reads the daemon status file
+- [x] T-120: Storage service image `docker/nodes/storage/` — `FROM ai-relay-node-base`, layers `node.yaml` + stub handlers (return `{"error": "not implemented yet"}`); real handlers land in Plan B (Phase 30)
+- [x] T-121: Legacy `nodes/storage-node/` removed (storage_node.py, register.py, Dockerfile, compose, service unit, build-bundle/deploy scripts); `_safe_path` logic preserved as reference in `docker/nodes/storage/handlers/REFERENCE_safe_path.md` for Plan B
 - [x] T-122: `docker/README.md` — special-node catalog: base image + service-image pattern, env reference, "how to add a new service" walkthrough, storage example
 
 ### Phase 29 — Temporäre Bridge-Routen (TTL-basiert) ✅
@@ -145,14 +145,14 @@
 ### Phase 30 — Storage-Node Core + Bridge-Handler + Streaming-Fix + node-cli route (Plan B) ✅
 - [x] T-136: `node-cli route register`/`unregister`/`list` subcommand (`--json` support); server `GET /api/node-routes` (Bearer node-token) lists the caller's own routes; `RelayClient.list_temp_routes()` helper
 - [x] T-127: Real Python storage handlers replace shell stubs — `store` (data_base64 inline OR artifact_id stream), `fetch`, `delete` (recursive), `list` (prefix), `quota` (disk_usage + threshold), `stat`, `move`; shared `_common.py` with `_safe_path` (path-traversal + symlink-escape guard, ported from legacy storage_node.py); `node.yaml` handler paths switched to `.py`, all `.sh` stubs removed
-- [x] T-128: `docker/storage/bridge_server.py` — Starlette server on `0.0.0.0:8791` serving `POST /upload/{channel_id}` + `GET /download/{channel_id}`; Source-IP-Allowlist middleware (server IP from RELAY_URL DNS, `RELAY_SERVER_IP` override); non-matching → 403, fail-closed when unresolved; streaming chunkwise; storage Dockerfile launches it alongside node-daemon
+- [x] T-128: `docker/nodes/storage/bridge_server.py` — Starlette server on `0.0.0.0:8791` serving `POST /upload/{channel_id}` + `GET /download/{channel_id}`; Source-IP-Allowlist middleware (server IP from RELAY_URL DNS, `RELAY_SERVER_IP` override); non-matching → 403, fail-closed when unresolved; streaming chunkwise; storage Dockerfile launches it alongside node-daemon
 - [x] T-129: `upload_channel`/`download_channel` claimable tasks register a temp bridge route + complete with the public URL; relay proxy in `route_registry.py` streams request body (`request.stream()`) AND upstream response (`client.send(stream=True)` + `StreamingResponse`) chunkwise — OOM fix for large files; `_forward_headers` keeps `content-length` for streaming
 
 ### Phase 31 — Backup-Management (T-130/T-131/T-132) ✅
-- [x] T-130: Backup-Metadaten-Modell — JSON-Manifest pro Backup (kein SQLite, DECISIONS 2026-08-06) unter `<STORAGE_PATH>/backups/<backup_id>/manifest.json` neben `data.bin`; Felder `backup_id`/`source`/`type`/`base_backup_id`/`created_at`/`size_bytes`/`retention`/`status`; geteilte Helfer in `docker/storage/handlers/backup_common.py` (atomares Manifest-Schreiben, Backup-ID-Minting, Traversal-Schutz)
+- [x] T-130: Backup-Metadaten-Modell — JSON-Manifest pro Backup (kein SQLite, DECISIONS 2026-08-06) unter `<STORAGE_PATH>/backups/<backup_id>/manifest.json` neben `data.bin`; Felder `backup_id`/`source`/`type`/`base_backup_id`/`created_at`/`size_bytes`/`retention`/`status`; geteilte Helfer in `docker/nodes/storage/handlers/backup_common.py` (atomares Manifest-Schreiben, Backup-ID-Minting, Traversal-Schutz)
 - [x] T-131: Backup-Handler — `backup.create` (inline `data_base64` ODER `artifact_id`-Stream; `incremental` verlangt existierende `base_backup_id`), `backup.list` (Filter `source`/`type`, schließt `deleted` aus), `backup.info`, `backup.restore` (inline ≤10 MB, größere als `download_url: null`-Platzhalter), `backup.delete` (markiert `deleted`, Manifest bleibt als Audit)
-- [x] T-132: Retention — `backup.retention {source, policy}` als Task (`keep_last`/`max_age_days`/GFS `keep_daily`/`keep_weekly`/`keep_monthly`); `docker/storage/retention_watchdog.py` periodischer Background-Loop, Policies aus `~/.relay/retention.yaml` (`RELAY_RETENTION_CONFIG`), Intervall `RELAY_RETENTION_INTERVAL` (Default 3600s), gestartet vom Storage-Entrypoint; leere Config = kein Auto-Delete (fail-safe)
-- [x] Alle `backup.*`-Capabilities in `docker/storage/node.yaml` deklariert; 19 neue Tests in `tests/nodes/test_backup_handlers.py`; Doku in `docs/node/storage.md` (Manifest-Schema, Handler-Referenz, Retention-Watchdog)
+- [x] T-132: Retention — `backup.retention {source, policy}` als Task (`keep_last`/`max_age_days`/GFS `keep_daily`/`keep_weekly`/`keep_monthly`); `docker/nodes/storage/retention_watchdog.py` periodischer Background-Loop, Policies aus `~/.relay/retention.yaml` (`RELAY_RETENTION_CONFIG`), Intervall `RELAY_RETENTION_INTERVAL` (Default 3600s), gestartet vom Storage-Entrypoint; leere Config = kein Auto-Delete (fail-safe)
+- [x] Alle `backup.*`-Capabilities in `docker/nodes/storage/node.yaml` deklariert; 19 neue Tests in `tests/nodes/test_backup_handlers.py`; Doku in `docs/node/storage.md` (Manifest-Schema, Handler-Referenz, Retention-Watchdog)
 
 ### Phase 32 — Ordner-Übertragung + Doku (T-133/T-135/T-134) ✅
 - [x] T-133: `storage.store` mit `action: "extract" | "store_as_is"` (Default `store_as_is`) — `extract` entpackt die tar.gz in ein Verzeichnis, `store_as_is` legt sie unangetastet ab; Traversal-Einträge + Symlinks im Archiv werden abgelehnt; funktioniert für `data_base64`-Inline UND `artifact_id`-Stream
@@ -196,7 +196,7 @@
 │  · users · groups · permissions · seeds      │
 ├──────────────────────────────────────────────┤
 │  Node Clients                                │
-│  node-cli · node-daemon · docker/base +      │
-│  docker/storage (service images)             │
+│  node-cli · node-daemon · docker/nodes/base +      │
+│  docker/nodes/storage (service images)             │
 └──────────────────────────────────────────────┘
 ```

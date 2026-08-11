@@ -14,7 +14,7 @@
 # the relay-side plumbing (bridge routes, discovery) can be exercised end
 # to end without a working handler.
 #
-# Build context is the repo root (like docker/server and docker/base) so
+# Build context is the repo root (like docker/server and docker/nodes/base) so
 # the base image reference can be overridden via a build arg for CI.
 
 # The base image name. Override with --build-arg NODE_BASE_IMAGE=... when
@@ -35,18 +35,18 @@ WORKDIR /app
 # Copy the storage node's capability profile + handlers. The base image's
 # entrypoint reads ~/.relay/node.yaml — we place the profile in profiles.d
 # and let NODE_PROFILE=storage publish it on first start.
-COPY --chown=appuser:appuser docker/storage/node.yaml /home/appuser/.relay/profiles.d/storage.yaml
-COPY --chown=appuser:appuser docker/storage/handlers/ /app/handlers/
+COPY --chown=appuser:appuser docker/nodes/storage/node.yaml /home/appuser/.relay/profiles.d/storage.yaml
+COPY --chown=appuser:appuser docker/nodes/storage/handlers/ /app/handlers/
 # The bridge server (T-128) is the HTTP server the relay proxies
 # upload/download channel requests to. It runs alongside node-daemon.
-COPY --chown=appuser:appuser docker/storage/bridge_server.py /app/bridge_server.py
+COPY --chown=appuser:appuser docker/nodes/storage/bridge_server.py /app/bridge_server.py
 # The retention watchdog (T-132) applies configured retention policies
 # periodically. It runs alongside node-daemon + bridge server.
-COPY --chown=appuser:appuser docker/storage/retention_watchdog.py /app/retention_watchdog.py
+COPY --chown=appuser:appuser docker/nodes/storage/retention_watchdog.py /app/retention_watchdog.py
 # Storage entrypoint launches the bridge server in the background, then
 # execs the base entrypoint (which execs node-daemon). Both processes
 # share the container; tini (PID 1) reaps the background child.
-COPY --chown=appuser:appuser docker/storage/docker-entrypoint-storage.sh /app/docker-entrypoint-storage.sh
+COPY --chown=appuser:appuser docker/nodes/storage/docker-entrypoint-storage.sh /app/docker-entrypoint-storage.sh
 
 # Publish the storage profile on startup so node.yaml carries the storage
 # capabilities, and tell the base entrypoint the node role is "service".

@@ -6,9 +6,9 @@
 # image built; this compose builds it on the fly if you prefer, but the
 # canonical flow is:
 #
-#   1. docker build -t ai-relay-node-base  -f docker/base/Dockerfile   .
-#   2. docker build -t ai-relay-storage    -f docker/storage/Dockerfile .
-#   3. docker compose -f docker/storage/docker-compose.yml up -d
+#   1. docker build -t ai-relay-node-base  -f docker/nodes/base/Dockerfile   .
+#   2. docker build -t ai-relay-storage    -f docker/nodes/storage/Dockerfile .
+#   3. docker compose -f docker/nodes/storage/docker-compose.yml up -d
 #
 # The node registers on first start (status=pending) — approve it via the
 # relay dashboard or `relay-recovery admin approve-node <node_id>`.
@@ -19,7 +19,7 @@ services:
   storage-node:
     build:
       context: ../..
-      dockerfile: docker/storage/Dockerfile
+      dockerfile: docker/nodes/storage/Dockerfile
       args:
         # Override when the base image lives in a registry. Default is the
         # local tag produced by `docker build -t ai-relay-node-base ...`.

@@ -1,6 +1,6 @@
 """Tests for the storage node handlers (T-127).
 
-Exercises each handler script in ``docker/storage/handlers/`` via
+Exercises each handler script in ``docker/nodes/storage/handlers/`` via
 :func:`run_handler` so they run through the same subprocess + JSON
 contract as the daemon. The storage base is pointed at a tmp dir via
 ``RELAY_STORAGE_PATH`` so no real NAS is touched.
@@ -23,7 +23,7 @@ import pytest
 
 from nodes.common.handler_runner import run_handler
 
-HANDLERS = Path(__file__).resolve().parents[2] / "docker" / "storage" / "handlers"
+HANDLERS = Path(__file__).resolve().parents[2] / "docker" / "nodes" / "storage" / "handlers"
 
 
 def _stage(payload=None):

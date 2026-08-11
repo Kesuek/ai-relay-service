@@ -3,7 +3,7 @@
 #
 # A reusable base image that carries the *installed* node stack (node-cli,
 # node-daemon, relay_client, node_config, handler_runner). A concrete
-# service image (e.g. docker/storage/) builds ``FROM ai-relay-node-base``
+# service image (e.g. docker/nodes/storage/) builds ``FROM ai-relay-node-base``
 # and only adds its ``node.yaml`` + ``handlers/`` directory — no Python
 # install, no wheel build.
 #
@@ -64,9 +64,9 @@ USER appuser
 
 # Entrypoint translates env → relay_config.json + node.yaml, registers the
 # node on first start, then execs node-daemon.
-COPY --chown=appuser:appuser docker/base/docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY --chown=appuser:appuser docker/nodes/base/docker-entrypoint.sh /app/docker-entrypoint.sh
 # Healthcheck script (reads the daemon status file).
-COPY --chown=appuser:appuser docker/base/healthcheck.py /app/healthcheck.py
+COPY --chown=appuser:appuser docker/nodes/base/healthcheck.py /app/healthcheck.py
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]
 
 # No EXPOSE — the node does not listen on any port (it only connects to the

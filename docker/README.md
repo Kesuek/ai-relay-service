@@ -8,8 +8,8 @@ subdirectory.
 | Directory | What | Status |
 |---|---|---|
 | [`server/`](server/) | Relay server (SQLite or PostgreSQL) | ✅ available |
-| [`base/`](base/) | Reusable node base image (installed node stack) | ✅ available |
-| [`storage/`](storage/) | Storage service node (NAS-backed, real handlers + bridge server) | ✅ available |
+| [`nodes/base/`](nodes/base/) | Reusable node base image (installed node stack) | ✅ available |
+| [`nodes/storage/`](nodes/storage/) | Storage service node (NAS-backed, real handlers + bridge server) | ✅ available |
 
 ## Server
 
@@ -45,7 +45,7 @@ profile + handlers — no Python install, no wheel build.
 
 ```bash
 # Build once (from the repo root):
-docker build -t ai-relay-node-base -f docker/base/Dockerfile .
+docker build -t ai-relay-node-base -f docker/nodes/base/Dockerfile .
 ```
 
 The entrypoint translates environment variables into the files the node stack
@@ -72,10 +72,10 @@ Fail-fast: the entrypoint exits with an error when `RELAY_URL` is unset.
 
 ### Adding a new service node
 
-A new special node is a new `docker/<service>/` directory with at minimum:
+A new special node is a new `docker/nodes/<service>/` directory with at minimum:
 
 ```
-docker/<service>/
+docker/nodes/<service>/
 ├── Dockerfile        # FROM ai-relay-node-base; COPY node.yaml + handlers/
 ├── node.yaml         # capability declarations for this service
 ├── handlers/         # executable scripts the daemon runs per claimed stage
@@ -84,9 +84,9 @@ docker/<service>/
 
 The Dockerfile is typically ~10 lines — it only layers the profile + handlers
 onto the base image and sets `NODE_PROFILE` + `NODE_ROLE`. See
-[`storage/Dockerfile`](storage/Dockerfile) for a reference.
+[`nodes/storage/Dockerfile`](nodes/storage/Dockerfile) for a reference.
 
-### Storage node (`storage/`)
+### Storage node (`nodes/storage/`)
 
 The storage node is a NAS-backed service node with **real handlers**
 (Plan B / Phase 30): `storage.store` / `fetch` / `delete` / `list` /
@@ -99,11 +99,11 @@ gated by a Source-IP-Allowlist so only the relay can reach it.
 ```bash
 # 1. Build the base image (see above).
 # 2. Build the storage image:
-docker build -t ai-relay-storage -f docker/storage/Dockerfile .
+docker build -t ai-relay-storage -f docker/nodes/storage/Dockerfile .
 # 3. Run against your relay:
 RELAY_URL=https://relay.example.com \
 STORAGE_DIR=/mnt/nas/relay-storage \
-docker compose -f docker/storage/docker-compose.yml up -d
+docker compose -f docker/nodes/storage/docker-compose.yml up -d
 ```
 
 The node registers on first start (status=`pending`) — approve it via the

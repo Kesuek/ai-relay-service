@@ -9,7 +9,7 @@ from pathlib import Path
 
 from nodes.common.handler_runner import run_handler
 
-HANDLERS = Path(__file__).resolve().parents[2] / "docker" / "storage" / "handlers"
+HANDLERS = Path(__file__).resolve().parents[2] / "docker" / "nodes" / "storage" / "handlers"
 
 
 def _stage(payload=None):

@@ -8,7 +8,7 @@ is needed.
 
 from __future__ import annotations
 
-# The bridge_server module lives under docker/storage/ which is not a
+# The bridge_server module lives under docker/nodes/storage/ which is not a
 # package — add it to sys.path so the import works from the test suite.
 import sys
 from pathlib import Path
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-BRIDGE_DIR = Path(__file__).resolve().parents[2] / "docker" / "storage"
+BRIDGE_DIR = Path(__file__).resolve().parents[2] / "docker" / "nodes" / "storage"
 sys.path.insert(0, str(BRIDGE_DIR))
 
 from bridge_server import (  # noqa: E402
