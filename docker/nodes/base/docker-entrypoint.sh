@@ -38,11 +38,35 @@ PROFILES_DIR="${RELAY_DIR}/profiles.d"
 
 mkdir -p "${RELAY_DIR}" "${PROFILES_DIR}"
 
-# --- fail-fast: RELAY_URL is mandatory ------------------------------------
+# --- RELAY_URL: explicit env, else mDNS discovery (T-152) ----------------
+# RELAY_URL is preferred. When unset, try to discover the relay on the
+# local network via mDNS (the relay advertises `AI Relay Service._http._tcp.local.`).
+# If neither yields a URL, fail fast.
 if [ -z "${RELAY_URL:-}" ]; then
-    echo "[entrypoint] ERROR: RELAY_URL is required (set it to the relay base URL," >&2
-    echo "[entrypoint]        e.g. https://relay.example.com)" >&2
-    exit 1
+    echo "[entrypoint] RELAY_URL not set — attempting mDNS discovery..."
+    DISCOVERED=$(python3 - <<'PY'
+import sys
+try:
+    from nodes.common.relay_client import _discover_relay_mdns
+    url = _discover_relay_mdns(timeout=3.0)
+    if url:
+        print(url)
+except Exception as exc:
+    print(f"mDNS discovery failed: {exc}", file=sys.stderr)
+PY
+    )
+    if [ -n "${DISCOVERED}" ]; then
+        RELAY_URL="${DISCOVERED}"
+        # Export so the register script (which reads os.environ["RELAY_URL"])
+        # sees it even though the operator did not set it.
+        export RELAY_URL
+        echo "[entrypoint] mDNS discovered relay at ${RELAY_URL}"
+    else
+        echo "[entrypoint] ERROR: RELAY_URL is required and mDNS discovery found no relay." >&2
+        echo "[entrypoint]        Set RELAY_URL (e.g. https://relay.example.com) or ensure" >&2
+        echo "[entrypoint]        the relay advertises itself via mDNS on this network." >&2
+        exit 1
+    fi
 fi
 
 # Strip a trailing slash so base_url is consistent with the node client.

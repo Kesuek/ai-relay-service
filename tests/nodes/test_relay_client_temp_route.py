@@ -202,3 +202,65 @@ class TestUnregisterTempRoute:
             client.unregister_temp_route("upload/no-slash", method="POST")
 
         assert captured["url"].endswith("/node-abc/upload/no-slash")
+
+
+# ---------------------------------------------------------------------------
+# mDNS discovery fallback (T-152)
+# ---------------------------------------------------------------------------
+
+
+class TestMdnsDiscovery:
+    def test_base_url_uses_mdns_when_no_url_configured(self, isolated_paths: Path):
+        """When no base_url is set, _base_url falls back to mDNS discovery."""
+        from nodes.common import relay_client
+
+        # No base_url in config or meta.
+        (isolated_paths / "relay_config.json").write_text(json.dumps({}))
+        (isolated_paths / "ai-relay-agent.json").write_text(
+            json.dumps({"node_id": "node-abc"})
+        )
+        meta = node_utils.load_meta()
+        cfg = node_utils.load_config()
+
+        with patch.object(
+            relay_client, "_discover_relay_mdns", return_value="http://192.168.1.50:8788"
+        ):
+            url = relay_client._base_url(meta, cfg)
+
+        assert url == "http://192.168.1.50:8788"
+
+    def test_base_url_raises_when_mdns_finds_nothing(self, isolated_paths: Path):
+        """When no base_url AND mDNS finds nothing, _base_url raises SystemExit."""
+        from nodes.common import relay_client
+
+        (isolated_paths / "relay_config.json").write_text(json.dumps({}))
+        (isolated_paths / "ai-relay-agent.json").write_text(
+            json.dumps({"node_id": "node-abc"})
+        )
+        meta = node_utils.load_meta()
+        cfg = node_utils.load_config()
+
+        with patch.object(relay_client, "_discover_relay_mdns", return_value=None):
+            with pytest.raises(SystemExit, match="no base_url"):
+                relay_client._base_url(meta, cfg)
+
+    def test_base_url_prefers_configured_url_over_mdns(self, isolated_paths: Path):
+        """A configured base_url wins; mDNS is not consulted."""
+        from nodes.common import relay_client
+
+        (isolated_paths / "relay_config.json").write_text(
+            json.dumps({"base_url": "http://relay.test"})
+        )
+        (isolated_paths / "ai-relay-agent.json").write_text(
+            json.dumps({"node_id": "node-abc"})
+        )
+        meta = node_utils.load_meta()
+        cfg = node_utils.load_config()
+
+        with patch.object(
+            relay_client, "_discover_relay_mdns", return_value="http://wrong:9999"
+        ) as mock_mdns:
+            url = relay_client._base_url(meta, cfg)
+
+        assert url == "http://relay.test"
+        mock_mdns.assert_not_called()
