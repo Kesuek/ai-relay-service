@@ -202,3 +202,59 @@ class TestBackupDelete:
     def test_delete_missing(self, tmp_path: Path):
         result = _run("backup_delete.py", {"backup_id": "bk_deadbeef"}, tmp_path)
         assert "not found" in _err_text(result).lower()
+
+
+class TestBackupRetention:
+    def test_keep_last(self, tmp_path: Path):
+        # create 3 backups, keep_last=2 -> oldest marked deleted
+        ids = []
+        for _ in range(3):
+            r = _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+            ids.append(r["backup_id"])
+        result = _run("backup_retention.py", {"source": "projects", "policy": {"keep_last": 2}}, tmp_path)
+        assert result["status"] == "applied"
+        assert result["deleted"] == [ids[0]]
+        m0 = json.loads((tmp_path / "backups" / ids[0] / "manifest.json").read_text())
+        m1 = json.loads((tmp_path / "backups" / ids[1] / "manifest.json").read_text())
+        assert m0["status"] == "deleted"
+        assert m1["status"] == "active"
+
+    def test_max_age_days(self, tmp_path: Path):
+        r = _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        backup_id = r["backup_id"]
+        mf = tmp_path / "backups" / backup_id / "manifest.json"
+        m = json.loads(mf.read_text())
+        from datetime import datetime, timedelta, timezone
+        old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat().replace("+00:00", "Z")
+        m["created_at"] = old
+        mf.write_text(json.dumps(m))
+        result = _run("backup_retention.py", {"source": "projects", "policy": {"max_age_days": 7}}, tmp_path)
+        assert result["deleted"] == [backup_id]
+
+    def test_retention_skips_other_sources(self, tmp_path: Path):
+        _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        _run("backup_create.py", {"source": "photos", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        result = _run("backup_retention.py", {"source": "projects", "policy": {"keep_last": 1}}, tmp_path)
+        # the older projects backup is deleted (keep_last=1 keeps the newest)
+        assert len(result["deleted"]) == 1
+        # photos untouched
+        photos = _run("backup_list.py", {"source": "photos"}, tmp_path)
+        assert photos["count"] == 1
+
+
+class TestRetentionWatchdog:
+    def test_watchdog_applies_policies(self, tmp_path: Path):
+        for _ in range(3):
+            _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        cfg = tmp_path / "retention.yaml"
+        cfg.write_text("projects:\n  keep_last: 2\n")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "retention_watchdog", str(HANDLERS.parent / "retention_watchdog.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.apply_policies(str(cfg), str(tmp_path))
+        result = _run("backup_list.py", {"source": "projects"}, tmp_path)
+        assert result["count"] == 2

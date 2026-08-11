@@ -21,6 +21,11 @@ set -euo pipefail
 echo "[storage-entrypoint] starting bridge server on 0.0.0.0:${BRIDGE_PORT:-8791}"
 python3 /app/bridge_server.py &
 
+# Start the retention watchdog in the background (T-132). It applies
+# configured retention policies from ~/.relay/retention.yaml periodically.
+echo "[storage-entrypoint] starting retention watchdog"
+python3 /app/retention_watchdog.py &
+
 # Hand off to the base entrypoint, which execs node-daemon as PID 1's
 # foreground child (tini reaps the bridge background process).
 exec /app/docker-entrypoint.sh "$@"

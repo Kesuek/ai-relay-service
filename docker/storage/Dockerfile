@@ -40,6 +40,9 @@ COPY --chown=appuser:appuser docker/storage/handlers/ /app/handlers/
 # The bridge server (T-128) is the HTTP server the relay proxies
 # upload/download channel requests to. It runs alongside node-daemon.
 COPY --chown=appuser:appuser docker/storage/bridge_server.py /app/bridge_server.py
+# The retention watchdog (T-132) applies configured retention policies
+# periodically. It runs alongside node-daemon + bridge server.
+COPY --chown=appuser:appuser docker/storage/retention_watchdog.py /app/retention_watchdog.py
 # Storage entrypoint launches the bridge server in the background, then
 # execs the base entrypoint (which execs node-daemon). Both processes
 # share the container; tini (PID 1) reaps the background child.

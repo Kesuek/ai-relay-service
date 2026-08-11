@@ -35,6 +35,10 @@ def main() -> None:
                 continue
             if btype and manifest.get("type") != btype:
                 continue
+            # Exclude deleted backups (retention/delete keep the manifest
+            # for audit but the backup is no longer available).
+            if manifest.get("status") == "deleted":
+                continue
             backups.append(manifest)
 
     _emit({"status": "listed", "count": len(backups), "backups": backups})

@@ -148,6 +148,12 @@
 - [x] T-128: `docker/storage/bridge_server.py` — Starlette server on `0.0.0.0:8791` serving `POST /upload/{channel_id}` + `GET /download/{channel_id}`; Source-IP-Allowlist middleware (server IP from RELAY_URL DNS, `RELAY_SERVER_IP` override); non-matching → 403, fail-closed when unresolved; streaming chunkwise; storage Dockerfile launches it alongside node-daemon
 - [x] T-129: `upload_channel`/`download_channel` claimable tasks register a temp bridge route + complete with the public URL; relay proxy in `route_registry.py` streams request body (`request.stream()`) AND upstream response (`client.send(stream=True)` + `StreamingResponse`) chunkwise — OOM fix for large files; `_forward_headers` keeps `content-length` for streaming
 
+### Phase 31 — Backup-Management (T-130/T-131/T-132) ✅
+- [x] T-130: Backup-Metadaten-Modell — JSON-Manifest pro Backup (kein SQLite, DECISIONS 2026-08-06) unter `<STORAGE_PATH>/backups/<backup_id>/manifest.json` neben `data.bin`; Felder `backup_id`/`source`/`type`/`base_backup_id`/`created_at`/`size_bytes`/`retention`/`status`; geteilte Helfer in `docker/storage/handlers/backup_common.py` (atomares Manifest-Schreiben, Backup-ID-Minting, Traversal-Schutz)
+- [x] T-131: Backup-Handler — `backup.create` (inline `data_base64` ODER `artifact_id`-Stream; `incremental` verlangt existierende `base_backup_id`), `backup.list` (Filter `source`/`type`, schließt `deleted` aus), `backup.info`, `backup.restore` (inline ≤10 MB, größere als `download_url: null`-Platzhalter), `backup.delete` (markiert `deleted`, Manifest bleibt als Audit)
+- [x] T-132: Retention — `backup.retention {source, policy}` als Task (`keep_last`/`max_age_days`/GFS `keep_daily`/`keep_weekly`/`keep_monthly`); `docker/storage/retention_watchdog.py` periodischer Background-Loop, Policies aus `~/.relay/retention.yaml` (`RELAY_RETENTION_CONFIG`), Intervall `RELAY_RETENTION_INTERVAL` (Default 3600s), gestartet vom Storage-Entrypoint; leere Config = kein Auto-Delete (fail-safe)
+- [x] Alle `backup.*`-Capabilities in `docker/storage/node.yaml` deklariert; 19 neue Tests in `tests/nodes/test_backup_handlers.py`; Doku in `docs/node/storage.md` (Manifest-Schema, Handler-Referenz, Retention-Watchdog)
+
 ---
 
 ## Code Review Summary (historical — all findings resolved)

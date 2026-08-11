@@ -77,3 +77,35 @@ capabilities:
     handler: /app/handlers/download_channel.py
     claimable: true
     timeout: 3600
+
+  # --- backup management (T-130/T-131/T-132) ---
+  - name: backup.create
+    version: "1.0.0"
+    handler: /app/handlers/backup_create.py
+    claimable: true
+    timeout: 3600
+  - name: backup.list
+    version: "1.0.0"
+    handler: /app/handlers/backup_list.py
+    claimable: true
+    timeout: 120
+  - name: backup.info
+    version: "1.0.0"
+    handler: /app/handlers/backup_info.py
+    claimable: true
+    timeout: 60
+  - name: backup.restore
+    version: "1.0.0"
+    handler: /app/handlers/backup_restore.py
+    claimable: true
+    timeout: 300
+  - name: backup.delete
+    version: "1.0.0"
+    handler: /app/handlers/backup_delete.py
+    claimable: true
+    timeout: 120
+  - name: backup.retention
+    version: "1.0.0"
+    handler: /app/handlers/backup_retention.py
+    claimable: true
+    timeout: 300

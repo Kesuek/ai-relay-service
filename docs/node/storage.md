@@ -18,6 +18,12 @@ concrete service image built on top of the node base image
 | `storage.move` | ✅ | Rename/move a file or directory. |
 | `storage.upload_channel` | ✅ | Open a temp bridge route so a caller can stream a large file **to** the NAS through the relay. |
 | `storage.download_channel` | ✅ | Open a temp bridge route so a caller can stream a large file **from** the NAS through the relay. |
+| `backup.create` | ✅ | Declare an upload as a versioned backup (full or incremental). |
+| `backup.list` | ✅ | List backups, optionally filtered by `source`/`type`. |
+| `backup.info` | ✅ | Return the manifest of a single backup. |
+| `backup.restore` | ✅ | Return a backup's data (inline `data_base64` for small backups). |
+| `backup.delete` | ✅ | Mark a backup `deleted` (manifest kept for audit, data removed). |
+| `backup.retention` | ✅ | Apply a retention policy to a source (keep_last / max_age_days / GFS). |
 
 The core handlers live in `docker/storage/handlers/*.py` and share a
 common `_common.py` that enforces the path-traversal guard `_safe_path`
@@ -98,3 +104,86 @@ RELAY_URL=https://relay.example.com STORAGE_DIR=/mnt/nas \
 
 The node registers on first start (status `pending`) — approve it via
 the relay dashboard or `relay-recovery admin approve-node <node_id>`.
+
+## Backup management (T-130/T-131/T-132)
+
+The storage node treats backups as **versioned, identifiable artifacts**
+with a JSON manifest per backup — no SQLite index (DECISIONS 2026-08-06).
+Each backup lives under `<STORAGE_PATH>/backups/<backup_id>/`:
+
+```
+backups/
+└── bk_<16-hex>/
+    ├── manifest.json   # metadata (see below)
+    └── data.bin        # the backup payload
+```
+
+### Manifest schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `backup_id` | `str` | `bk_<16-hex>`, minted by the node. |
+| `source` | `str` | Logical source name (e.g. `projects`, `photos`). |
+| `type` | `str` | `full` or `incremental`. |
+| `base_backup_id` | `str \| null` | For `incremental`: the base backup it builds on. |
+| `created_at` | `str` | ISO-8601 UTC timestamp. |
+| `size_bytes` | `int` | Payload size. |
+| `retention` | `null` | Reserved for future per-backup retention. |
+| `status` | `str` | `active`, `expired`, or `deleted`. |
+
+### Handler reference
+
+**`backup.create`** — payload `{source, type, data_base64 | artifact_id, base_backup_id?}`.
+Writes the payload to `data.bin` and mints a manifest. For `type:
+incremental`, `base_backup_id` must reference an existing (non-deleted)
+backup. Result: `{status: "created", backup_id, path, size_bytes, type}`.
+
+**`backup.list`** — payload `{source?, type?}`. Lists active backups
+(deleted ones are excluded), newest first. Result:
+`{status: "listed", count, backups: [manifest, ...]}`.
+
+**`backup.info`** — payload `{backup_id}`. Returns the full manifest.
+Result: `{status: "info", ...manifest}`.
+
+**`backup.restore`** — payload `{backup_id}`. Returns the payload inline
+as `data_base64` (≤10 MB). Larger backups return `download_url: null`
+(a bridge download route is a future task). Result:
+`{status: "restored", backup_id, size_bytes, data_base64}`.
+
+**`backup.delete`** — payload `{backup_id}`. Marks the manifest
+`deleted` and removes `data.bin` (manifest kept for audit). Result:
+`{status: "deleted", backup_id}`.
+
+**`backup.retention`** — payload `{source, policy}`. Applies a retention
+policy to a source's active backups and marks expired ones `deleted`.
+Supported policy formats:
+
+| Policy | Meaning |
+|--------|---------|
+| `{"keep_last": N}` | Keep the N most recent, delete older. |
+| `{"max_age_days": N}` | Delete backups older than N days. |
+| `{"keep_daily": N, "keep_weekly": N, "keep_monthly": N}` | GFS: keep the newest per day/week/month bucket. |
+
+Result: `{status: "applied", source, deleted: [backup_id, ...], count}`.
+
+### Retention watchdog
+
+A background process (`docker/storage/retention_watchdog.py`) applies
+configured retention policies periodically, analogous to the server's
+`MaintenanceScheduler`. Policies are read from `~/.relay/retention.yaml`
+(or `RELAY_RETENTION_CONFIG`):
+
+```yaml
+projects:
+  keep_last: 2
+photos:
+  max_age_days: 30
+```
+
+| Env | Default | Description |
+|-----|---------|-------------|
+| `RELAY_RETENTION_CONFIG` | `~/.relay/retention.yaml` | Path to the retention policy config. |
+| `RELAY_RETENTION_INTERVAL` | `3600` | Seconds between watchdog runs. |
+
+The watchdog is started by the storage entrypoint alongside the bridge
+server. An empty/missing config means no automatic deletion (fail-safe).
