@@ -58,6 +58,16 @@ capabilities:
     handler: /app/handlers/move.py
     claimable: true
     timeout: 300
+  - name: storage.extract
+    version: "1.0.0"
+    handler: /app/handlers/extract.py
+    claimable: true
+    timeout: 300
+  - name: storage.archive
+    version: "1.0.0"
+    handler: /app/handlers/archive.py
+    claimable: true
+    timeout: 300
 
   # --- bridge upload/download channels (T-129) ---
   # These capabilities register a *temporary bridge route* on the relay

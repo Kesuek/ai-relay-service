@@ -322,3 +322,118 @@ class TestMove:
     def test_move_traversal_rejected(self, tmp_path: Path):
         result = _run("move.py", {"from": "../x", "to": "y"}, tmp_path)
         assert "traversal" in _err_text(result).lower()
+
+
+# ---------------------------------------------------------------------------
+# T-133: store with action extract / store_as_is (tar.gz)
+# ---------------------------------------------------------------------------
+
+
+def _make_tar_gz(files: dict[str, bytes]) -> bytes:
+    """Build an in-memory tar.gz from {relpath: bytes}."""
+    import io
+    import tarfile
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for rel, data in files.items():
+            info = tarfile.TarInfo(rel)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+class TestStoreTarGz:
+    def test_store_as_is_keeps_archive(self, tmp_path: Path):
+        tgz = _make_tar_gz({"a.txt": b"hello", "sub/b.txt": b"world"})
+        result = _run(
+            "store.py",
+            {"path": "bundle.tar.gz", "action": "store_as_is", "data_base64": base64.b64encode(tgz).decode()},
+            tmp_path,
+        )
+        assert result["status"] == "stored", result
+        # archive kept as-is, not extracted
+        assert (tmp_path / "bundle.tar.gz").is_file()
+        assert not (tmp_path / "a.txt").exists()
+
+    def test_store_extract_unpacks(self, tmp_path: Path):
+        tgz = _make_tar_gz({"a.txt": b"hello", "sub/b.txt": b"world"})
+        result = _run(
+            "store.py",
+            {"path": "bundle", "action": "extract", "data_base64": base64.b64encode(tgz).decode()},
+            tmp_path,
+        )
+        assert result["status"] == "stored", result
+        assert (tmp_path / "bundle" / "a.txt").read_bytes() == b"hello"
+        assert (tmp_path / "bundle" / "sub" / "b.txt").read_bytes() == b"world"
+        # no leftover archive
+        assert not (tmp_path / "bundle.tar.gz").exists()
+
+    def test_store_extract_traversal_in_archive_rejected(self, tmp_path: Path):
+        # a tar entry escaping the target dir must be rejected
+        import io
+        import tarfile
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            info = tarfile.TarInfo("../evil.txt")
+            info.size = 4
+            tf.addfile(info, io.BytesIO(b"evil"))
+        result = _run(
+            "store.py",
+            {"path": "bundle", "action": "extract", "data_base64": base64.b64encode(buf.getvalue()).decode()},
+            tmp_path,
+        )
+        assert result.get("error"), result
+        assert not (tmp_path.parent / "evil.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# T-135: storage.extract / storage.archive
+# ---------------------------------------------------------------------------
+
+
+class TestExtract:
+    def test_extract_unpacks_archive(self, tmp_path: Path):
+        tgz = _make_tar_gz({"a.txt": b"hello", "sub/b.txt": b"world"})
+        (tmp_path / "bundle.tar.gz").write_bytes(tgz)
+        result = _run("extract.py", {"path": "bundle.tar.gz"}, tmp_path)
+        assert result["status"] == "extracted", result
+        assert (tmp_path / "bundle" / "a.txt").read_bytes() == b"hello"
+        assert (tmp_path / "bundle" / "sub" / "b.txt").read_bytes() == b"world"
+
+    def test_extract_missing(self, tmp_path: Path):
+        result = _run("extract.py", {"path": "nope.tar.gz"}, tmp_path)
+        assert "not found" in _err_text(result).lower()
+
+    def test_extract_traversal_rejected(self, tmp_path: Path):
+        result = _run("extract.py", {"path": "../x.tar.gz"}, tmp_path)
+        assert "traversal" in _err_text(result).lower()
+
+
+class TestArchive:
+    def test_archive_packs_directory(self, tmp_path: Path):
+        d = tmp_path / "proj"
+        d.mkdir()
+        (d / "a.txt").write_text("hello")
+        (d / "sub").mkdir()
+        (d / "sub" / "b.txt").write_text("world")
+        result = _run("archive.py", {"path": "proj", "target": "proj.tar.gz"}, tmp_path)
+        assert result["status"] == "archived", result
+        assert (tmp_path / "proj.tar.gz").is_file()
+        # verify contents
+        import io
+        import tarfile
+
+        with tarfile.open(fileobj=io.BytesIO((tmp_path / "proj.tar.gz").read_bytes()), mode="r:gz") as tf:
+            names = tf.getnames()
+        assert "proj/a.txt" in names
+        assert "proj/sub/b.txt" in names
+
+    def test_archive_missing_source(self, tmp_path: Path):
+        result = _run("archive.py", {"path": "nope", "target": "nope.tar.gz"}, tmp_path)
+        assert "not found" in _err_text(result).lower()
+
+    def test_archive_traversal_rejected(self, tmp_path: Path):
+        result = _run("archive.py", {"path": "../x", "target": "x.tar.gz"}, tmp_path)
+        assert "traversal" in _err_text(result).lower()

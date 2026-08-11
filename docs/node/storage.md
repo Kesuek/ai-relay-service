@@ -16,6 +16,8 @@ concrete service image built on top of the node base image
 | `storage.quota` | ✅ | Report disk usage + threshold (`RELAY_STORAGE_QUOTA_THRESHOLD`, default 0.9). |
 | `storage.stat` | ✅ | Stat a single path (size, mtime, is_dir). |
 | `storage.move` | ✅ | Rename/move a file or directory. |
+| `storage.extract` | ✅ | Unpack a stored `.tar.gz` into a directory (T-135). |
+| `storage.archive` | ✅ | Pack a directory into a `.tar.gz` (T-135). |
 | `storage.upload_channel` | ✅ | Open a temp bridge route so a caller can stream a large file **to** the NAS through the relay. |
 | `storage.download_channel` | ✅ | Open a temp bridge route so a caller can stream a large file **from** the NAS through the relay. |
 | `backup.create` | ✅ | Declare an upload as a versioned backup (full or incremental). |
@@ -187,3 +189,43 @@ photos:
 
 The watchdog is started by the storage entrypoint alongside the bridge
 server. An empty/missing config means no automatic deletion (fail-safe).
+
+## Folder transfer as `.tar.gz` (T-133/T-135)
+
+Directories are transferred as a single `.tar.gz` over the bridge (one
+file, one upload). The **uploader decides** whether the node unpacks the
+archive or stores it as-is — the storage node stays agnostic (DECISIONS
+2026-08-06, no FUSE/mounting).
+
+### `storage.store` with `action`
+
+`storage.store` accepts an optional `action` field:
+
+| `action` | Behaviour |
+|----------|-----------|
+| `store_as_is` (default) | Store the `.tar.gz` untouched (for pass-through / intermediate storage / backups). |
+| `extract` | Unpack the archive into a directory named after the target path. |
+
+```json
+{"path": "bundle", "action": "extract", "data_base64": "<tar.gz>"}
+```
+
+Extraction rejects path-traversal entries (`..`, absolute paths) and
+symlinks — an archive that tries to escape the target dir fails the
+stage.
+
+### `storage.extract` / `storage.archive` (T-135)
+
+Unpacking/packing can also be requested **after** the fact, not only at
+upload:
+
+- **`storage.extract`** — payload `{path}`. Unpacks a stored `.tar.gz`
+  into a directory named after the archive (minus the suffix). Result:
+  `{status: "extracted", path, entries}`.
+- **`storage.archive`** — payload `{path, target}`. Packs a directory
+  into a `.tar.gz` at `target`. Result:
+  `{status: "archived", path, size_bytes, entries}`.
+
+Typical flow: upload a folder as `store_as_is` first, then `extract` it
+later when the real directory structure is needed — or `archive` an
+existing directory on demand.

@@ -154,6 +154,12 @@
 - [x] T-132: Retention — `backup.retention {source, policy}` als Task (`keep_last`/`max_age_days`/GFS `keep_daily`/`keep_weekly`/`keep_monthly`); `docker/storage/retention_watchdog.py` periodischer Background-Loop, Policies aus `~/.relay/retention.yaml` (`RELAY_RETENTION_CONFIG`), Intervall `RELAY_RETENTION_INTERVAL` (Default 3600s), gestartet vom Storage-Entrypoint; leere Config = kein Auto-Delete (fail-safe)
 - [x] Alle `backup.*`-Capabilities in `docker/storage/node.yaml` deklariert; 19 neue Tests in `tests/nodes/test_backup_handlers.py`; Doku in `docs/node/storage.md` (Manifest-Schema, Handler-Referenz, Retention-Watchdog)
 
+### Phase 32 — Ordner-Übertragung + Doku (T-133/T-135/T-134) ✅
+- [x] T-133: `storage.store` mit `action: "extract" | "store_as_is"` (Default `store_as_is`) — `extract` entpackt die tar.gz in ein Verzeichnis, `store_as_is` legt sie unangetastet ab; Traversal-Einträge + Symlinks im Archiv werden abgelehnt; funktioniert für `data_base64`-Inline UND `artifact_id`-Stream
+- [x] T-135: `storage.extract {path}` (entpackt abgelegte tar.gz in Verzeichnis, Archivname minus Suffix) + `storage.archive {path, target}` (packt Ordner in tar.gz); beide mit Traversal-Schutz
+- [x] T-134: Doku — `docs/node/storage.md` um Ordner-Übertragung erweitert (action-Flag, extract/archive-Referenz, typischer Flow); CHANGELOG + STATUS aktualisiert
+- [x] `storage.extract`/`storage.archive`-Capabilities in `node.yaml` deklariert; 9 neue Tests in `tests/nodes/test_storage_handlers.py`
+
 ---
 
 ## Code Review Summary (historical — all findings resolved)

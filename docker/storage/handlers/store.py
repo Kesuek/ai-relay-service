@@ -42,6 +42,7 @@ from _common import (  # noqa: E402
 def main() -> None:
     payload = _read_payload()
     raw_path = _require(payload, "path")
+    action = payload.get("action", "store_as_is")
     try:
         target = _safe_path(str(raw_path))
     except ValueError:
@@ -56,8 +57,12 @@ def main() -> None:
             data = base64.b64decode(payload["data_base64"])
         except Exception as exc:  # noqa: BLE001
             _fail(f"invalid data_base64: {exc}")
-        target.write_bytes(data)
-        _emit({"status": "stored", "path": _display(target), "size_bytes": len(data)})
+        if action == "extract":
+            _extract_tar(data, target)
+            _emit({"status": "stored", "path": _display(target), "action": "extract"})
+        else:
+            target.write_bytes(data)
+            _emit({"status": "stored", "path": _display(target), "size_bytes": len(data)})
 
     if "artifact_id" in payload:
         # Stream mode — download an artifact chunkwise from the relay.
@@ -66,10 +71,55 @@ def main() -> None:
         token_file = os.environ.get("RELAY_TOKEN_FILE", "")
         if not base_url or not token_file:
             _fail("artifact_id mode requires RELAY_BASE_URL and RELAY_TOKEN_FILE")
-        size = _stream_artifact(artifact_id, target, base_url, token_file)
-        _emit({"status": "stored", "path": _display(target), "size_bytes": size})
+        if action == "extract":
+            # Stream to a temp file, then extract (tar needs a seekable source).
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            _stream_artifact(artifact_id, tmp, base_url, token_file)
+            _extract_tar(tmp.read_bytes(), target)
+            tmp.unlink(missing_ok=True)
+            _emit({"status": "stored", "path": _display(target), "action": "extract"})
+        else:
+            size = _stream_artifact(artifact_id, target, base_url, token_file)
+            _emit({"status": "stored", "path": _display(target), "size_bytes": size})
 
     _fail("payload must contain either data_base64 or artifact_id")
+
+
+def _extract_tar(data: bytes, target: Path) -> None:
+    """Extract a tar.gz into ``target``, rejecting path-traversal entries.
+
+    Every archive entry is resolved against ``target`` and rejected if it
+    escapes after ``..``/symlink resolution (T-133). The target dir is
+    created if needed.
+    """
+    import io
+    import tarfile
+
+    target.mkdir(parents=True, exist_ok=True)
+    resolved_target = target.resolve()
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
+            for member in tf.getmembers():
+                # Reject absolute paths and traversal.
+                if member.name.startswith("/") or ".." in member.name.split("/"):
+                    _fail(f"archive entry escapes target: {member.name}")
+                dest = (resolved_target / member.name).resolve()
+                try:
+                    dest.relative_to(resolved_target)
+                except ValueError:
+                    _fail(f"archive entry escapes target: {member.name}")
+                if member.isdir():
+                    dest.mkdir(parents=True, exist_ok=True)
+                elif member.issym() or member.islnk():
+                    _fail(f"archive entry is a link (not allowed): {member.name}")
+                else:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    f = tf.extractfile(member)
+                    if f is not None:
+                        with dest.open("wb") as out:
+                            out.write(f.read())
+    except tarfile.TarError as exc:
+        _fail(f"invalid tar.gz: {exc}")
 
 
 def _display(target: Path) -> str:
