@@ -53,6 +53,31 @@ ones we pay closest attention to:
 - Never loosen the auth boundary between nodes and the server.
 - If a persisted file shape changes, migrate old data instead of breaking it.
 
+## Threat model
+
+The relay's trust boundary is **node approval**: any node an admin has
+approved is treated as fully trusted. This is a deliberate Homelab design
+decision (single operator, private network over Tailscale/WireGuard), not an
+oversight. Two consequences are worth stating explicitly:
+
+- **Artifacts are cluster-shared, not per-node.** Any approved node can read
+  or delete any artifact (`GET/DELETE /storage/files/{id}`, `GET /storage/list`),
+  regardless of which node created it. There is no per-node ownership check.
+  This is intentional — approved nodes are trusted peers. If you deploy the
+  relay with untrusted nodes, add a `created_by` ownership check before
+  exposing it.
+- **Approved nodes can register arbitrary proxy routes.** The dynamic
+  node-route proxy (`route_registry.py`) lets an approved node register any
+  upstream URL, which the relay then proxies. This is how bridge channels and
+  SSN pages work. It is safe only because route registration requires an
+  approved node token. There is no guard against internal/metadata addresses
+  (`169.254.169.254`, `localhost`); a compromised approved node could use the
+  proxy to reach them. Do not approve nodes you do not trust.
+
+If your deployment includes nodes you do not fully trust, treat the relay as
+a **trusted-cluster-only** system and keep it behind a firewall / VPN — do
+not expose it to the public internet with untrusted nodes attached.
+
 ## Thanks
 
 We appreciate researchers who report issues responsibly and give us time to
