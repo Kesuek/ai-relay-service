@@ -116,3 +116,14 @@ Tailscale IP).
 
 See [`docs/node/storage.md`](../docs/node/storage.md) for the full
 architecture, handler reference, and bridge channel flow.
+
+### QNAP (Container Station)
+
+A ready-built x86_64 image + step-by-step guide for running the storage node
+on a QNAP NAS via Container Station:
+
+- [`docs/qnap-storage-node.md`](../docs/qnap-storage-node.md) — install, env
+  reference, volumes, troubleshooting.
+- Pre-built image: download `ai-relay-storage-bundle.tar` from the
+  [Releases page](https://github.com/Kesuek/ai-relay-service/releases) and
+  `docker load -i` it.
