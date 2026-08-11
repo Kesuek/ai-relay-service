@@ -783,7 +783,7 @@ def test_add_task_note_posts_to_notes_endpoint(isolated_paths: Path, monkeypatch
     result = client.add_task_note("tsk_abc", "starting fetch")
     assert result["id"] == 42
     assert "/relay/v2/scheduler/tasks/tsk_abc/notes" in captured["url"]
-    assert captured["body"] == {"message": "starting fetch"}
+    assert captured["body"] == {"message": "starting fetch", "kind": "info"}
 
 
 def test_cmd_task_note_invokes_client(isolated_paths: Path, monkeypatch, capsys):

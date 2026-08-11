@@ -412,6 +412,7 @@ def test_register_defaults_registers_all_expected_tasks():
         "artifact_cleanup",
         "chunked_upload_cleanup",
         "orphaned_stage_cleanup",
+        "longrun_lease_cleanup",
         "db_vacuum",
         "temp_route_cleanup",
     }
@@ -430,6 +431,7 @@ def test_register_defaults_run_all_does_not_raise():
         "artifact_cleanup",
         "chunked_upload_cleanup",
         "orphaned_stage_cleanup",
+        "longrun_lease_cleanup",
         "db_vacuum",
         "temp_route_cleanup",
     }

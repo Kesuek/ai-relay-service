@@ -42,7 +42,7 @@ def test_status_registry_has_all_task_entries():
 
 
 def test_status_registry_has_all_stage_entries():
-    expected = {"pending", "claimed", "accepted", "completed", "failed", "timed_out", "cancelled"}
+    expected = {"pending", "claimed", "accepted", "orphaned", "completed", "failed", "timed_out", "cancelled"}
     assert set(STAGE_STATUSES) == expected
 
 

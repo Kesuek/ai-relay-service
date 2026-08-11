@@ -1401,3 +1401,185 @@ def test_fail_orphaned_stages_integration():
     )
     assert r.status_code == 200
     assert r.json()["task"]["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# T-154: Long-Run lease — longrun-note → accepted, TTL expiry → orphaned,
+# orphaned → failed after 24h, offline node → failed
+# ---------------------------------------------------------------------------
+
+
+def _create_and_claim_task(admin_token: str, worker_token: str, capability: str) -> tuple[str, str]:
+    """Create a single-stage task and claim it with the worker node."""
+    r = client.post(
+        "/relay/v2/scheduler/task-simple",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"capability": capability, "payload": {"x": 1}},
+    )
+    assert r.status_code == 200
+    task_id = r.json()["task_id"]
+    r = client.post(
+        "/relay/v2/scheduler/claim",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={},
+    )
+    assert r.status_code == 200
+    assert r.json()["claimed"] is True
+    stage_id = r.json()["stage"]["stage_id"]
+    return task_id, stage_id
+
+
+def test_longrun_note_switches_claimed_to_accepted():
+    """A kind=longrun note moves the claimed stage to accepted."""
+    from relay_server.core.scheduler import Scheduler
+    from relay_server.core.db import get_conn, q
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "storage.archive", "version": "1.0"}]
+    )
+
+    task_id, stage_id = _create_and_claim_task(admin_token, worker_token, "storage.archive")
+
+    # Worker signals long-running.
+    r = client.post(
+        f"/relay/v2/scheduler/tasks/{task_id}/notes",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={"message": "packing 4GB", "kind": "longrun"},
+    )
+    assert r.status_code == 200
+    assert r.json()["kind"] == "longrun"
+
+    # Stage is now accepted.
+    conn = get_conn()
+    try:
+        row = conn.execute(q("SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,))).fetchone()
+    finally:
+        conn.close()
+    assert row["status"] == "accepted"
+    assert r.json()["task_id"] == task_id
+
+
+def test_longrun_accept_prevents_claim_timeout():
+    """An accepted stage is not killed by enforce_timeouts (300s)."""
+    from relay_server.core.scheduler import Scheduler
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "storage.archive", "version": "1.0"}]
+    )
+
+    task_id, stage_id = _create_and_claim_task(admin_token, worker_token, "storage.archive")
+
+    # Signal long-run → accepted.
+    client.post(
+        f"/relay/v2/scheduler/tasks/{task_id}/notes",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={"message": "long", "kind": "longrun"},
+    )
+
+    # Force the claim to be way overdue in the DB.
+    from relay_server.core.db import get_conn, q
+    import datetime
+
+    conn = get_conn()
+    try:
+        old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).isoformat()
+        conn.execute(q("UPDATE task_stages SET claimed_at = ? WHERE stage_id = ?", (old, stage_id)))
+        conn.commit()
+    finally:
+        conn.close()
+
+    # enforce_timeouts must NOT time out the accepted stage.
+    result = Scheduler.enforce_timeouts()
+    assert stage_id not in result["stages_timed_out"]
+
+
+def test_longrun_ttl_expiry_orphans_stage():
+    """An accepted stage with an expired 2h TTL becomes orphaned."""
+    from relay_server.core.scheduler import Scheduler
+    from relay_server.core.db import get_conn, q
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "storage.archive", "version": "1.0"}]
+    )
+
+    task_id, stage_id = _create_and_claim_task(admin_token, worker_token, "storage.archive")
+
+    # Signal long-run → accepted with 2h TTL.
+    client.post(
+        f"/relay/v2/scheduler/tasks/{task_id}/notes",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={"message": "long", "kind": "longrun"},
+    )
+
+    # Expire the TTL in the DB.
+    import datetime
+
+    conn = get_conn()
+    try:
+        old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=3)).isoformat()
+        conn.execute(q("UPDATE task_stages SET longrun_ttl_expires_at = ? WHERE stage_id = ?", (old, stage_id)))
+        conn.commit()
+    finally:
+        conn.close()
+
+    result = Scheduler.enforce_longrun_leases()
+    assert stage_id in result["accepted_orphaned"]
+
+
+def test_orphaned_stage_fails_after_24h():
+    """An orphaned stage with no note for 24h becomes failed."""
+    from relay_server.core.scheduler import Scheduler
+    from relay_server.core.db import get_conn, q
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "storage.archive", "version": "1.0"}]
+    )
+
+    task_id, stage_id = _create_and_claim_task(admin_token, worker_token, "storage.archive")
+
+    # longrun → accepted with a fresh note, then expire the TTL only
+    # (last_note_at stays fresh) so the first pass orphans but does not fail.
+    client.post(
+        f"/relay/v2/scheduler/tasks/{task_id}/notes",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={"message": "long", "kind": "longrun"},
+    )
+    import datetime
+
+    conn = get_conn()
+    try:
+        old_ttl = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=3)).isoformat()
+        old_note = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=25)).isoformat()
+        conn.execute(q("UPDATE task_stages SET longrun_ttl_expires_at = ?, last_note_at = ? WHERE stage_id = ?", (old_ttl, old_note, stage_id)))
+        conn.commit()
+    finally:
+        conn.close()
+
+    # The watchdog runs accepted→orphaned→failed for an accepted stage whose
+    # TTL AND last_note_at are both expired (last_note_at 25h old). In a single
+    # pass the stage should end failed.
+    result = Scheduler.enforce_longrun_leases()
+    assert stage_id in result["accepted_orphaned"] or stage_id in result["orphaned_failed"] or stage_id in result["node_failed"]
+
+    conn = get_conn()
+    try:
+        row = conn.execute(q("SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,))).fetchone()
+    finally:
+        conn.close()
+    assert row["status"] == "failed"
