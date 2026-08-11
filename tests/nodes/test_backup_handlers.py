@@ -1,6 +1,7 @@
 """Tests for the storage node backup handlers (T-130/T-131/T-132)."""
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -172,4 +173,32 @@ class TestBackupInfo:
 
     def test_info_missing(self, tmp_path: Path):
         result = _run("backup_info.py", {"backup_id": "bk_deadbeef"}, tmp_path)
+        assert "not found" in _err_text(result).lower()
+
+
+class TestBackupRestore:
+    def test_restore_returns_data(self, tmp_path: Path):
+        created = _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        backup_id = created["backup_id"]
+        result = _run("backup_restore.py", {"backup_id": backup_id}, tmp_path)
+        assert result["status"] == "restored"
+        assert base64.b64decode(result["data_base64"]) == b"hello"
+        assert result["size_bytes"] == 5
+
+    def test_restore_missing(self, tmp_path: Path):
+        result = _run("backup_restore.py", {"backup_id": "bk_deadbeef"}, tmp_path)
+        assert "not found" in _err_text(result).lower()
+
+
+class TestBackupDelete:
+    def test_delete_marks_deleted(self, tmp_path: Path):
+        created = _run("backup_create.py", {"source": "projects", "type": "full", "data_base64": "aGVsbG8="}, tmp_path)
+        backup_id = created["backup_id"]
+        result = _run("backup_delete.py", {"backup_id": backup_id}, tmp_path)
+        assert result["status"] == "deleted"
+        manifest = json.loads((tmp_path / "backups" / backup_id / "manifest.json").read_text())
+        assert manifest["status"] == "deleted"
+
+    def test_delete_missing(self, tmp_path: Path):
+        result = _run("backup_delete.py", {"backup_id": "bk_deadbeef"}, tmp_path)
         assert "not found" in _err_text(result).lower()
