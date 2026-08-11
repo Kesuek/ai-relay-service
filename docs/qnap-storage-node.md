@@ -16,6 +16,17 @@ Dieses Image ist für **x86_64 (Intel/AMD)** QNAP-Modelle gebaut.
 
 ### 1. Image laden
 
+**Variante A — direkt von GHCR (empfohlen):**
+
+Das Image ist public auf GitHub Container Registry. Die QNAP kann es direkt
+pullen — kein Login nötig:
+
+```bash
+docker pull ghcr.io/kesuek/ai-relay-storage:latest
+```
+
+**Variante B — aus dem Release-Asset:**
+
 Lade das Release-Asset `ai-relay-storage-bundle.tar` von der
 [Releases-Seite](https://github.com/Kesuek/ai-relay-service/releases) herunter
 und lade es in Docker:
@@ -41,13 +52,13 @@ docker run -d \
   -e NODE_ENDPOINT=http://<qnap-ip>:8791 \
   -v /share/Container/ai-relay-storage:/storage \
   -v ai-relay-storage-state:/home/appuser/.relay \
-  ai-relay-storage:latest
+  ghcr.io/kesuek/ai-relay-storage:latest
 ```
 
 **Variante B — per Container Station (GUI):**
 
 1. Öffne **Container Station** → **Übersicht** → **Erstellen** → **Image**.
-2. Wähle `ai-relay-storage:latest`.
+2. Wähle `ghcr.io/kesuek/ai-relay-storage:latest` (oder `ai-relay-storage:latest` nach `docker load`).
 3. Setze die Umgebungsvariablen (siehe Tabelle unten).
 4. Mounte `/storage` auf einen NAS-Ordner (z.B. `/share/Container/ai-relay-storage`).
 5. Starte den Container.
