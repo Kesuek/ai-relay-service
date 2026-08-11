@@ -87,7 +87,7 @@ curl -X POST http://<relay-ip>:8788/relay/v2/admin/nodes/<node_id>/approve \
 
 | Variable | Pflicht | Default | Beschreibung |
 |----------|---------|---------|--------------|
-| `RELAY_URL` | **ja** | — | Relay-Basis-URL, z.B. `http://192.168.1.50:8788`. **Es gibt keinen mDNS-Fallback** — ohne diese Variable startet der Node nicht. |
+| `RELAY_URL` | nein* | mDNS-Discovery | Relay-Basis-URL, z.B. `http://192.168.1.50:8788`. **Wenn ungesetzt, sucht der Node den Relay per mDNS im LAN** (T-152). |
 | `NODE_NAME` | nein | Hostname | Anzeigename im Dashboard |
 | `NODE_ENDPOINT` | nein | — | Endpoint, über den der Relay den Node erreicht (für Bridge-Routen), z.B. `http://<qnap-ip>:8791` |
 | `NODE_ROLE` | nein | `worker` | `service` für Storage (im Image gesetzt) |
@@ -95,9 +95,11 @@ curl -X POST http://<relay-ip>:8788/relay/v2/admin/nodes/<node_id>/approve \
 | `RELAY_SERVER_IP` | nein | aus RELAY_URL | Explizite Relay-Server-IP für die Bridge-Source-IP-Allowlist |
 | `RELAY_STORAGE_PATH` | nein | `/storage` | Basis-Verzeichnis für Dateien (im Image gesetzt) |
 
-> **⚠️ `RELAY_URL` ist Pflicht.** Der Node macht kein mDNS-Scannen — er verbindet sich
-> nur zu der URL, die du angibst. Ohne sie startet der Container nicht (fail-fast).
-> mDNS wird nur vom Relay-Server zum Advertisen genutzt (`ai-relay.local`), nicht vom Node.
+> **`RELAY_URL` ist optional (T-152).** Wenn du sie weglässt, sucht der Node den
+> Relay per mDNS im lokalen Netzwerk (der Relay advertiset sich als
+> `ai-relay.local`). Das funktioniert, wenn Relay + Node im selben LAN sind.
+> Für Bridge-Routen (`storage.upload_channel`/`download_channel`) brauchst du
+> trotzdem `RELAY_SERVER_IP` explizit, wenn der Relay nicht per DNS auflösbar ist.
 
 ## Volumes
 
