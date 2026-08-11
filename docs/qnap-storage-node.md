@@ -89,10 +89,10 @@ curl -X POST http://<relay-ip>:8788/relay/v2/admin/nodes/<node_id>/approve \
 |----------|---------|---------|--------------|
 | `RELAY_URL` | nein* | mDNS-Discovery | Relay-Basis-URL, z.B. `http://192.168.1.50:8788`. **Wenn ungesetzt, sucht der Node den Relay per mDNS im LAN** (T-152). |
 | `NODE_NAME` | nein | Hostname | Anzeigename im Dashboard |
-| `NODE_ENDPOINT` | nein | — | Endpoint, über den der Relay den Node erreicht (für Bridge-Routen), z.B. `http://<qnap-ip>:8791` |
+| `NODE_ENDPOINT` | nein | auto (eigene IP) | Endpoint, über den der Relay den Node erreicht (für Bridge-Routen). **Wird automatisch aus der Node-IP + Port 8791 abgeleitet** — nur setzen, wenn der Relay den Node nicht direkt erreichen kann. |
 | `NODE_ROLE` | nein | `worker` | `service` für Storage (im Image gesetzt) |
 | `NODE_REGISTRATION_SECRET` | nein | — | Vorab erstelltes `rs_...`-Secret für die Registrierung |
-| `RELAY_SERVER_IP` | nein | aus RELAY_URL | Explizite Relay-Server-IP für die Bridge-Source-IP-Allowlist |
+| `RELAY_SERVER_IP` | nein | aus RELAY_URL | Explizite Relay-Server-IP für die Bridge-Source-IP-Allowlist. **Wird automatisch aus `RELAY_URL` aufgelöst** — nur setzen, wenn DNS nicht auflösbar ist. |
 | `RELAY_STORAGE_PATH` | nein | `/storage` | Basis-Verzeichnis für Dateien (im Image gesetzt) |
 
 > **`RELAY_URL` ist optional (T-152).** Wenn du sie weglässt, sucht der Node den
