@@ -88,19 +88,21 @@ node/task/stage/user status transition with the payload
 | POST | `/relay/v2/storage/chunked/{upload_id}/chunk` | `rt_...` | Upload one chunk |
 | POST | `/relay/v2/storage/chunked/{upload_id}/complete` | `rt_...` | Finalise a chunked upload |
 
-## Capability pages — `/relay/v2/capabilities`
+## Capability dashboard pages — SSN (`ssn.capability-pages`)
+
+Capability dashboard pages are **no longer served by the relay itself**.
+They are hosted by a Server-Side Node (SSN) that heartbeats the
+`ssn.capability-pages` capability. The relay lists the available pages via
+a task to the SSN and the dashboard embeds them in an iframe.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/relay/v2/capabilities/{name}/dashboard-page` | none (same-origin iframe) | Serve a capability's operator-supplied HTML dashboard page |
+| GET | `/relay/v2/dashboard/api/ssn-pages` | session | List capabilities that have a dashboard page on the SSN |
 
-These pages are uploaded via
-`POST /relay/v2/storage/upload?capability=<name>` and stored at
-`~/.relay/capability-pages/<name>/dashboard.html`. They are meant to be
-embedded in the relay dashboard's **Capabilities** tab; the response sets
-`X-Frame-Options: SAMEORIGIN` so only the dashboard itself can frame
-them. Returns `404` when no page exists for the capability, `400` for an
-invalid capability name.
+Each entry includes `name` (capability name), `node_id` (SSN node) and
+`url` (Dynamic Route URL to open in the iframe). The response also carries
+`online` (whether an SSN heartbeating `ssn.capability-pages` is up). See
+`docs/node/ssn.md` for the SSN proxy + page-hosting flow.
 
 ## Dashboard — `/relay/v2/dashboard`
 
@@ -468,32 +470,14 @@ For files larger than 100 MiB use the **chunked** upload flow:
 `POST /relay/v2/storage/chunked/{upload_id}/chunk` (repeated, base64 data) →
 `POST /relay/v2/storage/chunked/{upload_id}/complete`.
 
-#### Capability dashboard pages (`?capability=<name>`)
+#### Capability dashboard pages
 
-Adding the `capability=<name>` query parameter stores the uploaded file as
-the dashboard page for that capability, **separate from the artifact
-store** — no artifact DB entry is created. The file is written to
-`~/.relay/capability-pages/<name>/dashboard.html` (overwriting any
-existing page) and served by
-`GET /relay/v2/capabilities/<name>/dashboard-page`.
-
-```bash
-curl -s -X POST "http://${RELAY_HOST}:8788/relay/v2/storage/upload?capability=image.generate.mflux" \
-  -H "Authorization: Bearer rt_..." \
-  -F "file=@dashboard.html" | jq
-```
-
-```json
-{
-  "status": "ok",
-  "path": "capability-pages/image.generate.mflux/dashboard.html",
-  "capability": "image.generate.mflux",
-  "size_bytes": 4321
-}
-```
-
-The capability name must not contain path separators or dot-segment
-traversal forms (`..`); violations are rejected with `400`.
+Capability dashboard pages are **not** uploaded via the storage endpoint
+anymore. They are hosted by a Server-Side Node (SSN) that heartbeats the
+`ssn.capability-pages` capability. The relay lists the available pages via
+`GET /relay/v2/dashboard/api/ssn-pages` (session auth) and the dashboard
+embeds each page in an iframe via its Dynamic Route URL. See
+`docs/node/ssn.md` for the full flow.
 
 ### Download an artifact
 

@@ -118,7 +118,7 @@ cookie; they do not use a prefixed token.
 ### Lifecycle
 
 ```
-[Register] → temporary token (24h) + registration secret (12h)
+[Register] → temporary token (24h) + registration secret (7 days)
        ↓
 [Admin approves] → runtime token (7 days), node status: approved
        ↓
@@ -133,7 +133,7 @@ cookie; they do not use a prefixed token.
 Key rules:
 
 - **One runtime token per node.** Refreshing it invalidates the previous one.
-- **Registration secret is recovery only.** It expires after 12 hours and is
+- **Registration secret is recovery only.** It expires after 7 days (168h, matching the runtime token TTL) and is
   rotated whenever it is used to recover a runtime token.
 - **Master seed is emergency only.** It is only usable for dashboard login
   while no human admin exists or when recovery mode is explicitly enabled.

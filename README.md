@@ -129,7 +129,7 @@ All public Markdown docs are served live by the relay at
 ## Key rules
 
 - **One runtime token per node.** Refreshing it invalidates the previous one.
-- **Registration secret is recovery only.** It expires after 12 hours.
+- **Registration secret is recovery only.** It expires after 7 days (168h, matching the runtime token TTL).
 - **The core routes tasks by capability string.** It does not choose tools or models.
 
 ## Tests

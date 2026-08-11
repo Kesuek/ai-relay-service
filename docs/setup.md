@@ -8,7 +8,7 @@ Not sure where to start? Pick your goal:
 | I want to set up the relay server | **[server/setup.md](server/setup.md)** |
 | I want the full cluster (relay + multiple nodes) | **[server/setup.md](server/setup.md)** → **[concepts.md](concepts.md)** → **[node/setup.md](node/setup.md)** |
 | I want to use the HTTP API / write a client | **[reference/api.md](reference/api.md)** |
-| I want an overview of every feature | **[reference/feature-list.md](reference/feature-list.md)** |
+| I want an overview of every feature | **[reference/design-board.md](reference/design-board.md)** |
 | I want to understand what a node is | **[node/concept.md](node/concept.md)** |
 | I want to understand what a capability is | **[node/capability-concept.md](node/capability-concept.md)** |
 | I want to understand the architecture first | **[concepts.md](concepts.md)** |
@@ -20,7 +20,7 @@ What do you want to do?
 ├─ Set up the relay                         → server/setup.md
 ├─ Set up a multi-node cluster              → server/setup.md → concepts.md → node/setup.md
 ├─ Use the API / write a client             → reference/api.md
-├─ Browse the full feature catalogue         → reference/feature-list.md
+├─ Browse the full feature catalogue         → reference/design-board.md
 ├─ What is a node?                          → node/concept.md
 ├─ What is a capability?                    → node/capability-concept.md
 └─ Understand the architecture              → concepts.md

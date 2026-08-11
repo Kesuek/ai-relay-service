@@ -727,3 +727,25 @@ def test_token_pepper_fails_without_session_secret():
         settings.session_secret = original
         auth_mod._TOKEN_PEPPER = None
 
+
+def test_set_user_password_enforces_policy():
+    """Admin password reset must enforce the same policy as self-service
+    (12 chars + blocklist) — S3, Claude review 2026-08-11."""
+    from relay_server.core.users import create_user, set_user_password
+
+    init_db()
+    create_user(
+        username="pw-policy", password="very-secret-password-99",
+        group_names=["user"], force_password_change=False,
+    )
+    # Too short -> rejected.
+    with pytest.raises(ValueError, match="at least 12"):
+        set_user_password("pw-policy", "short1")
+    # Common password -> rejected (blocklist check via _is_common_password;
+    # no blocklist entry is >=12 chars, so exercise the check directly).
+    from relay_server.core.users import _is_common_password
+
+    assert _is_common_password("password123")
+    # Valid password -> accepted.
+    set_user_password("pw-policy", "a-strong-unique-password-42")
+

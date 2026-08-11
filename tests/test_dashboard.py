@@ -87,6 +87,9 @@ def test_security_headers_present():
     assert r.headers["X-Frame-Options"] == "DENY"
     assert r.headers["X-Content-Type-Options"] == "nosniff"
     assert "frame-ancestors 'none'" in r.headers["Content-Security-Policy"]
+    # HSTS is only emitted when TLS is active (S4, Claude review 2026-08-11).
+    # The test settings have no tls_certfile, so it must be absent.
+    assert "Strict-Transport-Security" not in r.headers
 
 
 def _admin_node_token():
@@ -922,3 +925,36 @@ def test_metrics_api_requires_dashboard_auth():
     """Without a session cookie the metrics API must reject the request."""
     r = client.get("/relay/v2/dashboard/api/metrics")
     assert r.status_code in (401, 403)
+
+
+def test_task_submit_requires_csrf():
+    """POST /dashboard/api/task-submit must enforce CSRF (S1, Claude review
+    2026-08-11) — a mutating endpoint must not be callable without a matching
+    CSRF token, even with a valid session cookie."""
+    init_db()
+    seed = init_master_seed()
+    r = client.post(
+        "/relay/v2/dashboard/login",
+        data={"mode": "seed", "seed": seed},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    client.cookies.set("relay_user", r.cookies["relay_user"])
+    csrf_cookie = r.cookies.get("relay_csrf", generate_csrf_token())
+    client.cookies.set("relay_csrf", csrf_cookie)
+
+    # Without a CSRF header -> 403.
+    r = client.post(
+        "/relay/v2/dashboard/api/task-submit",
+        json={"capability": "board", "payload": {}},
+    )
+    assert r.status_code == 403
+
+    # With a matching CSRF header -> not a CSRF rejection (may be 400/404
+    # for the unknown capability, but must NOT be 403 from CSRF).
+    r = client.post(
+        "/relay/v2/dashboard/api/task-submit",
+        json={"capability": "board", "payload": {}},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+    assert r.status_code != 403

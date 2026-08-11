@@ -23,11 +23,11 @@
 - [x] bcrypt (12 rounds) with legacy SHA-256 migration
 - [x] 4 token types: admin seed (`adm_`), bootstrap (`bs_`), temporary (`tp_`), runtime (`rt_`)
 - [x] Token rotation — single valid runtime token per node
-- [x] Registration secret recovery (12h TTL)
+- [x] Registration secret recovery (7d TTL, matches token TTL)
 - [x] RBAC: users, groups, permissions, roles (superadmin / admin / user)
 - [x] CSRF protection (double-submit cookie)
 - [x] Rate limiting on dashboard (SlowAPI)
-- [x] Security headers (HSTS, X-Content-Type-Options, X-Frame-Options)
+- [x] Security headers (X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy, Permissions-Policy)
 - [x] Force password change on first login
 - [x] Common password blocklist (20 entries)
 

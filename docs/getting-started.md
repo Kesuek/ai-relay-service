@@ -65,7 +65,7 @@ hosts or containers.
   capability is.
 → **[concepts.md](concepts.md)** — the relay, tokens, self-care pattern,
   status system, glossary.
-→ **[reference/feature-list.md](reference/feature-list.md)** — the complete
+→ **[reference/design-board.md](reference/design-board.md)** — the complete
   feature catalogue (22 categories, ~150 features, each with a file/line
   reference to its implementation).
 
@@ -82,7 +82,7 @@ What do you want to do?
 │
 ├─ Use the HTTP API / write a client        → reference/api.md
 │
-├─ Browse every feature / find an implementation  → reference/feature-list.md
+├─ Browse every feature / find an implementation  → reference/design-board.md
 │
 └─ Understand the architecture              → node/concept.md, node/capability-concept.md, concepts.md
 ```
