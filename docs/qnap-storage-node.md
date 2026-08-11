@@ -93,6 +93,12 @@ curl -X POST http://<relay-ip>:8788/relay/v2/admin/nodes/<node_id>/approve \
 | `/storage` | NAS-Export — die eigentlichen Dateien/Backups. Bind-mount auf einen QNAP-Ordner. |
 | `/home/appuser/.relay` | Node-Meta + Token (persistiert die Identität über Neustarts). Named Volume. |
 
+> **⚠️ Wichtig für Updates:** Das Volume `ai-relay-storage-state` (→ `/home/appuser/.relay`)
+> muss beim Neustart **gemountet bleiben**. Wenn du den Container löschst und neu erstellst,
+> ohne das Volume zu mounten, verliert der Node seine `ai-relay-agent.json` (node_id + token)
+> und registriert sich **neu** — er bekommt eine neue Node-ID und muss erneut approved werden.
+> Beim `docker run` immer `-v ai-relay-storage-state:/home/appuser/.relay` mitgeben.
+
 ## Capabilities
 
 Der Storage-Node bietet:
