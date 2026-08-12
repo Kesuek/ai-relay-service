@@ -107,28 +107,36 @@ EOF
     echo "[entrypoint] node.yaml seeded (node_name=${NODE_NAME})"
 fi
 
-# Publish a profile from profiles.d when NODE_PROFILE is set. This copies
-# the named profile to node.yaml so the daemon picks up its capabilities.
-# The copy happens on EVERY start (not just first) so an image update that
-# ships a newer profile actually reaches the persistent node.yaml — the
-# persistent volume would otherwise keep a stale capability set forever
-# (T-163: long_run flag was missing on the QNAP node).
+# Publish a profile from the IMAGE's profiles dir when NODE_PROFILE is set.
+# The profile lives in the image (e.g. /app/profiles/<name>.yaml), NOT in
+# the persistent ~/.relay volume, so an image update ships a fresh
+# capability set. We copy it to ~/.relay/node.yaml on EVERY start so the
+# daemon picks up the latest capabilities (T-163: long_run flag was
+# missing on the QNAP node because the old profile lived in the volume).
 if [ -n "${NODE_PROFILE:-}" ]; then
-    PROFILE_FILE="${PROFILES_DIR}/${NODE_PROFILE}"
-    if [ ! -f "${PROFILE_FILE}" ]; then
-        # Try with a .yaml/.yml extension if the bare name did not resolve.
-        if [ -f "${PROFILE_FILE}.yaml" ]; then
-            PROFILE_FILE="${PROFILE_FILE}.yaml"
-        elif [ -f "${PROFILE_FILE}.yml" ]; then
-            PROFILE_FILE="${PROFILE_FILE}.yml"
-        else
-            echo "[entrypoint] ERROR: NODE_PROFILE='${NODE_PROFILE}' not found" >&2
-            echo "[entrypoint]        in ${PROFILES_DIR}" >&2
-            exit 1
-        fi
+    # Image profiles dir (read-only, ships with the image). Fall back to
+    # the legacy volume path for backward compatibility.
+    IMAGE_PROFILES_DIR="/app/profiles"
+    PROFILE_FILE=""
+    if [ -f "${IMAGE_PROFILES_DIR}/${NODE_PROFILE}" ]; then
+        PROFILE_FILE="${IMAGE_PROFILES_DIR}/${NODE_PROFILE}"
+    elif [ -f "${IMAGE_PROFILES_DIR}/${NODE_PROFILE}.yaml" ]; then
+        PROFILE_FILE="${IMAGE_PROFILES_DIR}/${NODE_PROFILE}.yaml"
+    elif [ -f "${IMAGE_PROFILES_DIR}/${NODE_PROFILE}.yml" ]; then
+        PROFILE_FILE="${IMAGE_PROFILES_DIR}/${NODE_PROFILE}.yml"
+    elif [ -f "${PROFILES_DIR}/${NODE_PROFILE}" ]; then
+        PROFILE_FILE="${PROFILES_DIR}/${NODE_PROFILE}"
+    elif [ -f "${PROFILES_DIR}/${NODE_PROFILE}.yaml" ]; then
+        PROFILE_FILE="${PROFILES_DIR}/${NODE_PROFILE}.yaml"
+    elif [ -f "${PROFILES_DIR}/${NODE_PROFILE}.yml" ]; then
+        PROFILE_FILE="${PROFILES_DIR}/${NODE_PROFILE}.yml"
+    else
+        echo "[entrypoint] ERROR: NODE_PROFILE='${NODE_PROFILE}' not found" >&2
+        echo "[entrypoint]        in ${IMAGE_PROFILES_DIR} or ${PROFILES_DIR}" >&2
+        exit 1
     fi
     cp "${PROFILE_FILE}" "${NODE_YAML}"
-    echo "[entrypoint] node.yaml published from profile '${NODE_PROFILE}'"
+    echo "[entrypoint] node.yaml published from profile '${NODE_PROFILE}' (${PROFILE_FILE})"
 fi
 
 # --- first-start registration ---------------------------------------------
