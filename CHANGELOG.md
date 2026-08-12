@@ -5,140 +5,118 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Changed
-
-- **T-148 Docker-Node-Struktur umbenannt (2026-08-11)**: `docker/base/` → `docker/nodes/base/` und `docker/storage/` → `docker/nodes/storage/`. Konsistente Struktur: `docker/server/` (Relay-Server) + `docker/nodes/` (Node-Images). `base` = nackter Basis-Node (nur Stack, keine Capabilities), `storage` = voll definierter Node der `base` importiert. Alle Referenzen aktualisiert: Dockerfile-COPY-Pfade, docker-compose, docker/README.md, docs/node/storage.md, docs/node/capabilities.md, Tests (test_storage_handlers, test_bridge_channel_handlers, test_bridge_server), STATUS.md.
+## [2.0.0] - 2026-08-12
 
 ### Added
 
-- **T-133 / T-135 / T-134 Ordner-Übertragung als `.tar.gz` (2026-08-11)**: Der Storage-Node kann Ordner als einzelne `.tar.gz` übertragen, wobei der Uploader entscheidet, ob entpackt oder liegen gelassen wird (DECISIONS 2026-08-06, kein FUSE). (1) **T-133 `storage.store` mit `action`**: neues optionales Feld `action: "extract" | "store_as_is"` (Default `store_as_is`). `extract` entpackt die tar.gz in ein Verzeichnis (benannt nach dem Zielpfad), `store_as_is` legt sie unangetastet ab. Entpacken lehnt Path-Traversal-Einträge (`..`, absolute Pfade) und Symlinks ab — ein Archiv, das das Zielverzeichnis verlassen will, failt die Stage. Funktioniert für `data_base64`-Inline UND `artifact_id`-Stream (Stream → Temp-Datei → Entpacken). (2) **T-135 `storage.extract` + `storage.archive`**: nachträgliches Entpacken/Packen. `storage.extract {path}` entpackt eine abgelegte tar.gz in ein Verzeichnis (Archivname minus Suffix), `storage.archive {path, target}` packt einen Ordner in eine tar.gz. Beide mit Traversal-Schutz. (3) **T-134 Doku**: `docs/node/storage.md` um Ordner-Übertragung erweitert (action-Flag, extract/archive-Referenz, typischer Flow). Alle Capabilities in `node.yaml` deklariert. 9 neue Tests in `tests/nodes/test_storage_handlers.py`.
+- **Storage Node as a real service (T-127 / T-128 / T-129 / T-136)** — the
+  storage node is a first-class service with real Python handlers replacing the
+  shell stubs: `storage.store` (inline `data_base64` or `artifact_id` stream),
+  `fetch`, `delete` (recursive), `list` (prefix), `quota`, `stat`, `move`.
+  Shared `_safe_path` guard rejects path-traversal and symlink escapes.
+  `node-cli route` subcommand manages temporary bridge routes (`register` /
+  `unregister` / `list`).
+- **Bridge upload/download channels (T-129)** — large files stream directly
+  storage<->caller through a temporary bridge route instead of through the
+  relay. The relay proxy streams request body and upstream response chunkwise
+  (no RAM buffering — OOM fix). `upload_channel` / `download_channel` complete
+  the task with `{upload_url/download_url, channel_id, ttl}`.
+- **Backup management (T-130 / T-131 / T-132)** — versioned, identifiable
+  backups with a JSON manifest per backup (no SQLite): `backup.create` /
+  `list` / `info` / `restore` / `delete` / `retention`. Retention policies
+  (`keep_last`, `max_age_days`, GFS) run as tasks; a retention watchdog applies
+  them from `~/.relay/retention.yaml`.
+- **Folder transfer as `.tar.gz` (T-133 / T-134 / T-135)** — `storage.store`
+  with `action: "extract" | "store_as_is"`, plus standalone `storage.extract`
+  and `storage.archive`. Extracting rejects path-traversal entries and symlinks.
+- **Docker base + special-node catalog (T-119 / T-120 / T-121 / T-122)** — a
+  reusable base image (`docker/nodes/base/`) carries the node stack; each
+  service (`docker/nodes/storage/`) is a thin `FROM ai-relay-node-base` layer
+  with `node.yaml` + `handlers/`. Legacy `nodes/storage-node/` removed.
+- **Temporary bridge routes with TTL (T-123 / T-124 / T-125 / T-126)** — routes
+  with `expires_at` + `channel_id`, task-driven creation, TTL cleanup watchdog.
+  `RelayClient.register_temp_route()` / `unregister_temp_route()`.
+- **GPU-aware auto-busy (T-113)** — nodes are marked `busy` not only on
+  sustained CPU load but also when `queue_depth >= 1` (a task already in
+  flight). A node saturating its GPU while CPU stays idle is immediately busy.
+- **Extended observability metrics (T-115)** — latency histograms
+  (`relay_stage_duration_seconds`, `relay_claim_duration_seconds`,
+  `relay_task_duration_seconds`), retry rate, per-node gauges
+  (`relay_node_load`, `relay_node_queue_depth`, `relay_node_online`),
+  throughput (`relay_tasks_created_5m`, `relay_tasks_completed_5m`). The
+  built-in dashboard adds latency p50 cards, a retry-rate bar and a per-node
+  load list.
+- **Native TLS (T-111)** — the relay serves HTTPS directly (uvicorn-bound
+  cert). mDNS is suppressed when TLS is active. Node clients support an
+  optional `tls_ca_cert` for private/self-signed CAs.
+- **PostgreSQL backend via SQLAlchemy Core (T-110)** — the database layer is
+  decoupled from the SQLite dialect. All schema + query code goes through
+  SQLAlchemy Core; switching to Postgres is a config change. `PostgresDatabase`
+  with connection pool; `?` placeholders rewritten per dialect. The existing
+  SQLite DB stays byte-identical (hard backcompat gate).
+- **Server-Side Node (SSN)** — capability-page + proxy SSN implementation;
+  dashboard-driven capability pages served through the relay.
+- **Federation Node concept** — a node that heartbeats `federation`, connects
+  to remote relays and forwards tasks; dashboard-controlled capability sharing.
 
-- **T-130 / T-131 / T-132 Backup-Management auf dem Storage-Node (2026-08-11)**: Der Storage-Node kann Backups als versionierte, identifizierbare Artefakte verwalten. (1) **T-130 Backup-Metadaten-Modell**: JSON-Manifest pro Backup (kein SQLite, DECISIONS 2026-08-06) unter `<STORAGE_PATH>/backups/<backup_id>/manifest.json` neben `data.bin`. Felder: `backup_id` (`bk_<16-hex>`), `source`, `type` (`full`/`incremental`), `base_backup_id`, `created_at`, `size_bytes`, `retention`, `status` (`active`/`expired`/`deleted`). Geteilte Helfer in `docker/storage/handlers/backup_common.py` (Manifest-Lesen/Schreiben atomar, Backup-ID-Minting, Pfad-Auflösung mit Traversal-Schutz). (2) **T-131 Backup-Handler**: `backup.create` (inline `data_base64` ODER `artifact_id`-Stream; `incremental` verlangt existierende `base_backup_id`), `backup.list` (Filter `source`/`type`, schließt `deleted` aus), `backup.info`, `backup.restore` (inline `data_base64` ≤10 MB, größere als `download_url: null`-Platzhalter), `backup.delete` (markiert `deleted`, Manifest bleibt als Audit, `data.bin` wird entfernt). (3) **T-132 Retention**: `backup.retention {source, policy}` als Task (nicht hartcodiert) mit `keep_last`, `max_age_days` und GFS (`keep_daily`/`keep_weekly`/`keep_monthly`). Dazu `docker/storage/retention_watchdog.py` — periodischer Background-Loop (analog `MaintenanceScheduler`), Policies aus `~/.relay/retention.yaml` (`RELAY_RETENTION_CONFIG`), Intervall `RELAY_RETENTION_INTERVAL` (Default 3600s), gestartet vom Storage-Entrypoint neben dem Bridge-Server. Leere/missing Config = kein automatisches Löschen (fail-safe). Alle `backup.*`-Capabilities in `node.yaml` deklariert. 19 neue Tests in `tests/nodes/test_backup_handlers.py`. Doku in `docs/node/storage.md` (Manifest-Schema, Handler-Referenz, Retention-Watchdog).
+### Changed
 
-- **T-127 / T-128 / T-129 / T-136 Storage-Node Core + Bridge-Handler + Streaming-Fix + node-cli route (2026-08-07)**: Der Storage-Node ist fertig. (1) **T-136 `node-cli route` Subcommand**: manuelle Verwaltung temporärer Bridge-Routen über die CLI — `route register`/`unregister`/`list`, jeweils mit `--json`-Output. Neues Server-Endpoint `GET /api/node-routes` (Bearer node-token) liefert nur die Routen des aufrufenden Nodes (inkl. `expires_at` + `channel_id`). `RelayClient.list_temp_routes()` Client-Helper. (2) **T-127 Storage-Core-Handler**: echte Python-Handler ersetzen die Shell-Stubs — `store` (data_base64 inline ODER artifact_id-Stream via httpx), `fetch`, `delete` (rekursiv), `list` (prefix), `quota` (`shutil.disk_usage` + Threshold aus `RELAY_STORAGE_QUOTA_THRESHOLD`), `stat`, `move`. Gemeinsame Basis `docker/storage/handlers/_common.py` mit `_safe_path` (byte-for-byte aus dem legacy storage_node.py portiert — Path-Traversal + Symlink-Escape werden abgelehnt). `node.yaml` Handler-Pfade auf `.py` geändert, alle `.sh`-Stubs gelöscht. (3) **T-128 Source-IP-Allowlist**: neuer `docker/storage/bridge_server.py` — kleiner Starlette-Server auf `0.0.0.0:8791`, der die Bridge-Upload/-Download-Endpoints bedient. Middleware prüft `request.client.host` gegen die Server-IP (aus `RELAY_URL` per DNS aufgelöst + cached, oder `RELAY_SERVER_IP`-Override). Nicht-matching → 403; unbekannte IP → fail-closed 403. `POST /upload/{channel_id}` streamt den Body chunkweise auf die NAS, `GET /download/{channel_id}` streamt die Datei zurück. Storage-Dockerfile startet den Bridge-Server im Hintergrund neben `node-daemon` (neuer `docker-entrypoint-storage.sh`). (4) **T-129 Bridge-Handler + Streaming-Fix im Proxy**: `upload_channel`/`download_channel` als claimable Tasks — der Handler öffnet per `register_temp_route` eine Route auf den Bridge-Server und completed den Task mit `{upload_url/download_url, channel_id, ttl}`. Der Relay-Proxy in `route_registry.py` streamt jetzt Request-Body (`request.stream()`) UND Upstream-Response (`client.send(stream=True)` + `StreamingResponse`) chunkweise — große Dateien landen nicht mehr im RAM (OOM-Fix). `_forward_headers` behält `content-length` (Upstream braucht die Länge beim Stream). 69 neue Tests (14 cli_route + 14 Server node-routes/streaming + 26 storage-handlers + 20 bridge-server + 6 bridge-channel-handlers), 512/512 gesamt grün.
-- **T-119 / T-120 / T-121 / T-122 Docker-Basis + Spezial-Node-Katalog (2026-08-07)**: Das Fundament für den Spezial-Node-Katalog. (1) **T-119 Basis-Image `docker/base/`**: wiederverwendbares Image, das den Node-Stack (node-cli, node-daemon, relay_client, handler_runner) aus dem Projekt-Wheel installiert. Der Entrypoint übersetzt `RELAY_URL`/`NODE_NAME`/`NODE_PROFILE`/`NODE_ROLE`/`NODE_ENDPOINT`/`NODE_REGISTRATION_SECRET` in `relay_config.json`+`node.yaml`, registriert den Node beim ersten Start und exec't dann `node-daemon`. Fail-fast bei fehlendem `RELAY_URL`. Healthcheck liest die Daemon-Status-Datei (`worker_status.json`) statt eines TCP-Probes, da der Node nicht lauscht. (2) **T-120 Storage-Dienst-Image `docker/storage/`**: `FROM ai-relay-node-base`, nur `node.yaml` + `handlers/` (Stubs die `{"error": "not implemented yet"}` zurückgeben — echte Handler in Plan B/Phase 30). Beispiel-Compose gegen externen Relay. (3) **T-121**: Legacy `nodes/storage-node/` komplett entfernt (storage_node.py, register.py, Dockerfile, compose, service unit, build-bundle/deploy-Skripte). `_safe_path`-Logik als Referenz in `docker/storage/handlers/REFERENCE_safe_path.md` gesichert für Plan B. (4) **T-122**: `docker/README.md` neu — Special-Node-Katalog (Basis-Image + Dienst-Image-Pattern), Env-Referenz, "neuen Dienst hinzufügen"-Walkthrough, Storage-Beispiel. 20 neue Tests.
-- **T-123 / T-124 / T-125 / T-126 Temporäre Bridge-Routen (TTL-basiert) (2026-08-07)**: Server+Client-Seite der temporären Bridge-Routen für große Dateien. (1) **T-123**: `node_routes` um `expires_at` + `channel_id` erweitert (additive Migration, bestehende SQLite-DB intakt). `_lookup_route()` behandelt abgelaufene temporäre Routen als 404. `proxy_node_route` proxyt kein DELETE mehr (reserviert für Unregister). (2) **T-124**: `POST /api/node-routes/register` (Bearer node-token, TTL-+channel_id-Validierung, UPSERT) + `DELETE /api/node-routes/{node_id}/{path}` (nur Owner). Bridge-Routen bekommen `auth = "node_token"`. TTL-Limit `temp_route_max_ttl_seconds` (Default 24h). (3) **T-125**: `temp_route_cleanup`-Watchdog im MaintenanceScheduler reap't abgelaufene temporäre Routen (`expires_at < now AND channel_id IS NOT NULL`); permanente Heartbeat-Routen (`expires_at IS NULL`) bleiben unangetastet. Intervall über `temp_route_cleanup_interval_seconds` (Default 300s) konfigurierbar. (4) **T-126**: `RelayClient.register_temp_route()` + `unregister_temp_route()` — Node-seitige Helper; `unregister` schluckt 404. 20 neue Tests (16 Server + 6 Client, davon 2 Fixes an bestehenden).
-- **T-113 GPU-aware auto-busy (2026-08-04)**: Nodes are now marked `busy` not only by sustained CPU load, but also when `queue_depth >= 1` — i.e. they already have a task in flight. This is a **GPU-agnostic** signal: an AI/ML node saturating its GPU while its CPU stays idle (e.g. one FLUX/MLX job) is immediately marked busy and won't be handed a second job. The node reverts to `idle` when the queue drains (`queue_depth == 0`) *and* load is below the cap (so a load-busy node isn't prematurely released). 1 new test.
-- **T-115 Extended observability metrics (2026-08-04)**: The `/metrics` endpoint and built-in dashboard now expose operational depth beyond raw counts. (1) **Latency histograms** in Prometheus format (`_bucket`/`_sum`/`_count`): `relay_stage_duration_seconds` (created→completed), `relay_claim_duration_seconds` (claimed→completed, pure processing time) and `relay_task_duration_seconds`, bucketed at 0.5s/1s/5s/30s/2m/10m/1h. Latency is computed in Python from the ISO timestamps (not SQL). (2) **Retry rate**: `relay_stages_retried_total`, `relay_stages_total`, `relay_stages_retry_ratio`. (3) **Per-node gauges**: `relay_node_load`, `relay_node_queue_depth`, `relay_node_online` with `node_id`/`node_name` labels. (4) **Throughput**: `relay_tasks_created_5m`, `relay_tasks_completed_5m` (last 5 minutes). The dashboard adds latency p50 cards, a retry-rate bar and a per-node load list. 5 new tests.
-- **T-111 Native TLS (2026-08-04)**: The relay can now serve **HTTPS directly** instead of only behind a reverse proxy. Set `tls_certfile` + `tls_keyfile` in `~/.relay/config.yaml` (or `RELAY_TLS_CERTFILE`/`RELAY_TLS_KEYFILE`), and uvicorn binds the cert. When TLS is active, mDNS is automatically suppressed (TLS implies Internet/Community-Relay mode; mDNS is a LAN mechanism and should not advertise publicly). Node clients (`RelayClient`) support an optional `tls_ca_cert` config value so a node can trust a relay using a private/self-signed CA. Homelab default is unchanged: plain HTTP over Tailscale/WireGuard, no cert management required. Decision: **TLS only, no mTLS** — node identity is already handled by runtime tokens, so client certs would be redundant plus add certificate-distribution overhead. 4 new tests.
-- **T-110 PostgreSQL backend via SQLAlchemy Core (2026-08-04)**: The database layer is decoupled from the SQLite dialect. All schema and query code now goes through SQLAlchemy Core, so switching to PostgreSQL is a config change rather than a port. (1) New `core/tables.py` declares all 17 tables as portable `sa.Table` objects against a shared `MetaData`; `metadata.create_all(engine)` builds the schema on any backend. (2) `SqliteDatabase` is now backed by a SQLAlchemy engine (lazy, reads `settings.db_path` live); the on-disk SQLite file is unchanged — the existing production database keeps working byte-identically (hard gate, verified by `tests/test_db_backcompat.py`). (3) `PostgresDatabase` is now real: SQLAlchemy engine with `pool_pre_ping` connection pool; activate with `db_type: postgres` + `pg_dsn` and `pip install ".[postgres]"`. (4) The 155 raw `conn.execute("SQL ?")` call sites are ported to the portable `q(sql, params)` helper, which rewrites `?` placeholders to named bind parameters so SQLAlchemy renders the right syntax per dialect (`?` / `$N` / `%s`). (5) A small `Row["col"]` / `Row.keys()` compatibility shim keeps the 373+ legacy row-access sites working unchanged on SQLAlchemy's `Row`. (6) Migrations are backend-aware: `PRAGMA table_info` on SQLite, `information_schema.columns` on PostgreSQL, centralised in `_column_names()` / `_table_names()`. (7) `maintenance.db_vacuum` is backend-aware (SQLite WAL checkpoint + VACUUM; PostgreSQL autovacuum handles it). Timestamps remain ISO-8601 TEXT strings so the existing SQLite DB stays byte-identical; a TIMESTAMPTZ migration is a later, separate step. 408 tests green, backcompat invariant intact.
-- **T-109 Observability — metrics + built-in dashboard + structured logs (2026-08-04)**: The relay becomes observable. (1) New module `core/metrics.py` bundles in-process counters (auth failures via middleware) and DB-derived gauges (tasks/stages/nodes/queue) and renders `/metrics` in the Prometheus text format. (2) `/metrics` (public like `/health`, no secrets in output) and `/ready` (readiness for task processing — checks DB, scheduler/maintenance loop, and event bus) in `main.py`. (3) Auth-failure counter via a global middleware counts 401/403/429 without touching `auth.py`. (4) JSON metrics API `/relay/v2/dashboard/api/metrics` (session auth) + built-in HTML metrics dashboard `/relay/v2/dashboard/metrics` with number cards and minimal bar charts (CSP-compliant, external `metrics.js`). The metrics dashboard is linked from the admin dashboard (top nav) and the community portal (button). (5) Structured JSON logs via the standard logging formatter (`core/logging_setup.py`); a middleware sets a per-request `trace_id` (16-hex) via `contextvars` and returns it as the `X-Relay-Trace-Id` header — every log line for a request carries the same `trace_id`. No new dependency (no structlog, no Prometheus server / Grafana).
+- **Node directory structure renamed (T-148)** — `docker/base/` →
+  `docker/nodes/base/`, `docker/storage/` → `docker/nodes/storage/`. Consistent:
+  `docker/server/` (relay) + `docker/nodes/` (node images).
+- **Node default name** — the storage image ships `NODE_NAME=storage-node` so
+  the node shows up in the dashboard under a readable name instead of the
+  container hostname.
+- **Bridge allowlist mDNS fallback (T-152)** — the bridge source-IP allowlist
+  resolves the relay IP from `RELAY_URL`, or falls back to mDNS discovery when
+  `RELAY_URL` is unset, so an mDNS-only deployment works without an explicit
+  `RELAY_SERVER_IP`.
+- **Long-run profile publishing (T-163)** — the capability profile ships in
+  the image (`/app/profiles/`) and is copied to `~/.relay/node.yaml` on every
+  start, so image updates ship a fresh capability set instead of reusing a
+  stale persistent-volume copy.
+- **Long-run handler budget (T-163)** — `long_run: true` capabilities get a
+  2-hour budget instead of the 300s default; the daemon sends a `longrun` note
+  that moves the stage to `accepted`, and progress notes reset the TTL (T-160).
+- **Centralized status system (T-078…T-085)** — a status registry with
+  categories + transitions for tasks, stages, nodes, users. `status_changed`
+  SSE events, `node-cli node busy/idle/status/clear-status`.
+- **Capability availability bug fixed (T-036 / T-038)** — a node heartbeating
+  `available: false` no longer overrides availability for other nodes sharing
+  the capability; heartbeat now carries `available: True`.
+- **Cross-platform load normalisation (T-037)** — load reported as a percentage
+  (`(load_avg / cpu_count) * 100`) instead of a raw load average.
 
 ### Fixed
 
-- **T-137: Offline-Node mit gültigem frischem Registration-Secret kann Runtime-Token recoveren (2026-08-10)**: Der `approved`-Gate im Refresh-Recovery-Fall (`src/relay_server/api/v2/auth.py`) blockierte `offline`-Nodes mit 403 — genau der Fall, für den Recovery gedacht ist (abgelaufener Token nach Reboot). Ein `offline`-Node ist kein Sicherheits-Reduktor (er claimt erst nach erneutem Heartbeat), daher darf er mit gültigem frischem Secret seinen Token recoveren. Nur `pending` (noch nicht admin-approved) bleibt blockiert. 1 neuer Test.
-- **T-137a: `node-cli update apply` startet den aktiven `node-daemon`-Service (2026-08-10)**: `SERVICE_UNIT` default in `nodes/common/node_utils.py` zeigte auf `ai-relay-node-cli.service` (den disabled Polling-Daemon). `node-cli update apply` hätte den falschen Service neu gestartet. Default auf `ai-relay-node-daemon.service` (den aktiven SSE-Worker) geändert. 1 neuer Test.
-- **node-daemon & node-cli daemon: Token-Auth-Loop-Selbstheilung (T-108)**: Ein Daemon konnte bei einem invaliden Token-Zustand 21h in einem `Heartbeat 401 → Refresh 401 → Recovery 404`-Loop festhängen (~24k Requests). Drei unabhängige Härtungen im geteilten `RelayClient` (`nodes/common/node_cli.py`) greifen jetzt für beide Daemons: (1) Token-Datei wird bei fehlgeschlagenem Refresh+Recovery neu eingelesen — so heilt sich der Daemon selbst, sobald die Datei extern korrigiert wurde; (2) exponentieller Backoff (10s → 20s → 40s → 80s → 160s, max 300s) ab drei aufeinanderfolgenden 401/403-Fehlern im Heartbeat-/Claim-Loop (nicht bei Verbindungsfehlern, Streak wird bei Erfolg sofort zurückgesetzt); (3) Loop-Detection schreibt bei anhaltendem Auth-Fehler-Loop einen klaren Degraded-Status (`auth_loop=true` + `auth_backoff_seconds`) plus angereichertem Fehler-String in `worker_status.json` — sichtbar in `node-cli daemon status`/Dashboard/Log. Behebt Bug-Report `references/bug-node-daemon-401-loop.md`.
-
-### Added
-
-- **Federation Node — Konzept** (2026-08-01): Neues Node-Konzept für Relay-übergreifende Capabilities. Ein Federation Node heartbeatet `federation` als Capability, verbindet sich zu Remote-Relays und forwardet Tasks. Dashboard-gesteuerte Capability-Freigabe (Admin klickt frei, Node heartbeatet erst dann). Client-Server-Modell: Server bietet Caps an, Client subscribed. P2P-Transport (QUIC/WebRTC) für Internet, HTTP für LAN. Siehe `docs/node/federation.md` und `IDEAS.md`.
-- **Doku-Restrukturierung (T-092)**: Drei neue Konzept-Seiten — `docs/node/concept.md` (Was ein Node ist — ein Typ, Capabilities unterscheiden), `docs/node/capability-concept.md` (Was eine Capability ist — Routing-Label, Beispiele), `docs/node/federation.md` (Federation Node als Konzept). `docs/node/ssn.md` überarbeitet (SSN als Implementierung von `ssn.pages` + `ssn.proxy`, nicht als Node-Typ). `docs/concepts.md` von "drei Node-Typen" auf Capability-Fokus umgestellt. `docs/getting-started.md`, `docs/setup.md`, `docs/node-readme.md`, `docs/node/setup.md` aktualisiert.
-- **Doku von KI-Sprache befreit (T-093)**: Alle 20 `docs/`-Dateien durchgegangen. "KI-less"/"KI-capable" → "With reasoning (`.ai`)"/"Without reasoning (`.native`)". Self-Care-Pattern generisch beschrieben. "AI Relay" → "Relay" in Titeln. `README.md`, `concepts.md`, `capabilities.md`, `design-board.md`, `dashboard.md`, `admin.md`, `AGENT_README.md` aktualisiert.
-- **README Storytelling**: "Why AI-Relay?"-Block erklärt Herkunft (Mac-Bildgenerierung → generischer Task-Switch). "Why use it?"-Sektion mit 6 Gründen.
-- **Server-Setup "From Zero to Relay"**: Titel vereinheitlicht mit Node-Setup "From Zero to Daemon". Verweis auf pluggable Database-Backends (`docs/reference/database-backends.md`).
-- **Review-Fixes**: Heartbeat-Intervall auf `8 s (default)` vereinheitlicht. Scaling-Hinweis in `concepts.md`. Quick-API-Walkthrough (3 curl-Befehle) in `getting-started.md`.
-- **Repository-Cleanup**: `.gitignore` um `__pycache__/`, `*.pyc`, `dist/`, `*.tar.gz`, Bildformate im Root (`/*.png`, `/*.jpg`, etc.), `.hermes/` ergänzt. 160+ `.pyc`-Dateien, 8 `dist/`-Dateien, 101 `.hermes/`-Dateien, `drache_ausmalbild.svg`, `ssn-capability-pages.sh` aus Tracking entfernt.
-
-### Changed
-
-- `docs/concepts.md` — "AI Relay" → "Relay" (Titel + Überschrift). "KI-less coordination layer" → "coordination layer". Capability execution modes: "KI-capable"/"KI-less" → "With reasoning (`.ai`)"/"Without reasoning (`.native`)". Security: "Core is KI-less" → "The core routes tasks by capability string". Glossary: Self-care auf Capability-Sprache umgestellt, neue Einträge für SSN und Federation Node.
-- `docs/node/ssn.md` — Komplett überarbeitet. SSN als Implementierung beschrieben (zwei Capabilities: `ssn.pages` + `ssn.proxy`), nicht als Node-Typ. SSN Proxy als API-Brücke zwischen HTML und Relay. HTMX-Pattern, Deployment, Capability-Profile.
-- `docs/node/capabilities.md` — Tabellen von KI-Sprache auf execution modes umgestellt. "KI-capable" → "With reasoning", "KI-less / tool" → "Without reasoning / tool".
-- `docs/reference/design-board.md` — "KI-less"/"KI-capable" → "no reasoning"/"with reasoning". "AI Relay Core" → "Relay Core". "KI-less router" → "coordination".
-- `docs/server/dashboard.md` — "AI Relay" → "Relay". "KI nodes" → "worker nodes".
-- `docs/server/admin.md` — "KI agent" → "automated agent".
-- `docs/server/setup.md` — "sole database" → "default database". PostgreSQL-Eintrag durch Verweis auf pluggable Database-Backends ersetzt.
-- `AGENT_README.md` — "AI Relay" → "Relay". Verweis auf `docs/node/concept.md` ergänzt.
-- `docs/node-readme.md` — Verweis auf `node-daemon.md` ergänzt.
+- **Offline node token recovery (T-137)** — an offline node with a valid fresh
+  registration secret can recover its runtime token; `pending` (not yet
+  approved) nodes stay blocked.
+- **`node-cli update apply` service target (T-137a)** — restarts
+  `ai-relay-node-daemon.service` (the active SSE worker) instead of the
+  disabled polling daemon.
+- **Daemon auth-loop self-healing (T-108)** — a daemon stuck in a
+  `Heartbeat 401 → Refresh 401 → Recovery 404` loop now self-heals: re-reads
+  the token file on refresh+recovery failure, exponential backoff
+  (10s→…→300s) on consecutive 401/403s, and a `auth_loop=true` degraded status.
+- **Claim-retry protection (T-060)** — stages are finally marked `failed` after
+  `max_retries` instead of being reset to `pending` forever; handler contract
+  tightened (exit != 0 on error, valid JSON only on stdout).
+- **Offline detection for claimed stages (T-061)** — `mark_offline_nodes()`
+  fails all claimed stages of an offline node immediately.
+- **Relay startup crash (T-028)** — missing `RELAY_SESSION_SECRET` no longer
+  crashes the server shortly after boot (fail-fast with a clear message).
 
 ### Removed
 
-- `nodes/handlers/ssn-capability-pages.sh` — aus Tracking entfernt (wird durch Python-Version ersetzt, siehe T-091).
-- `drache_ausmalbild.svg` — aus Repository entfernt.
-- `dist/` — Build-Artifakte aus Tracking entfernt.
-- `.hermes/` — Hermes-Arbeitsdateien (Pläne, OpenCode-Output) aus Tracking entfernt.
-- `__pycache__/` — 160+ Python-Bytecode-Dateien aus Tracking entfernt.
-
-- T-078: Zentrales Status-System — neue Datei `src/relay_server/core/status.py` mit `StatusCategory`-Enum (AVAILABLE, BUSY, PENDING, TERMINAL, OFFLINE), `StatusDef`-Registry für Nodes, Tasks, Stages und Users, sowie Lookup-Helper (`get_category`, `is_terminal`, `is_busy`, `is_available`, `is_pending`, `is_offline`, `node_can_claim`, `node_is_claimable`, `node_can_transition`, `task_can_transition`, `stage_can_transition`, `status_color`). Business-Logik fragt ab jetzt Kategorien statt hartcodierter String-Listen ab. (Phase 18)
-- T-079: DB-Migration — neue `status`-Spalte in `users` (default `active`, backfilled aus `is_active`) und `consecutive_high_load`-Spalte in `nodes`. (Phase 18)
-- T-080: Scheduler auf Kategorie-Logik umgestellt — `claim_stage()` prüft via `node_can_claim()` (AVAILABLE), `fail_orphaned_stages()` nutzt `node_claim_statuses()` statt `status IN ('approved', 'online')`. `mark_offline_nodes()` markiert alle AVAILABLE + BUSY Nodes offline. (Phase 18)
-- T-081: Heartbeat `status` + `load_cap` Felder — Nodes können über `POST /relay/v2/discovery/heartbeat` (und `/worker-heartbeat`) einen expliziten Status-Übergang anfordern (validiert via `node_can_transition`). Auto-Busy: wenn `load >= load_cap` für `auto_busy_consecutive_heartbeats` (default 3) Heartbeats hintereinander, geht der Node auf `busy`; fällt die Last, revertiert zu `idle`. Neue Config `auto_busy_consecutive_heartbeats`. (Phase 18)
-- T-082: `status_changed` SSE-Event — wird auf jedem Status-Übergang gefeuert (Node busy/idle/offline, Stage claimed/completed/failed/timed_out/pending, Task pending/running/completed/failed/timed_out). Payload: `{"entity_type", "entity_id", "old_status", "new_status"}`. (Phase 18)
-- T-083: Dashboard-Rendering — `/api/overview` liefert für jeden Node/Task/Stage ein `status_category` und `status_color` Feld (abgeleitet aus der zentralen Registry). `dashboard.js` nutzt eine `statusColor()`-Funktion mit Per-Status-Overrides (completed=ok/grün, failed=bad/rot) und Fallback für ältere Server. (Phase 18)
-- T-084: `node-cli node busy`/`idle`/`status`/`clear-status` — neue Subcommands. `busy`/`idle` persistieren den gewünschten Status in `ai-relay-agent.json`; der nächste Heartbeat (oder `--once` für einen sofortigen) überträgt ihn. `status` zeigt lokalen (requested) + serverseitigen Status. `clear-status` entfernt den expliziten Status und restauriert die automatische Behandlung. Alle unterstützen `--json`. (Phase 18)
-- T-085: User-Status vorbereitet — `users.status`-Spalte und `USER_STATUSES`-Registry (`active`/`inactive`) angelegt. Noch keine aktive Auswertung; später erweiterbar für Session-Timeout, Dashboard-Filter, Task-Routing. (Phase 18)
-- Neue Tests: `tests/test_status.py` (23 Tests für Registry, Kategorien, Transitionen, Node-Helper, Farb-Mapping), `tests/test_status_system.py` (8 Tests für Heartbeat-Status, Auto-Busy, `status_changed`-Events). `tests/nodes/test_node_cli.py` um Parser- und Persistenz-Tests für die neuen `node`-Subcommands erweitert. (Phase 18)
-
-- T-075: Dynamic Node Routes — nodes can declare API routes in their capability YAML (`routes:` block). Routes are registered dynamically on heartbeat and deregistered on node offline. Three auth modes: `session` (Dashboard cookie), `node_token` (Bearer), `none`. Reachable under `/relay/v2/dashboard/api/node-routes/{node_id}/{path}`. New `node_routes` table, `RouteDeclaration` model, `NodeRouteMiddleware` proxy. (Phase 15)
-- T-076: SSN Proxy — HTMX server on `127.0.0.1:8790` for capability pages. Heartbeats its endpoints as Dynamic Routes. All relay interactions are server-side with the SSN node token. No session cookie for task-submit or storage. HTMX templates for mflux image generation. New `nodes/common/ssn_proxy.py`, `systemd/ai-relay-ssn-proxy.service`. (Phase 16)
-
-- T-072: Node-level `node_name` + `description` per heartbeat — nodes can set `node_name` and `description` as top-level fields in `ai-relay-agent.json`. The `node-cli` daemon forwards them in every heartbeat; the server updates the `nodes` table. `node-cli node list` shows the description (truncated to 60 chars) as a `Desc:` line, `node-cli node info` prints it in full. New `nodes.description` column (auto-migrated). (Phase 14)
-- T-071: `node-cli node list` — new subcommand querying `GET /relay/v2/discovery/nodes` and printing one block per node (availability icon, name, node_id, status, role, endpoint, last heartbeat, advertised capabilities). (Phase 14)
-- T-071: `node-cli node info <node_id>` — new subcommand showing detailed info for a single node (status, role, availability, endpoint, load, queue depth, timestamps, and per-capability availability). Queries `?status=all` with a fallback to the unfiltered endpoint on older servers. (Phase 14)
-- T-060: Claim-Retry-Schutz — `release_expired_claims()` → `release_or_fail_claims()` mit `retry_count`-Tracking. Stages werden nach `max_retries` (default 2 → 3 Versuche) endgültig als `failed` markiert statt auf `pending` zurückgesetzt. Verhindert Endlos-Reclaim bei Handler-Fehlern (RAM-Overflow). (Phase 11)
-- T-061: Offline-Erkennung für claimed Stages — `mark_offline_nodes()` failt alle claimed Stages eines offline Nodes sofort. Tasks werden auf `failed` gesetzt wenn alle Stages terminal sind. Events: `stage_failed`, `task_failed`. (Phase 11)
-- Daemon `_failed_tasks`-Tracking — `node_cli.py` zählt Fehlversuche pro Task und überspringt Tasks nach `max_retries`. (T-060)
-- `StageSummary`-Modelle um `retry_count`-Feld ergänzt — wird in API-Responses und CLI-Output angezeigt. (T-060)
-- Handler-Contract geschärft: Handler MUSS bei Fehlern exit != 0 returnen, DARF bei exit 0 nur valides JSON auf stdout schreiben. (T-060)
-
-- T-052: Task notes — nodes can leave free-form text notes on a task while it is being worked on (mini-chat between collaborating nodes). New table `task_notes`, new endpoint `POST /relay/v2/scheduler/tasks/{task_id}/notes` (body `{"message": "..."}`, 1..2000 chars), `GET /relay/v2/scheduler/tasks/{task_id}` now includes a `notes` array ordered by `created_at`. New CLI subcommand `node-cli task note <task_id> <message>` and `node-cli task wait` streams new notes live as they arrive.
-- T-059: `node-cli docs [<name>]` — new subcommand to read the relay's public documentation from a headless node. Without an argument lists all available documents (`GET /relay/v2/docs`), with a name fetches a single page (`GET /relay/v2/docs/<name>`) and renders the server's HTML response as terminal-friendly text. Eliminates the need for `curl` on nodes without a browser.
-- T-053: Capability details on claim and task-view — `POST /relay/v2/scheduler/claim` and `GET /relay/v2/scheduler/tasks/{task_id}` now include `capability_details` (description, type, input_schema) on each stage, resolved from the node's heartbeat-advertised metadata. The `node-cli` daemon now forwards `description`, `type` and `input_schema` from the YAML profile in every heartbeat; `node-cli claim`, `task result` and `task wait` print the resolved metadata.
-- T-048: Capability-eigene Dashboard-Seiten — `dashboard_page`-Feld im Capability-YAML-Profil, `node-cli artifact upload --capability <name>` lädt die HTML-Seite auf den Server hoch (Speicher unter `~/.relay/capability-pages/<name>/dashboard.html`, kein Artifact-DB-Eintrag), `GET /relay/v2/capabilities/<name>/dashboard-page` servt die Seite, Dashboard-Tab "Capabilities" zeigt klickbare Karten und bettet die Seite in einem same-origin iFrame ein.
-- `owner_node_id` routing — tasks with `owner_node_id` set can only be claimed by that specific node. `Scheduler.claim_stage()` skips stages whose task owner does not match the claiming node. (T-046)
-- `node-cli task submit --owner <node_id>` — new flag pins a task to a specific node by setting `owner_node_id` in the request body. The field is omitted from the body when the flag is not used. (T-046)
-- `node-cli capabilities server` — new subcommand to query all capabilities registered on the relay server (across all nodes), including node names. `RelayClient._get()` added for GET requests. (T-035)
-- Cross-platform load normalisation: `(load_avg / cpu_count) * 100` — load is now reported as a percentage (0–100%) instead of raw load average, making it comparable across Linux, macOS, and Windows. `load_cap` default is now `cpu_count * 100` (dynamically calculated). (T-037)
-
-### Changed
-
-- T-071: `node-cli capabilities server` and `node-cli capabilities info <name>` now display each node as `node_name (node_id)` instead of only `node_name`, so a node can be addressed unambiguously in `node info`. (Phase 14)
-- `src/relay_server/core/discovery.py` — `list_nodes(status=...)` now treats `status="all"` as a keyword that disables status filtering (returns every node, including offline/pending). Previously `"all"` was treated as a literal status value and returned an empty list. (T-071)
-- `src/relay_server/api/v2/scheduler.py` — `POST /scheduler/tasks` and `POST /scheduler/task-simple` no longer default `owner_node_id` to the submitting node's ID. `owner_node_id` is now opt-in (only set when the client explicitly provides it). Tasks without an owner remain claimable by any matching node. (T-046)
-- `src/relay_server/models/__init__.py` — `HeartbeatRequest.load` and `NodeHeartbeatRequest.load` validation range changed from `[0.0, 1.0]` to `[0.0, 100.0]` to match the new percentage-based load reporting.
-- `nodes/common/poller.py` — `load_cap` removed from `DEFAULT_CONFIG` (now calculated from `os.cpu_count()` at runtime).
-- `docs/node/capabilities.md` — "Node types" section replaced with "Capability types" table (KI-capable `.ai` vs KI-less `.native`), clarifying that a single node can offer both types side by side.
-
-### Removed
-
-- `nodes/common/poller.py` — legacy Poller class removed. All utility functions (load_config, load_meta, load_token, save_token, etc.) extracted to `nodes/common/node_utils.py`. The node-cli daemon (`node_cli.py`) has fully replaced the old poller as the recommended worker implementation. (T-039)
-
-### Added
-
-- `nodes/common/node_utils.py` — shared utility functions extracted from the legacy poller. Used by `node_cli.py` and `RelayClient` for config/meta/token file I/O.
-- `node-cli task result <id>` — query task status, stages, and linked artifacts.
-- `node-cli task wait <id> [--interval N]` — poll until task completion, then show result. (T-040)
-
-### Fixed
-
-- `src/relay_server/core/discovery.py` — Capability-Availability-Bug: a node heartbeating with `available: false` no longer overrides the availability for all other nodes sharing the same capability. Now checks if any other node still has the capability available before setting it to false. (T-036)
-- `nodes/common/node_cli.py` — Heartbeat body was missing `available: True`, causing the server to set the node to `available: false` on every heartbeat. (T-038)
-- `src/relay_server/core/discovery.py` — `endpoint` field removed from `_node_row_to_dict()` to prevent leaking internal network addresses between nodes in the public discovery response. (T-048)
-
-### Changed
-
-- Complete `docs/` restructure: `docs/concepts.md` (central concept doc), `docs/server/` (setup, admin, dashboard), `docs/node/` (setup, cli-reference, capabilities, token-lifecycle), `docs/reference/` (api, design-board). Old files (`admin/`, `node-operator/`, `adr/`, `nodes-design.md`, `token-concept.md`, `design-board.md`, `dashboard.md`, `BUILDING.md`) removed.
-- `README.md` — doc table updated with new structure, legacy name mapping table, Python 3.11+ requirement, linting/formatting commands.
-- `STATUS.md` — Phase 6 completed with all T-001–T-033 tasks, test count updated to 203.
-- `AGENT_README.md` — cross-links updated to new doc paths.
-- All peripheral READMEs (`nodes/common/`, `nodes/storage-node/`, `examples/nodes/`, `examples/agent-integration/`) — cross-links updated.
-- Docs serving layer (`src/relay_server/api/v2/docs.py`) — whitelist updated with new doc names and backward-compat aliases.
-- Dashboard redirect (`/agent-readme`) and login.html link updated to new doc names.
+- `nodes/worker/worker.py` — superseded by `nodes/common/node_cli.py`.
+- Legacy `nodes/storage-node/` (storage_node.py, poller, Dockerfile, compose).
+- Build artifacts, `__pycache__/`, and `.hermes/` working files from tracking.
 
 ### Deprecated
 
-- `nodes/worker/worker.py` — removed. Superseded by `nodes/common/node_cli.py` which provides daemon control, capability management, artifact upload/download, and 15+ CLI commands. No code in the repository referenced `worker.py`.
+- The legacy `nodes/common/poller.py` Poller class — replaced by the
+  `node-cli` daemon. Utility functions moved to `nodes/common/node_utils.py`.
 
-### Fixed
-
-- `nodes/common/capability_loader.py` — `description` field added to allowed keys and normalized keys (was silently rejected by YAML profile validation).
-- `docs/server/admin.md` — clone URL corrected from `github.com/felix/` to `github.com/Kesuek/`.
-- `docs/server/{setup,admin,dashboard}.md` and `CHANGELOG.md` — `relay-recovery` syntax corrected to include `--db-path ~/.relay/server.db`.
-- `docs/node/token-lifecycle.md` — added missing `adm_` and `bs_` token types, added "Automatic token cleanup" section.
-- `docs/concepts.md` — added token-cleanup watchdog note to security model.
-- `docs/reference/api.md` — `worker-heartbeat` endpoint documented with payload and `replace_capabilities=True`.
-- `docs/reference/design-board.md` — db-node capabilities corrected to use `.native` suffix.
-- `docs/node/cli-reference.md` — env-var table corrected (`RELAY_RUNTIME_TOKEN` is not yet honoured by the CLI; server-only vars clearly marked).
+[Unreleased]: https://github.com/Kesuek/ai-relay-service/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/Kesuek/ai-relay-service/releases/tag/v2.0.0
