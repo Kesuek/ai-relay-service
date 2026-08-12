@@ -220,6 +220,8 @@ class TestBridgeUpload:
         assert captured["payload"]["mode"] == "bridge"
         assert captured["payload"]["source"] == "sims4"
         assert captured["payload"]["type"] == "full"
+        # T-162: the original filename is carried so a restore keeps it.
+        assert captured["payload"]["filename"] == "save.tar.gz"
         assert _BridgeHandler.uploaded == b"backupdata"
         out = capsys.readouterr().out
         assert "bk_123" in out
