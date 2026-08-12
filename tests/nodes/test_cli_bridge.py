@@ -98,6 +98,7 @@ def _make_client(isolated_paths: Path) -> RelayClient:
 class _BridgeHandler(BaseHTTPRequestHandler):
     uploaded: bytes = b""
     download_body: bytes = b"payload-from-storage"
+    download_filename: str = "data.bin"
     seen_auth: str | None = None
 
     def log_message(self, format, *args):  # noqa: A002 — silence
@@ -117,6 +118,8 @@ class _BridgeHandler(BaseHTTPRequestHandler):
         body = type(self).download_body
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
+        # T-162: echo the original filename so the caller can restore it.
+        self.send_header("X-Filename", type(self).download_filename)
         self.end_headers()
         self.wfile.write(body)
 
@@ -125,6 +128,7 @@ class _BridgeHandler(BaseHTTPRequestHandler):
 def bridge_server():
     _BridgeHandler.uploaded = b""
     _BridgeHandler.download_body = b"payload-from-storage"
+    _BridgeHandler.download_filename = "data.bin"
     _BridgeHandler.seen_auth = None
     server = HTTPServer(("127.0.0.1", 0), _BridgeHandler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
@@ -269,6 +273,22 @@ class TestBridgeDownload:
         rc = cli.main(["bridge", "download", "--backup", "bk_888", "-o", str(out_path)])
         assert rc == 0
         assert out_path.read_bytes() == b"payload-from-storage"
+
+    def test_download_defaults_to_x_filename_header(self, isolated_paths, monkeypatch, capsys, bridge_server, tmp_path):
+        """T-162: without -o, the caller restores the original filename
+        from the X-Filename response header instead of the channel id.
+        The file lands in the current working directory."""
+        client = _make_client(isolated_paths)
+        url = f"http://127.0.0.1:{bridge_server.server_port}/download/ch_y"
+        _mock_task_lifecycle(monkeypatch, download_url=url)
+        _wire_client(monkeypatch, isolated_paths, client)
+        _BridgeHandler.download_filename = "sims4-save.tar.gz"
+
+        monkeypatch.chdir(tmp_path)
+        rc = cli.main(["bridge", "download", "--channel", "ch_y"])
+        assert rc == 0
+        out = tmp_path / "sims4-save.tar.gz"
+        assert out.read_bytes() == b"payload-from-storage"
 
     def test_download_requires_channel_or_backup(self, isolated_paths, monkeypatch, capsys):
         client = _make_client(isolated_paths)
