@@ -93,7 +93,7 @@ curl -X POST http://<relay-ip>:8788/relay/v2/admin/nodes/<node_id>/approve \
 | `NODE_ENDPOINT` | no | auto (own IP) | Endpoint through which the relay reaches the node (for bridge routes). **Derived automatically from the node IP + port 8791** — only set if the relay cannot reach the node directly. |
 | `NODE_ROLE` | no | `worker` | `service` for storage (set in the image) |
 | `NODE_REGISTRATION_SECRET` | no | — | Pre-created `rs_...` secret for registration |
-| `RELAY_SERVER_IP` | no | from RELAY_URL | Explicit relay server IP for the bridge source-IP allowlist. **Resolved automatically: `RELAY_SERVER_IP` → `RELAY_URL` → mDNS.** Only set if neither `RELAY_URL` nor mDNS yields a resolvable IP. |
+| `RELAY_SERVER_IP` | no | from RELAY_URL | Explicit override for the bridge source-IP allowlist. **Practically never needed** — the allowlist resolves the relay IP automatically from `RELAY_URL` (or mDNS when unset). Only set to force a different IP than the one `RELAY_URL` resolves to. |
 | `RELAY_STORAGE_PATH` | no | `/storage` | Base directory for files (set in the image) |
 
 > **`RELAY_URL` is optional (T-152).** If you omit it, the node finds the relay
@@ -101,11 +101,10 @@ curl -X POST http://<relay-ip>:8788/relay/v2/admin/nodes/<node_id>/approve \
 > `ai-relay.local`). This works when relay + node are on the same LAN.
 >
 > The bridge allowlist (`storage.upload_channel`/`download_channel`) resolves
-> the relay IP through the same cascade: **`RELAY_SERVER_IP` → `RELAY_URL` →
-> mDNS**. So in an mDNS-only deployment (no `RELAY_URL`, no
-> `RELAY_SERVER_IP`) the allowlist still gets the relay IP from mDNS. You only
-> need `RELAY_SERVER_IP` explicitly when mDNS is unavailable **and** the relay
-> is not resolvable via DNS.
+> the relay IP from `RELAY_URL` — or from mDNS when `RELAY_URL` is unset — so
+> it always gets the relay IP automatically. `RELAY_SERVER_IP` is only an
+> explicit override to force a different IP; you don't need it in normal
+> operation.
 
 ## Volumes
 
