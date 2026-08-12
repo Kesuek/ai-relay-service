@@ -70,7 +70,10 @@ def _run(handler_name: str, payload: dict, storage_path: Path, **env) -> dict:
     ctx = _ctx(storage_path)
     # handler_runner only overlays HANDLER_ENV_KEYS from the context; any
     # extra env vars the test wants to set must land in os.environ so the
-    # subprocess inherits them directly.
+    # subprocess inherits them directly. For the relay-context keys
+    # (RELAY_BASE_URL / RELAY_TOKEN_FILE / RELAY_TASK_ID) the context wins,
+    # so merge those into ctx too (not just os.environ).
+    ctx.update({k: str(v) for k, v in env.items()})
     old = os.environ.get("RELAY_STORAGE_PATH")
     os.environ["RELAY_STORAGE_PATH"] = str(storage_path)
     prev_extras = {k: os.environ.get(k) for k in env}
@@ -437,3 +440,92 @@ class TestArchive:
     def test_archive_traversal_rejected(self, tmp_path: Path):
         result = _run("archive.py", {"path": "../x", "target": "x.tar.gz"}, tmp_path)
         assert "traversal" in _err_text(result).lower()
+
+
+# ---------------------------------------------------------------------------
+# Progress notes (T-160) — handlers report progress via POST /notes
+# ---------------------------------------------------------------------------
+
+
+class TestProgressNotes:
+    """Handlers with RELAY_TASK_ID/RELAY_BASE_URL/RELAY_TOKEN_FILE set send
+    progress notes to the relay (best-effort, fail-tolerant)."""
+
+    def _note_server(self, tmp_path: Path):
+        """Spin up a throwaway HTTP server capturing POST /notes bodies."""
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        captured: list[dict] = []
+
+        class _H(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):  # noqa: A002
+                pass
+
+            def do_POST(self):  # noqa: N802
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length) or b"{}")
+                captured.append({"path": self.path, **body})
+                self.send_response(200)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+        server = HTTPServer(("127.0.0.1", 0), _H)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        return server, t, captured
+
+    def test_archive_sends_done_note(self, tmp_path: Path):
+        server, t, captured = self._note_server(tmp_path)
+        try:
+            d = tmp_path / "proj"
+            d.mkdir()
+            (d / "a.txt").write_text("hello")
+            (tmp_path / "token").write_text("rt_test")
+            env = {
+                "RELAY_TASK_ID": "tk-progress",
+                "RELAY_BASE_URL": f"http://127.0.0.1:{server.server_port}",
+                "RELAY_TOKEN_FILE": str(tmp_path / "token"),
+            }
+            result = _run("archive.py", {"path": "proj", "target": "proj.tar.gz"}, tmp_path, **env)
+            assert result["status"] == "archived", result
+            # Small archive (1 file < _PROGRESS_EVERY) → only the final "done" note.
+            assert any("done" in c["message"] for c in captured), captured
+            assert all(c["path"].endswith("/tasks/tk-progress/notes") for c in captured), captured
+        finally:
+            server.shutdown()
+            t.join(timeout=2)
+
+    def test_extract_sends_done_note(self, tmp_path: Path):
+        server, t, captured = self._note_server(tmp_path)
+        try:
+            import io
+            import tarfile
+
+            tgz_path = tmp_path / "bundle.tar.gz"
+            with tarfile.open(tgz_path, mode="w:gz") as tf:
+                payload = b"hello"
+                info = tarfile.TarInfo("a.txt")
+                info.size = len(payload)
+                tf.addfile(info, io.BytesIO(payload))
+
+            (tmp_path / "token").write_text("rt_test")
+            env = {
+                "RELAY_TASK_ID": "tk-progress",
+                "RELAY_BASE_URL": f"http://127.0.0.1:{server.server_port}",
+                "RELAY_TOKEN_FILE": str(tmp_path / "token"),
+            }
+            result = _run("extract.py", {"path": "bundle.tar.gz"}, tmp_path, **env)
+            assert result["status"] == "extracted", result
+            assert any("done" in c["message"] for c in captured), captured
+        finally:
+            server.shutdown()
+            t.join(timeout=2)
+
+    def test_note_does_not_break_without_task_env(self, tmp_path: Path):
+        # No RELAY_TASK_ID → _note must be a silent no-op, pack still works.
+        d = tmp_path / "proj"
+        d.mkdir()
+        (d / "a.txt").write_text("hello")
+        result = _run("archive.py", {"path": "proj", "target": "proj.tar.gz"}, tmp_path)
+        assert result["status"] == "archived", result
