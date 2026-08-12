@@ -142,7 +142,7 @@ def bridge_server():
 # ---------------------------------------------------------------------------
 
 
-def _mock_task_lifecycle(monkeypatch, upload_url=None, download_url=None, inline=None):
+def _mock_task_lifecycle(monkeypatch, upload_url=None, download_url=None, inline=None, result_filename=None):
     """Mock submit_simple_task + get_task so _wait_for_result returns a
     completed stage carrying the given bridge URL / inline data."""
 
@@ -152,6 +152,8 @@ def _mock_task_lifecycle(monkeypatch, upload_url=None, download_url=None, inline
     def fake_get(self, task_id):
         if download_url is not None:
             result = {"status": "restored", "download_url": download_url}
+            if result_filename is not None:
+                result["filename"] = result_filename
         elif upload_url is not None:
             result = {"status": "open", "upload_url": upload_url, "channel_id": "ch_x"}
         elif inline is not None:
@@ -288,6 +290,21 @@ class TestBridgeDownload:
 
         monkeypatch.chdir(tmp_path)
         rc = cli.main(["bridge", "download", "--channel", "ch_y"])
+        assert rc == 0
+        out = tmp_path / "sims4-save.tar.gz"
+        assert out.read_bytes() == b"payload-from-storage"
+
+    def test_download_backup_defaults_to_manifest_filename(self, isolated_paths, monkeypatch, capsys, bridge_server, tmp_path):
+        """T-162: a backup restore without -o uses the manifest's filename
+        (result.filename) even though the /backup/ route sends no X-Filename
+        header."""
+        client = _make_client(isolated_paths)
+        url = f"http://127.0.0.1:{bridge_server.server_port}/backup/888"
+        _mock_task_lifecycle(monkeypatch, download_url=url, result_filename="sims4-save.tar.gz")
+        _wire_client(monkeypatch, isolated_paths, client)
+
+        monkeypatch.chdir(tmp_path)
+        rc = cli.main(["bridge", "download", "--backup", "bk_888"])
         assert rc == 0
         out = tmp_path / "sims4-save.tar.gz"
         assert out.read_bytes() == b"payload-from-storage"
