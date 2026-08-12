@@ -342,6 +342,23 @@ class TestRegisterTempRoute:
         assert resp.status_code == 400, resp.text
         assert "must start with" in resp.json()["detail"]
 
+    def test_register_allows_backup_bridge_path(self, client: TestClient):
+        """T-158: the storage node registers /backup/ bridge routes for
+        backup.create/restore. These must be allowed (T-162 regression)."""
+        admin_token = _seed_admin_token(client)
+        node_id, node_token = _register_worker_node(client, "backup-owner", admin_token)
+        resp = client.post(
+            "/relay/v2/dashboard/api/node-routes/register",
+            headers={"Authorization": f"Bearer {node_token}"},
+            json={
+                "path": "/backup/bk_abc123", "method": "POST", "ttl_seconds": 3600,
+                "upstream": "http://storage-node:8791/backup/bk_abc123",
+                "channel_id": "bk_bk_abc123",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["path"] == "/backup/bk_abc123"
+
     def test_register_rejects_missing_channel_id(self, client: TestClient):
         admin_token = _seed_admin_token(client)
         _, node_token = _register_worker_node(client, "ch-owner", admin_token)
