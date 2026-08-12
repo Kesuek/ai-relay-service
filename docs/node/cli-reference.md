@@ -1002,6 +1002,78 @@ node-cli --json route list
 
 ---
 
+## bridge
+
+Stream large files directly between the caller and a storage node over a
+temporary **bridge route** (T-129). Unlike `artifact upload`/`download`
+(which stage the file through the relay artifact store), the bridge way
+streams chunkwise through the relay proxy with no intermediate buffer —
+the right choice for multi-GB files such as the Sims 4 backup.
+
+The command opens the channel by submitting a bridge task, waits for the
+stage to complete, extracts the returned `upload_url`/`download_url`, and
+streams the file against it chunkwise (Bearer node-token auth). Two
+targets are supported:
+
+| Flag | Channel task | Use case |
+|------|--------------|----------|
+| *(default)* | `storage.upload_channel` / `storage.download_channel` | Any large file, addressed by `channel_id` |
+| `--backup` / `--backup <id>` | `backup.create` (`mode=bridge`) / `backup.restore` | Large backups, addressed by `source`+`type` / `backup_id` |
+
+### bridge upload
+
+```bash
+# Storage channel — channel id minted when omitted.
+node-cli bridge upload <file> [--channel <id>] [--name <name>] [--priority N]
+
+# Backup — declares the upload as a versioned backup.
+node-cli bridge upload <file> --backup [--source <name>] [--type full|incremental]
+```
+
+Calls `storage.upload_channel` (or `backup.create` with `mode: bridge`),
+waits for completion, then streams `<file>` chunkwise (64 KB) to the
+returned `upload_url`. On success prints the number of bytes uploaded
+(plus the `channel_id` or `backup_id` when present).
+
+### bridge download
+
+```bash
+# Storage channel.
+node-cli bridge download --channel <id> [-o <path>]
+
+# Backup — small backups come back inline, large ones stream via bridge.
+node-cli bridge download --backup <id> [-o <path>]
+```
+
+Calls `storage.download_channel` (or `backup.restore`). Small backups
+(`<=10 MB`) arrive inline as `data_base64` and are written directly.
+Large ones stream chunkwise from the returned `download_url`. Without
+`-o`, the output file is named after the `channel_id`/`backup_id`.
+
+### Examples
+
+```bash
+# Push a 4.1 GB Sims 4 save to the NAS as a versioned backup.
+node-cli bridge upload ~/Sims4/save.tar.gz --backup --source sims4 --type full
+
+# Stream it back.
+node-cli bridge download --backup bk_abc123 -o ~/restore.tar.gz
+
+# Generic large-file handoff via an explicit channel.
+node-cli bridge upload /tmp/dump.bin --channel ch_dump
+node-cli bridge download --channel ch_dump -o /tmp/dump.bin
+```
+
+### Exit codes
+
+| Code | Condition |
+|---|---|
+| 0 | Uploaded / downloaded successfully |
+| 1 | Task failed, or bridge streaming failed |
+| 2 | Missing input (file not found, no `--channel`/`--backup`) |
+
+---
+
 ## Configuration
 
 ### File paths
