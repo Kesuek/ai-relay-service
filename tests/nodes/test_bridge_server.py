@@ -21,7 +21,7 @@ sys.path.insert(0, str(BRIDGE_DIR))
 
 from bridge_server import (  # noqa: E402
     _backup_data_path,
-    _channel_path,
+    _channel_dir,
     _resolve_server_ip,
     create_app,
 )
@@ -89,14 +89,37 @@ class TestUploadChannel:
         assert data["status"] == "stored"
         assert data["channel_id"] == "ch_big"
         assert data["size_bytes"] == 4096
-        assert (storage_base / "channels" / "ch_big").read_bytes() == body
+        # Without an X-Filename header the file lands as data.bin in the
+        # channel dir (T-162).
+        assert (storage_base / "channels" / "ch_big" / "data.bin").read_bytes() == body
+
+    def test_preserves_filename_header(self, storage_base: Path):
+        client = _client("192.0.2.10", storage_base)
+        body = b"tar contents"
+        r = client.post(
+            "/upload/ch_named", content=body, headers={"X-Filename": "sims4-save.tar.gz"}
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["filename"] == "sims4-save.tar.gz"
+        assert (storage_base / "channels" / "ch_named" / "sims4-save.tar.gz").read_bytes() == body
+
+    def test_filename_traversal_stripped(self, storage_base: Path):
+        client = _client("192.0.2.10", storage_base)
+        r = client.post(
+            "/upload/ch_evil", content=b"x", headers={"X-Filename": "../../etc/passwd"}
+        )
+        assert r.status_code == 200, r.text
+        # The traversal is stripped to the basename; nothing escapes channels/.
+        assert r.json()["filename"] == "passwd"
+        assert (storage_base / "channels" / "ch_evil" / "passwd").is_file()
+        assert not (storage_base / "etc" / "passwd").exists()
 
     def test_invalid_channel_id_rejected(self, storage_base: Path):
         client = _client("192.0.2.10", storage_base)
         # Starlette normalizes ".."/"." out of the path before the route
         # matches, so these land as 404 (still a rejection — the escape
         # never reaches the handler). The validator is covered below
-        # via the direct _channel_path unit test.
+        # via the direct _channel_dir unit test.
         r = client.post("/upload/..", content=b"bad")
         assert r.status_code in (400, 404)
 
@@ -105,7 +128,7 @@ class TestUploadChannel:
         r = client.post("/upload/ch_empty", content=b"")
         assert r.status_code == 200
         assert r.json()["size_bytes"] == 0
-        assert (storage_base / "channels" / "ch_empty").read_bytes() == b""
+        assert (storage_base / "channels" / "ch_empty" / "data.bin").read_bytes() == b""
 
 
 # ---------------------------------------------------------------------------
@@ -116,12 +139,15 @@ class TestUploadChannel:
 class TestDownloadChannel:
     def test_streams_file_back(self, storage_base: Path):
         client = _client("192.0.2.10", storage_base)
-        # Upload first.
-        client.post("/upload/ch_dl", content=b"download me")
+        # Upload first (with a filename so the download echoes it).
+        client.post(
+            "/upload/ch_dl", content=b"download me", headers={"X-Filename": "save.tar.gz"}
+        )
         r = client.get("/download/ch_dl")
         assert r.status_code == 200
         assert r.content == b"download me"
         assert r.headers.get("content-length") == str(len(b"download me"))
+        assert r.headers.get("x-filename") == "save.tar.gz"
 
     def test_missing_file_404(self, storage_base: Path):
         client = _client("192.0.2.10", storage_base)
@@ -135,30 +161,30 @@ class TestDownloadChannel:
 
 
 class TestChannelPathValidator:
-    """The _channel_path guard rejects escapes even when reached directly."""
+    """The _channel_dir guard rejects escapes even when reached directly."""
 
     def test_rejects_dot(self, storage_base: Path):
         with pytest.raises(ValueError):
-            _channel_path(".")
+            _channel_dir(".")
 
     def test_rejects_dotdot(self, storage_base: Path):
         with pytest.raises(ValueError):
-            _channel_path("..")
+            _channel_dir("..")
 
     def test_rejects_slash(self, storage_base: Path):
         with pytest.raises(ValueError):
-            _channel_path("sub/dir")
+            _channel_dir("sub/dir")
 
     def test_rejects_backslash(self, storage_base: Path):
         with pytest.raises(ValueError):
-            _channel_path("sub\\dir")
+            _channel_dir("sub\\dir")
 
     def test_rejects_empty(self, storage_base: Path):
         with pytest.raises(ValueError):
-            _channel_path("")
+            _channel_dir("")
 
     def test_accepts_plain_id(self, storage_base: Path):
-        p = _channel_path("ch_abc123")
+        p = _channel_dir("ch_abc123")
         assert p == storage_base / "channels" / "ch_abc123"
         assert p.parent.exists()
 

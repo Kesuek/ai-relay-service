@@ -206,6 +206,28 @@ class TestBackupCreate:
         assert mf.is_file()
         assert not (tmp_path / "backups" / backup_id / "data.bin").exists()
 
+    def test_create_preserves_filename_in_manifest(self, tmp_path: Path):
+        result = _run(
+            "backup_create.py",
+            {"source": "sims4", "type": "full", "data_base64": "aGVsbG8=", "filename": "sims4-save.tar.gz"},
+            tmp_path,
+        )
+        assert result["status"] == "created", result
+        backup_id = result["backup_id"]
+        manifest = json.loads((tmp_path / "backups" / backup_id / "manifest.json").read_text())
+        assert manifest["filename"] == "sims4-save.tar.gz"
+
+    def test_create_strips_traversal_from_filename(self, tmp_path: Path):
+        result = _run(
+            "backup_create.py",
+            {"source": "sims4", "type": "full", "data_base64": "aGVsbG8=", "filename": "../../etc/passwd"},
+            tmp_path,
+        )
+        assert result["status"] == "created", result
+        backup_id = result["backup_id"]
+        manifest = json.loads((tmp_path / "backups" / backup_id / "manifest.json").read_text())
+        assert manifest["filename"] == "passwd"
+
 
 class TestBackupList:
     def test_list_empty(self, tmp_path: Path):
@@ -253,6 +275,17 @@ class TestBackupRestore:
         assert result["status"] == "restored"
         assert base64.b64decode(result["data_base64"]) == b"hello"
         assert result["size_bytes"] == 5
+
+    def test_restore_returns_preserved_filename(self, tmp_path: Path):
+        created = _run(
+            "backup_create.py",
+            {"source": "sims4", "type": "full", "data_base64": "aGVsbG8=", "filename": "sims4-save.tar.gz"},
+            tmp_path,
+        )
+        backup_id = created["backup_id"]
+        result = _run("backup_restore.py", {"backup_id": backup_id}, tmp_path)
+        assert result["status"] == "restored"
+        assert result["filename"] == "sims4-save.tar.gz"
 
     def test_restore_missing(self, tmp_path: Path):
         result = _run("backup_restore.py", {"backup_id": "bk_deadbeef"}, tmp_path)
