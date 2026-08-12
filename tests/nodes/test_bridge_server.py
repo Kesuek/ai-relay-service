@@ -261,7 +261,24 @@ class TestResolveServerIP:
         monkeypatch.delenv("RELAY_SERVER_IP", raising=False)
         monkeypatch.delenv("RELAY_URL", raising=False)
         monkeypatch.delenv("RELAY_BASE_URL", raising=False)
+        # mDNS discovery finds nothing on this network → still None.
+        monkeypatch.setattr(
+            "nodes.common.relay_client._discover_relay_mdns",
+            lambda timeout=2.0: None,
+        )
         assert _resolve_server_ip() is None
+
+    def test_mdns_fallback_resolves_ip(self, monkeypatch: pytest.MonkeyPatch):
+        # T-152: when RELAY_URL is unset, the bridge allowlist falls back to
+        # mDNS discovery so an mDNS-only deployment still gets the relay IP.
+        monkeypatch.delenv("RELAY_SERVER_IP", raising=False)
+        monkeypatch.delenv("RELAY_URL", raising=False)
+        monkeypatch.delenv("RELAY_BASE_URL", raising=False)
+        monkeypatch.setattr(
+            "nodes.common.relay_client._discover_relay_mdns",
+            lambda timeout=2.0: "http://192.168.1.50:8788",
+        )
+        assert _resolve_server_ip() == "192.168.1.50"
 
     def test_unresolvable_hostname_returns_none(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("RELAY_SERVER_IP", raising=False)

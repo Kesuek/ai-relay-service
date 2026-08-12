@@ -1,51 +1,52 @@
-# Storage-Node auf QNAP Container Station
+# Storage Node on QNAP Container Station
 
-Der **Storage-Node** (`ai-relay-storage`) ist ein NAS-Storage-Dienst für den
-AI-Relay-Service. Er speichert Dateien, verwaltet Backups und überträgt
-Ordner als `.tar.gz` — ideal für eine QNAP als zentraler Storage.
+The **Storage Node** (`ai-relay-storage`) is a NAS storage service for the
+AI-Relay service. It stores files, manages backups, and transfers folders as
+`.tar.gz` — ideal for a QNAP as central storage.
 
-Dieses Image ist für **x86_64 (Intel/AMD)** QNAP-Modelle gebaut.
+This image is built for **x86_64 (Intel/AMD)** QNAP models.
 
-## Voraussetzungen
+## Prerequisites
 
-- QNAP mit **Container Station** (QTS/QuTS hero)
-- x86_64-CPU (Intel/AMD) — ARM-Modelle brauchen ein eigenes Image
-- Ein laufender **Relay-Server** (der Storage-Node verbindet sich zu ihm)
+- QNAP with **Container Station** (QTS/QuTS hero)
+- x86_64 CPU (Intel/AMD) — ARM models need a separate image
+- A running **Relay server** (the storage node connects to it)
 
 ## Installation
 
-### 1. Image laden
+### 1. Load the image
 
-**Variante A — direkt von GHCR (empfohlen):**
+**Option A — directly from GHCR (recommended):**
 
-Das Image ist public auf GitHub Container Registry. Die QNAP kann es direkt
-pullen — kein Login nötig:
+The image is public on the GitHub Container Registry. The QNAP can pull it
+directly — no login required:
 
 ```bash
 docker pull ghcr.io/kesuek/ai-relay-storage:latest
 ```
 
-**Variante B — aus dem Release-Asset:**
+**Option B — from the release asset:**
 
-Lade das Release-Asset `ai-relay-storage-bundle.tar` von der
-[Releases-Seite](https://github.com/Kesuek/ai-relay-service/releases) herunter
-und lade es in Docker:
+Download the release asset `ai-relay-storage-bundle.tar` from the
+[Releases page](https://github.com/Kesuek/ai-relay-service/releases) and load
+it into Docker:
 
 ```bash
-# Auf der QNAP (per SSH) oder in Container Station:
+# On the QNAP (via SSH) or in Container Station:
 docker load -i ai-relay-storage-bundle.tar
 ```
 
-Das Bundle enthält beide Images: `ai-relay-storage:latest` und
+The bundle contains both images: `ai-relay-storage:latest` and
 `ai-relay-node-base:latest`.
 
-### 2. Storage-Node starten
+### 2. Start the storage node
 
-**Variante A — per `docker run` (SSH):**
+**Option A — via `docker run` (SSH):**
 
-> **⚠️ Wichtig:** Gib immer `-v ai-relay-storage-state:/home/appuser/.relay` mit.
-> Container Station erstellt **kein** Volume automatisch — ohne dieses Volume verliert
-> der Node seine Identität (node_id + token) bei jedem Neustart und registriert sich neu.
+> **⚠️ Important:** Always pass `-v ai-relay-storage-state:/home/appuser/.relay`.
+> Container Station does **not** create a volume automatically — without this
+> volume the node loses its identity (node_id + token) on every restart and
+> re-registers itself.
 
 ```bash
 docker run -d \
@@ -59,23 +60,23 @@ docker run -d \
   ghcr.io/kesuek/ai-relay-storage:latest
 ```
 
-**Variante B — per Container Station (GUI):**
+**Option B — via Container Station (GUI):**
 
-> **⚠️ Wichtig:** Lege im Container-Station-Dialog ein **Volume** an, das auf
-> `/home/appuser/.relay` zeigt (z.B. `ai-relay-storage-state`). Ohne dieses Volume
-> verliert der Node seine Identität bei jedem Neustart.
+> **⚠️ Important:** In the Container Station dialog, create a **volume** that
+> points to `/home/appuser/.relay` (e.g. `ai-relay-storage-state`). Without this
+> volume the node loses its identity on every restart.
 
-1. Öffne **Container Station** → **Übersicht** → **Erstellen** → **Image**.
-2. Wähle `ghcr.io/kesuek/ai-relay-storage:latest` (oder `ai-relay-storage:latest` nach `docker load`).
-3. Setze die Umgebungsvariablen (siehe Tabelle unten).
-4. Mounte `/storage` auf einen NAS-Ordner (z.B. `/share/Container/ai-relay-storage`).
-5. Lege ein Volume für `/home/appuser/.relay` an (persistiert die Node-Identität).
-6. Starte den Container.
+1. Open **Container Station** → **Overview** → **Create** → **Image**.
+2. Select `ghcr.io/kesuek/ai-relay-storage:latest` (or `ai-relay-storage:latest` after `docker load`).
+3. Set the environment variables (see table below).
+4. Mount `/storage` to a NAS folder (e.g. `/share/Container/ai-relay-storage`).
+5. Create a volume for `/home/appuser/.relay` (persists the node identity).
+6. Start the container.
 
-### 3. Node approven
+### 3. Approve the node
 
-Der Node registriert sich als `pending`. Approve ihn im Relay-Dashboard oder
-per Admin-API:
+The node registers itself as `pending`. Approve it in the Relay dashboard or
+via the admin API:
 
 ```bash
 curl -X POST http://<relay-ip>:8788/relay/v2/admin/nodes/<node_id>/approve \
@@ -83,55 +84,58 @@ curl -X POST http://<relay-ip>:8788/relay/v2/admin/nodes/<node_id>/approve \
   -d '{"role":"service","capabilities":[{"name":"storage.store","version":"1.0.0"}]}'
 ```
 
-## Umgebungsvariablen
+## Environment variables
 
-| Variable | Pflicht | Default | Beschreibung |
-|----------|---------|---------|--------------|
-| `RELAY_URL` | nein* | mDNS-Discovery | Relay-Basis-URL, z.B. `http://192.168.1.50:8788`. **Wenn ungesetzt, sucht der Node den Relay per mDNS im LAN** (T-152). |
-| `NODE_NAME` | nein | Hostname | Anzeigename im Dashboard |
-| `NODE_ENDPOINT` | nein | auto (eigene IP) | Endpoint, über den der Relay den Node erreicht (für Bridge-Routen). **Wird automatisch aus der Node-IP + Port 8791 abgeleitet** — nur setzen, wenn der Relay den Node nicht direkt erreichen kann. |
-| `NODE_ROLE` | nein | `worker` | `service` für Storage (im Image gesetzt) |
-| `NODE_REGISTRATION_SECRET` | nein | — | Vorab erstelltes `rs_...`-Secret für die Registrierung |
-| `RELAY_SERVER_IP` | nein | aus RELAY_URL | Explizite Relay-Server-IP für die Bridge-Source-IP-Allowlist. **Wird automatisch aus `RELAY_URL` aufgelöst** — nur setzen, wenn DNS nicht auflösbar ist. |
-| `RELAY_STORAGE_PATH` | nein | `/storage` | Basis-Verzeichnis für Dateien (im Image gesetzt) |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `RELAY_URL` | no* | mDNS discovery | Relay base URL, e.g. `http://192.168.1.50:8788`. **If unset, the node finds the relay via mDNS on the LAN** (T-152). |
+| `NODE_NAME` | no | hostname | Display name in the dashboard |
+| `NODE_ENDPOINT` | no | auto (own IP) | Endpoint through which the relay reaches the node (for bridge routes). **Derived automatically from the node IP + port 8791** — only set if the relay cannot reach the node directly. |
+| `NODE_ROLE` | no | `worker` | `service` for storage (set in the image) |
+| `NODE_REGISTRATION_SECRET` | no | — | Pre-created `rs_...` secret for registration |
+| `RELAY_SERVER_IP` | no | from RELAY_URL | Explicit relay server IP for the bridge source-IP allowlist. **Resolved automatically from `RELAY_URL`** — only set if DNS is not resolvable. |
+| `RELAY_STORAGE_PATH` | no | `/storage` | Base directory for files (set in the image) |
 
-> **`RELAY_URL` ist optional (T-152).** Wenn du sie weglässt, sucht der Node den
-> Relay per mDNS im lokalen Netzwerk (der Relay advertiset sich als
-> `ai-relay.local`). Das funktioniert, wenn Relay + Node im selben LAN sind.
-> Für Bridge-Routen (`storage.upload_channel`/`download_channel`) brauchst du
-> trotzdem `RELAY_SERVER_IP` explizit, wenn der Relay nicht per DNS auflösbar ist.
+> **`RELAY_URL` is optional (T-152).** If you omit it, the node finds the relay
+> via mDNS on the local network (the relay advertises itself as
+> `ai-relay.local`). This works when relay + node are on the same LAN.
+> The bridge allowlist (`storage.upload_channel`/`download_channel`) also
+> falls back to mDNS discovery, so it resolves the relay IP automatically —
+> you only need `RELAY_SERVER_IP` explicitly if mDNS is unavailable or the
+> relay is not resolvable via DNS.
 
 ## Volumes
 
-| Mount | Zweck |
-|-------|-------|
-| `/storage` | NAS-Export — die eigentlichen Dateien/Backups. Bind-mount auf einen QNAP-Ordner. |
-| `/home/appuser/.relay` | Node-Meta + Token (persistiert die Identität über Neustarts). Named Volume. |
+| Mount | Purpose |
+|-------|---------|
+| `/storage` | NAS export — the actual files/backups. Bind-mount to a QNAP folder. |
+| `/home/appuser/.relay` | Node meta + token (persists identity across restarts). Named volume. |
 
-> **⚠️ Wichtig für Updates:** Das Volume `ai-relay-storage-state` (→ `/home/appuser/.relay`)
-> muss beim Neustart **gemountet bleiben**. Wenn du den Container löschst und neu erstellst,
-> ohne das Volume zu mounten, verliert der Node seine `ai-relay-agent.json` (node_id + token)
-> und registriert sich **neu** — er bekommt eine neue Node-ID und muss erneut approved werden.
-> Beim `docker run` immer `-v ai-relay-storage-state:/home/appuser/.relay` mitgeben.
+> **⚠️ Important for updates:** The volume `ai-relay-storage-state` (→ `/home/appuser/.relay`)
+> must stay **mounted** on restart. If you delete and recreate the container
+> without mounting the volume, the node loses its `ai-relay-agent.json`
+> (node_id + token) and re-registers — it gets a new node ID and must be
+> approved again. Always pass `-v ai-relay-storage-state:/home/appuser/.relay`
+> on `docker run`.
 
 ## Capabilities
 
-Der Storage-Node bietet:
+The storage node provides:
 
-- **Dateien:** `storage.store` / `fetch` / `delete` / `list` / `quota` / `stat` / `move`
-- **Große Dateien:** `storage.upload_channel` / `storage.download_channel` (Bridge-Routen)
+- **Files:** `storage.store` / `fetch` / `delete` / `list` / `quota` / `stat` / `move`
+- **Large files:** `storage.upload_channel` / `storage.download_channel` (bridge routes)
 - **Backups:** `backup.create` / `list` / `info` / `restore` / `delete` / `retention`
-- **Ordner:** `storage.extract` / `storage.archive` (`.tar.gz`)
+- **Folders:** `storage.extract` / `storage.archive` (`.tar.gz`)
 
 ## Troubleshooting
 
-- **`Connection refused` beim Start:** Der Relay ist nicht erreichbar. Prüfe `RELAY_URL` und dass der Relay läuft.
-- **Node bleibt `pending`:** Noch nicht approved. Approve im Dashboard.
-- **Bridge-Routen funktionieren nicht:** Setze `RELAY_SERVER_IP` explizit, wenn die QNAP den Relay nicht per DNS auflöst.
-- **Dateien landen nicht auf der NAS:** Prüfe den `/storage`-Mount (muss auf einen echten QNAP-Ordner zeigen).
+- **`Connection refused` on start:** The relay is unreachable. Check `RELAY_URL` and that the relay is running.
+- **Node stays `pending`:** Not yet approved. Approve in the dashboard.
+- **Bridge routes don't work:** Set `RELAY_SERVER_IP` explicitly if the QNAP does not resolve the relay via DNS.
+- **Files don't land on the NAS:** Check the `/storage` mount (must point to a real QNAP folder).
 
-## Quellcode
+## Source code
 
-Der Storage-Node lebt im Repo unter `docker/nodes/storage/`. Das Basis-Image
-unter `docker/nodes/base/`. Siehe `docs/node/storage.md` für die volle
-Architektur.
+The storage node lives in the repo under `docker/nodes/storage/`. The base
+image is under `docker/nodes/base/`. See `docs/node/storage.md` for the full
+architecture.
