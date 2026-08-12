@@ -109,6 +109,10 @@ fi
 
 # Publish a profile from profiles.d when NODE_PROFILE is set. This copies
 # the named profile to node.yaml so the daemon picks up its capabilities.
+# The copy happens on EVERY start (not just first) so an image update that
+# ships a newer profile actually reaches the persistent node.yaml — the
+# persistent volume would otherwise keep a stale capability set forever
+# (T-163: long_run flag was missing on the QNAP node).
 if [ -n "${NODE_PROFILE:-}" ]; then
     PROFILE_FILE="${PROFILES_DIR}/${NODE_PROFILE}"
     if [ ! -f "${PROFILE_FILE}" ]; then
