@@ -19,9 +19,18 @@ For the architecture and concepts behind the relay see
 - Python 3.11+ to run the relay from source
 - Local network access or Tailscale
 
-## 1. Install the relay server
+## 1. Deploy the relay server
 
-### Option A: Install from source
+There are three supported ways to run the relay. Pick the one that fits your
+environment:
+
+| Path | Best for | Where the details live |
+|------|----------|------------------------|
+| **Bare metal** (from source, §1a) | A Linux host where you want a systemd-managed relay alongside other services | this guide |
+| **Docker image** (pull, §1b) | A host with Docker where you just want to `docker run` a container, no repo checkout | this guide |
+| **Docker compose** (build, §1c) | NAS (QNAP, Synology), reproducible multi-service setup with optional Postgres | [`server/docker.md`](docker.md) |
+
+### 1a. Bare metal — install from source
 
 ```bash
 git clone https://github.com/Kesuek/ai-relay-service.git
@@ -31,13 +40,67 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-### Option B: Run with Docker (not yet available)
+The relay runs from the venv with `relay-server`. Continue at §2 (session
+secret) and §13 (systemd service) below.
 
-> The repository does **not** currently include a relay-server Dockerfile or a
-> published image. Docker support is planned. Until then use **Option A**
-> (install from source) or write your own `Dockerfile` starting from
-> `python:3.11-slim` and `pip install -e .`. A community Docker setup is
-> welcome — open a PR.
+### 1b. Docker image — run a pre-built container
+
+A public image is published on the GitHub Container Registry. No repo
+checkout or build is needed:
+
+```bash
+# Run the relay on SQLite. `relay-data` volume persists DB + artifacts.
+docker volume create relay-data
+docker run -d \
+  --name ai-relay-server \
+  --restart unless-stopped \
+  -p 8788:8788 \
+  -e RELAY_MASTER_SEED="$(python -c 'import secrets; print("adm_" + secrets.token_urlsafe(32))')" \
+  -e RELAY_SESSION_SECRET="$(openssl rand -base64 32)" \
+  -e RELAY_SESSION_COOKIE_SECURE=false \
+  -v relay-data:/app/.relay \
+  ghcr.io/kesuek/ai-relay-server:latest
+```
+
+Notes:
+- `RELAY_MASTER_SEED` pins the master admin seed (see §3). If you omit it, the
+  entrypoint generates a random one and prints it to the container log on the
+  first start.
+- `RELAY_SESSION_SECRET` signs dashboard session cookies (≥32 chars). Keep it
+  stable — rotating it logs every admin out (see §11).
+- `RELAY_SESSION_COOKIE_SECURE=false` is for plain HTTP on a trusted LAN. Over
+  HTTPS (T-111) keep it `true`.
+- The entrypoint runs DB init + master-seed apply on first start, then starts
+  uvicorn on `:8788`. See [`server/docker.md`](docker.md) for the full
+  environment reference (TLS, Postgres, healthcheck).
+
+### 1c. Docker compose — build & manage a stack
+
+Use the repo's `docker/server/docker-compose.yml`. This is the recommended
+path for NAS owners and for reproducible multi-service setups (optional
+bundled Postgres). It builds the image locally from the `Dockerfile.relay`.
+
+```bash
+git clone https://github.com/Kesuek/ai-relay-service.git
+cd ai-relay-service
+
+# 1. Create your environment (generate a real seed!)
+cp docker/server/.env.example .env
+#    edit .env: set RELAY_MASTER_SEED, RELAY_SESSION_SECRET, and
+#    RELAY_SESSION_COOKIE_SECURE=false (plain http on LAN)
+
+# 2. Build & start (from the repo root)
+docker compose -f docker/server/docker-compose.yml up -d --build
+
+# 3. Open the dashboard
+#    http://<host>:8788
+#    log in with your master seed (mode: seed)
+```
+
+SQLite is the default backend; the DB file, artifacts, and config live in the
+named volume `relay-data` and survive `docker compose down` / rebuilds. For
+Postgres (bundled or external) and TLS, see
+[`server/docker.md`](docker.md).
 
 ## 2. Configure the session secret
 

@@ -143,6 +143,10 @@ the `relay-data` volume (and `postgres-data`) intact — do not run
 
 ## Image & user
 
+- **Published image:** `ghcr.io/kesuek/ai-relay-server:latest` is public on the
+  GitHub Container Registry. You can `docker pull ghcr.io/kesuek/ai-relay-server:latest`
+  and `docker run` it directly without a repo checkout or build — see
+  [server/setup.md §1b](setup.md#1b-docker-image--run-a-pre-built-container).
 - `docker/server/Dockerfile.relay`: multi-stage; runtime is `python:3.11-slim` with
   `tini` as PID 1 and a non-root `appuser`.
 - The user is overridable via build args: `--build-arg PUID=1000 --build-arg PGID=1000`
