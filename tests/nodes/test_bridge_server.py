@@ -20,6 +20,7 @@ BRIDGE_DIR = Path(__file__).resolve().parents[2] / "docker" / "nodes" / "storage
 sys.path.insert(0, str(BRIDGE_DIR))
 
 from bridge_server import (  # noqa: E402
+    _backup_data_path,
     _channel_path,
     _resolve_server_ip,
     create_app,
@@ -32,6 +33,7 @@ def storage_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     base.mkdir()
     monkeypatch.setattr("bridge_server.STORAGE_PATH", base)
     monkeypatch.setattr("bridge_server.CHANNELS_DIR", base / "channels")
+    monkeypatch.setattr("bridge_server.BACKUPS_DIR", base / "backups")
     return base
 
 
@@ -159,6 +161,56 @@ class TestChannelPathValidator:
         p = _channel_path("ch_abc123")
         assert p == storage_base / "channels" / "ch_abc123"
         assert p.parent.exists()
+
+
+# ---------------------------------------------------------------------------
+# Backup bridge endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestUploadBackup:
+    def test_streams_body_to_backup_data_bin(self, storage_base: Path):
+        client = _client("192.0.2.10", storage_base)
+        body = b"x" * 4096
+        r = client.post("/backup/bk_abc", content=body)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["status"] == "stored"
+        assert data["backup_id"] == "bk_abc"
+        assert data["size_bytes"] == 4096
+        assert (storage_base / "backups" / "bk_abc" / "data.bin").read_bytes() == body
+
+    def test_invalid_backup_id_rejected(self, storage_base: Path):
+        client = _client("192.0.2.10", storage_base)
+        r = client.post("/backup/..", content=b"bad")
+        assert r.status_code in (400, 404)
+
+
+class TestDownloadBackup:
+    def test_streams_backup_data_bin_back(self, storage_base: Path):
+        client = _client("192.0.2.10", storage_base)
+        client.post("/backup/bk_dl", content=b"backup data")
+        r = client.get("/backup/bk_dl")
+        assert r.status_code == 200
+        assert r.content == b"backup data"
+        assert r.headers.get("content-length") == str(len(b"backup data"))
+
+    def test_missing_backup_404(self, storage_base: Path):
+        client = _client("192.0.2.10", storage_base)
+        r = client.get("/backup/bk_missing")
+        assert r.status_code == 404
+
+
+class TestBackupDataPathValidator:
+    def test_rejects_traversal(self, storage_base: Path):
+        for bad in (".", "..", "a/b", "a\\b"):
+            with pytest.raises(ValueError):
+                _backup_data_path(bad)
+
+    def test_accepts_plain_id(self, storage_base: Path):
+        p = _backup_data_path("bk_abc123")
+        assert p == storage_base / "backups" / "bk_abc123" / "data.bin"
+        assert (storage_base / "backups").exists()
 
 
 # ---------------------------------------------------------------------------

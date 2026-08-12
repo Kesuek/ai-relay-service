@@ -3,13 +3,54 @@ from __future__ import annotations
 
 import base64
 import json
+import http.server
 import os
+import socketserver
 import sys
+import threading
 from pathlib import Path
 
+import pytest
 from nodes.common.handler_runner import run_handler
 
 HANDLERS = Path(__file__).resolve().parents[2] / "docker" / "nodes" / "storage" / "handlers"
+
+
+class _FakeRelayServer(http.server.BaseHTTPRequestHandler):
+    """Minimal fake relay that answers the node-routes/register endpoint."""
+
+    register_calls: list[dict] = []
+
+    def do_POST(self):  # noqa: N802
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else b"{}"
+        _FakeRelayServer.register_calls.append({"path": self.path, "body": json.loads(body)})
+        resp = json.dumps({"ok": True, "expires_at": "2099-01-01T00:00:00Z"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(resp)))
+        self.end_headers()
+        self.wfile.write(resp)
+
+    def log_message(self, format, *args):  # noqa: A002, A003
+        pass
+
+
+@pytest.fixture()
+def fake_relay(tmp_path: Path):
+    """Start a fake relay HTTP server and return its base URL."""
+    _FakeRelayServer.register_calls = []
+    handler = _FakeRelayServer
+
+    class _Server(socketserver.TCPServer):
+        allow_reuse_address = True
+
+    server = _Server(("127.0.0.1", 0), handler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
 
 
 def _stage(payload=None):
@@ -45,6 +86,10 @@ def _err_text(result: dict) -> str:
 def _run(handler_name: str, payload: dict, storage_path: Path, **env) -> dict:
     handler = f"{sys.executable} {HANDLERS / handler_name}"
     ctx = _ctx(storage_path)
+    # Relay-level env overrides (RELAY_*, NODE_ENDPOINT) must reach the
+    # handler's context, not just os.environ — run_handler builds the
+    # subprocess env from `context`, which takes precedence.
+    ctx.update({k: str(v) for k, v in env.items()})
     old = os.environ.get("RELAY_STORAGE_PATH")
     os.environ["RELAY_STORAGE_PATH"] = str(storage_path)
     prev_extras = {k: os.environ.get(k) for k in env}
@@ -137,6 +182,30 @@ class TestBackupCreate:
         result = _run("backup_create.py", {"type": "full", "data_base64": "aGVsbG8="}, tmp_path)
         assert "source" in _err_text(result).lower()
 
+    def test_create_bridge_mode_opens_upload_route(self, tmp_path: Path, fake_relay: str):
+        # Write a token file; RELAY_BASE_URL points at the fake relay.
+        (tmp_path / "token").write_text("rt_testtoken")
+        result = _run(
+            "backup_create.py",
+            {"source": "projects", "type": "full", "mode": "bridge"},
+            tmp_path,
+            RELAY_BASE_URL=fake_relay,
+        )
+        assert result["status"] == "created", result
+        assert result["mode"] == "bridge"
+        assert result["upload_url"].startswith(f"{fake_relay}/relay/v2/dashboard/api/node-routes/")
+        # The route was registered with method POST.
+        assert _FakeRelayServer.register_calls, "register endpoint was not called"
+        call = _FakeRelayServer.register_calls[0]
+        assert call["body"]["method"] == "POST"
+        assert call["body"]["path"].startswith("/backup/")
+        assert call["body"]["upstream"].endswith(call["body"]["path"])
+        # Manifest minted now, data file to be filled by caller later.
+        backup_id = result["backup_id"]
+        mf = tmp_path / "backups" / backup_id / "manifest.json"
+        assert mf.is_file()
+        assert not (tmp_path / "backups" / backup_id / "data.bin").exists()
+
 
 class TestBackupList:
     def test_list_empty(self, tmp_path: Path):
@@ -188,6 +257,32 @@ class TestBackupRestore:
     def test_restore_missing(self, tmp_path: Path):
         result = _run("backup_restore.py", {"backup_id": "bk_deadbeef"}, tmp_path)
         assert "not found" in _err_text(result).lower()
+
+    def test_restore_large_backup_returns_bridge_download_url(self, tmp_path: Path, fake_relay: str):
+        (tmp_path / "token").write_text("rt_testtoken")
+        # Create a backup whose data.bin exceeds the 10MB inline cap.
+        created = _run(
+            "backup_create.py",
+            {"source": "projects", "type": "full", "data_base64": "aGVsbG8="},
+            tmp_path,
+        )
+        backup_id = created["backup_id"]
+        data_file = tmp_path / "backups" / backup_id / "data.bin"
+        data_file.write_bytes(b"y" * (10 * 1024 * 1024 + 1))
+
+        result = _run(
+            "backup_restore.py",
+            {"backup_id": backup_id},
+            tmp_path,
+            RELAY_BASE_URL=fake_relay,
+        )
+        assert result["status"] == "restored", result
+        assert result["mode"] == "bridge"
+        assert "data_base64" not in result
+        assert result["download_url"].startswith(f"{fake_relay}/relay/v2/dashboard/api/node-routes/")
+        assert _FakeRelayServer.register_calls, "register endpoint was not called"
+        assert _FakeRelayServer.register_calls[0]["body"]["method"] == "GET"
+        assert _FakeRelayServer.register_calls[0]["body"]["path"].startswith("/backup/")
 
 
 class TestBackupDelete:
