@@ -12,7 +12,11 @@ os.environ["RELAY_DB_PATH"] = ""
 os.environ["RELAY_SESSION_SECRET"] = "test-session-secret-do-not-use-in-production"
 
 from relay_server.config import settings
-from relay_server.core.artifacts import cleanup_orphaned_artifacts, store_artifact
+from relay_server.core.artifacts import (
+    cleanup_expired_artifacts,
+    cleanup_orphaned_artifacts,
+    store_artifact,
+)
 from relay_server.core.auth import generate_secret, hash_secret
 from relay_server.core.db import get_conn, init_db, q
 from relay_server.core.maintenance import MaintenanceScheduler
@@ -30,6 +34,7 @@ def fresh_db():
         settings.artifacts_dir = tmp_path / "artifacts"
         settings.chunked_uploads_dir = tmp_path / "chunked_uploads"
         settings.artifact_cleanup_max_age_days = 7.0
+        settings.artifact_ttl_days = 7.0
         settings.orphaned_stage_interval_seconds = 300
         settings.db_vacuum_interval_seconds = 86400
         import relay_server.core.auth as auth_mod
@@ -223,6 +228,59 @@ def test_cleanup_orphaned_artifacts_noop_when_clean():
     _insert_task("task_exists")
     store_artifact(name="ok.txt", content=b"x", task_id="task_exists")
     result = cleanup_orphaned_artifacts(max_age_days=7.0)
+    assert result == {"deleted": 0, "freed_bytes": 0}
+
+
+# ---------------------------------------------------------------------------
+# cleanup_expired_artifacts (T-165) — TTL löscht ALLE, auch referenzierte
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_expired_artifacts_deletes_all_old():
+    """T-165: ALLE Artifakte älter als TTL werden gelöscht, auch referenzierte."""
+    _insert_task("task_exists")
+    info_ref = store_artifact(
+        name="referenced.txt",
+        content=b"keep-still",
+        task_id="task_exists",
+    )
+    info_orphan = store_artifact(
+        name="orphan.txt",
+        content=b"orphan-bytes",
+        task_id="task_gone",
+    )
+    info_notask = store_artifact(
+        name="notask.txt",
+        content=b"no-task",
+        task_id=None,
+    )
+    _backdate_artifact(info_ref["artifact_id"], days=8)
+    _backdate_artifact(info_orphan["artifact_id"], days=8)
+    _backdate_artifact(info_notask["artifact_id"], days=8)
+
+    result = cleanup_expired_artifacts(max_age_days=7.0)
+    assert result["deleted"] == 3
+    assert result["freed_bytes"] == len(b"keep-still") + len(b"orphan-bytes") + len(b"no-task")
+    assert not Path(info_ref["path"]).exists()
+    assert not Path(info_orphan["path"]).exists()
+    assert not Path(info_notask["path"]).exists()
+
+
+def test_cleanup_expired_artifacts_respects_age():
+    """T-165: frische Artifakte werden nicht gelöscht (auch referenzierte)."""
+    _insert_task("task_exists")
+    info = store_artifact(name="fresh.txt", content=b"fresh", task_id="task_exists")
+    # No backdating → created_at is now.
+    result = cleanup_expired_artifacts(max_age_days=7.0)
+    assert result == {"deleted": 0, "freed_bytes": 0}
+    assert Path(info["path"]).exists()
+
+
+def test_cleanup_expired_artifacts_noop_when_clean():
+    """Keine alten Artifakte → empty result."""
+    _insert_task("task_exists")
+    store_artifact(name="ok.txt", content=b"x", task_id="task_exists")
+    result = cleanup_expired_artifacts(max_age_days=7.0)
     assert result == {"deleted": 0, "freed_bytes": 0}
 
 

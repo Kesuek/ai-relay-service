@@ -374,6 +374,30 @@ form. Timestamps remain ISO-8601 TEXT strings (the existing SQLite DB
 stays byte-identical). See [reference/database-backends.md](reference/database-backends.md)
 for the full guide, including how to add a new backend.
 
+## Artifact store — transient transfer buffer (T-165)
+
+The relay's artifact store (`~/.relay/artifacts/`) is a **transient
+transfer buffer**, not an archive. It exists so that medium-sized files
+(up to `max_artifact_bytes`, default 50 MB) can be handed off between a
+caller and a handler without bloating the task payload (base64 inline) or
+requiring a storage node (bridge). The task payload carries an
+`artifact_id` reference; the handler streams the file down from the store
+on demand.
+
+A watchdog (`maintenance.artifact_cleanup`, hourly) deletes **every**
+artifact older than `artifact_ttl_days` (default 7) — regardless of
+whether the task still exists. The durable copy lives on the storage
+node; the store only bridges the transfer. This keeps the relay's disk
+footprint bounded: even a relay that processes terabytes of artifacts per
+day only ever holds the last week's worth.
+
+The three transfer modes form a deterministic size-based ladder (T-164):
+inline (base64, ≤ `max_inline_bytes`) → artifact (transient store, ≤
+`max_artifact_bytes`) → bridge (direct stream to a storage node, larger
+files). The node-cli's `file send`/`file get` pick the smallest supported
+rung automatically. See [node/storage.md](node/storage.md) and
+[node/capabilities.md](node/capabilities.md#upload_modes--datei-übertragungs-treppe-t-164).
+
 ## Observability (T-109)
 
 The relay is observable through three built-in surfaces, all implemented

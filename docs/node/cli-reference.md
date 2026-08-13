@@ -1074,6 +1074,97 @@ node-cli bridge download --channel ch_dump -o /tmp/dump.bin
 
 ---
 
+## file
+
+Capability-agnostic file transfer via the generic **transfer ladder**
+(T-164). `file send`/`file get` read the server's ladder config
+(`max_inline_bytes` / `max_artifact_bytes`) and the capability's declared
+`upload_modes`, then pick the smallest mode that fits the file size and
+is supported by the capability. The three rungs are:
+
+| Mode | How the file travels | When |
+|---|---|---|
+| `inline` | base64 in the task payload (`data_base64`) | ≤ `max_inline_bytes` (default 5 MB) |
+| `artifact` | uploaded to the transient relay store; payload carries `artifact_id` | ≤ `max_artifact_bytes` (default 50 MB) |
+| `bridge` | streamed to/from a storage node; payload carries `storage_ref` `{type, id, filename}` | > `max_artifact_bytes` |
+
+Use `bridge upload`/`bridge download` directly when you need explicit
+control over the channel; `file` is the convenience wrapper that chooses
+for you.
+
+### file send
+
+```bash
+node-cli file send <file> --cap <capability> [--force inline|artifact|bridge]
+                          [--name <name>] [--priority N] [--owner <node_id>]
+                          [--source <name>] [--type full|incremental]
+```
+
+Determines the file size, loads the server ladder config + the
+capability's `upload_modes`, picks a mode, and orchestrates the transfer.
+`--force` overrides the choice but must be a mode the capability supports.
+`--source`/`--type` apply only when the capability is `backup.create` and
+bridge mode is chosen. On success prints the mode, byte count, and the
+submit response (`--json` for machine-readable output).
+
+**Error:** if no supported mode fits (e.g. file > `max_artifact_bytes`
+but the capability has no `bridge`), the command fails with
+`file too big: <N> bytes, capability supports only [...]`.
+
+### file get
+
+```bash
+node-cli file get <ref> --cap <capability> [-o <output>]
+                       [--name <name>] [--priority N] [--owner <node_id>]
+```
+
+`<ref>` is a generic file reference whose interpretation the capability
+determines (from its `input_schema`):
+
+| Capability | `<ref>` is | Payload field |
+|---|---|---|
+| `storage.fetch` | a path | `path` |
+| `backup.restore` | a `backup_id` | `backup_id` |
+| `storage.download_channel` | a `channel_id` | `channel_id` |
+
+If the capability offers `bridge` in `upload_modes`, `file get` opens a
+bridge download channel and streams the file to disk; otherwise it
+submits a task and writes the returned `data_base64` inline. Without
+`-o`, the output file is named from the server response (filename header
+or channel/backup id).
+
+### Examples
+
+```bash
+# Small file → inline (auto).
+node-cli file send ./config.yaml --cap storage.store
+
+# Medium file → artifact (auto).
+node-cli file send ./data.zip --cap storage.store
+
+# Large file → bridge (auto, needs a storage node).
+node-cli file send ./backup.tar.gz --cap storage.store
+
+# Force artifact even though the file would fit inline.
+node-cli file send ./small.bin --cap storage.store --force artifact
+
+# Fetch a file back by path.
+node-cli file get projects/2026/file.png --cap storage.fetch -o ./file.png
+
+# Restore a backup by id (bridge if large, inline if small).
+node-cli file get bk_abc123 --cap backup.restore -o ./restore.tar.gz
+```
+
+### Exit codes
+
+| Code | Condition |
+|---|---|
+| 0 | Sent / downloaded successfully |
+| 1 | Server / network error, or task failed |
+| 2 | File not found, or invalid arguments |
+
+---
+
 ## Configuration
 
 ### File paths

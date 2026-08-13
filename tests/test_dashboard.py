@@ -21,6 +21,14 @@ from relay_server.main import app
 @pytest.fixture(autouse=True)
 def fresh_db():
     """Use a temporary database for each test."""
+    import relay_server.core.auth as auth_mod
+
+    auth_mod._TOKEN_PEPPER = None
+    # T-164/T-165: reset transfer-ladder settings to defaults so a prior
+    # test's DB overrides don't leak into the next one.
+    settings.max_inline_bytes = 5 * 1024 * 1024
+    settings.max_artifact_bytes = 50 * 1024 * 1024
+    settings.artifact_ttl_days = 7.0
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
         settings.db_path = db_path
@@ -28,6 +36,7 @@ def fresh_db():
         settings.session_cookie_secure = False
         init_db()
         yield
+    auth_mod._TOKEN_PEPPER = None
 
 
 client = TestClient(app)
@@ -958,3 +967,242 @@ def test_task_submit_requires_csrf():
         headers={"X-CSRF-Token": csrf_cookie},
     )
     assert r.status_code != 403
+
+
+# ---------------------------------------------------------------------------
+# T-164/T-165: transfer-ladder config + bridge-availability ampel
+# ---------------------------------------------------------------------------
+
+
+def _seed_admin_and_login():
+    """Create an admin user + log in; return (cookies, csrf_headers, secret)."""
+    from relay_server.core.auth import generate_secret, hash_secret
+    from relay_server.core.db import get_conn
+
+    secret = generate_secret("adm_")
+    conn = get_conn()
+    # Upsert (not INSERT OR IGNORE) so the fresh secret's hash wins even
+    # if a master row was seeded by an earlier lifespan/startup.
+    conn.execute(
+        q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) "
+          "VALUES (?, ?, ?, ?) "
+          "ON CONFLICT(seed_id) DO UPDATE SET seed_hash = excluded.seed_hash",
+          ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
+    )
+    conn.commit()
+    conn.close()
+    create_user(
+        "tfadmin", "strong-passphrase-42", group_names=["admin"], force_password_change=False,
+    )
+    # Clear any stale cookies from earlier tests so the CSRF token matches
+    # the fresh login response.
+    client.cookies.clear()
+    r = _human_login("tfadmin", "strong-passphrase-42")
+    cookies = r.cookies
+    # Generate a fresh CSRF token matching the login's relay_csrf cookie.
+    csrf_token = cookies.get("relay_csrf") or generate_csrf_token()
+    client.cookies.set("relay_csrf", csrf_token)
+    return cookies, {"X-CSRF-Token": csrf_token}, secret
+
+
+def _admin_token_from_secret(secret: str) -> str:
+    """Register an admin node from a master seed and return its runtime token."""
+    r = client.post(
+        "/relay/v2/auth/register-admin",
+        json={
+            "node_name": "Admin Transfer",
+            "bootstrap_secret": secret,
+            "capabilities": [{"name": "admin", "version": "1.0.0"}],
+        },
+    )
+    assert r.status_code == 200, r.json()
+    return r.json()["token"]
+
+
+class TestTransferStatus:
+    def test_transfer_status_returns_ladder(self):
+        cookies, _, _ = _seed_admin_and_login()
+        r = client.get("/relay/v2/dashboard/api/transfer-status", cookies=cookies)
+        assert r.status_code == 200
+        body = r.json()
+        assert "max_inline_bytes" in body
+        assert "max_artifact_bytes" in body
+        assert "max_payload_bytes" in body
+        assert "artifact_ttl_days" in body
+        assert "bridge_available" in body
+        assert "bridge_nodes" in body
+
+    def test_bridge_ampel_red_when_no_storage_node(self):
+        cookies, _, _ = _seed_admin_and_login()
+        r = client.get("/relay/v2/dashboard/api/transfer-status", cookies=cookies)
+        assert r.status_code == 200
+        body = r.json()
+        # No node advertises bridge → ampel red.
+        assert body["bridge_available"] is False
+        assert body["bridge_nodes"] == []
+
+    def test_bridge_ampel_green_when_bridge_node_online(self):
+        # Register the admin node FIRST (before any human admin exists),
+        # because register_admin_node is blocked once has_admin_user() is
+        # True (unless enable_master_seed_login is set).
+        from relay_server.core.auth import generate_secret, hash_secret
+        from relay_server.core.db import get_conn
+
+        secret = generate_secret("adm_")
+        conn = get_conn()
+        conn.execute(
+            q("INSERT INTO admin_seeds (seed_id, seed_hash, role, created_at) "
+              "VALUES (?, ?, ?, ?) "
+              "ON CONFLICT(seed_id) DO UPDATE SET seed_hash = excluded.seed_hash",
+              ("master", hash_secret(secret), "admin", "2026-01-01T00:00:00+00:00")),
+        )
+        conn.commit()
+        conn.close()
+        admin_token = _admin_token_from_secret(secret)
+        # Now log in as a human admin for the dashboard calls.
+        create_user(
+            "tfadmin", "strong-passphrase-42", group_names=["admin"], force_password_change=False,
+        )
+        r_login = _human_login("tfadmin", "strong-passphrase-42")
+        cookies = r_login.cookies
+        caps = [{
+            "name": "storage.store", "version": "1.0.0",
+            "upload_modes": ["inline", "artifact", "bridge"],
+        }]
+        # Register + approve a worker node.
+        r = client.post(
+            "/relay/v2/auth/register",
+            json={
+                "node_name": "bridge-worker",
+                "endpoint": "http://localhost:9002",
+                "capabilities": caps,
+                "role": "service",
+            },
+        )
+        assert r.status_code == 200, r.json()
+        worker_id = r.json()["node_id"]
+        approve = client.post(
+            f"/relay/v2/admin/nodes/{worker_id}/approve",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"role": "service", "capabilities": caps},
+        )
+        assert approve.status_code == 200, approve.json()
+        worker_token = approve.json()["token"]
+        # Heartbeat so the node becomes online + available + syncs upload_modes.
+        hb = client.post(
+            "/relay/v2/discovery/heartbeat",
+            headers={"Authorization": f"Bearer {worker_token}"},
+            json={
+                "load": 0.0, "queue_depth": 0, "available": True,
+                "capabilities": caps,
+            },
+        )
+        assert hb.status_code == 200, hb.json()
+        r = client.get("/relay/v2/dashboard/api/transfer-status", cookies=cookies)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["bridge_available"] is True
+        assert worker_id in body["bridge_nodes"]
+
+
+class TestTransferConfigEdit:
+    def test_edit_persists_and_applies_overrides(self):
+        cookies, csrf_h, _ = _seed_admin_and_login()
+        r = client.post(
+            "/relay/v2/dashboard/api/transfer-config",
+            data={
+                "max_inline_bytes": str(3 * 1024 * 1024),
+                "max_artifact_bytes": str(40 * 1024 * 1024),
+                "artifact_ttl_days": "14",
+            },
+            cookies=cookies,
+            headers=csrf_h,
+        )
+        assert r.status_code == 200, r.json()
+        body = r.json()
+        assert body["max_inline_bytes"] == 3 * 1024 * 1024
+        assert body["artifact_ttl_days"] == 14
+        # Live settings updated.
+        assert settings.max_inline_bytes == 3 * 1024 * 1024
+        assert settings.artifact_ttl_days == 14
+        # DB row persisted.
+        from relay_server.core.db import get_settings_overrides
+        ov = get_settings_overrides()
+        assert ov["max_inline_bytes"] == str(3 * 1024 * 1024)
+        assert float(ov["artifact_ttl_days"]) == 14.0
+
+    def test_edit_rejects_inline_ge_artifact(self):
+        cookies, csrf_h, _ = _seed_admin_and_login()
+        r = client.post(
+            "/relay/v2/dashboard/api/transfer-config",
+            data={
+                "max_inline_bytes": str(50 * 1024 * 1024),
+                "max_artifact_bytes": str(50 * 1024 * 1024),
+                "artifact_ttl_days": "7",
+            },
+            cookies=cookies,
+            headers=csrf_h,
+        )
+        assert r.status_code == 400
+
+    def test_edit_rejects_inline_too_large_for_payload(self):
+        cookies, csrf_h, _ = _seed_admin_and_login()
+        # inline × 1.4 >= max_payload_bytes (10 MiB) → reject.
+        r = client.post(
+            "/relay/v2/dashboard/api/transfer-config",
+            data={
+                "max_inline_bytes": str(8 * 1024 * 1024),
+                "max_artifact_bytes": str(50 * 1024 * 1024),
+                "artifact_ttl_days": "7",
+            },
+            cookies=cookies,
+            headers=csrf_h,
+        )
+        assert r.status_code == 400
+
+    def test_edit_rejects_ttl_below_one(self):
+        cookies, csrf_h, _ = _seed_admin_and_login()
+        r = client.post(
+            "/relay/v2/dashboard/api/transfer-config",
+            data={
+                "max_inline_bytes": str(3 * 1024 * 1024),
+                "max_artifact_bytes": str(40 * 1024 * 1024),
+                "artifact_ttl_days": "0.5",
+            },
+            cookies=cookies,
+            headers=csrf_h,
+        )
+        assert r.status_code == 400
+
+    def test_edit_requires_system_config_permission(self):
+        # Viewer user (no system:config) → 403.
+        create_user(
+            "tfviewer", "strong-passphrase-42", group_names=["viewer"], force_password_change=False,
+        )
+        r = _human_login("tfviewer", "strong-passphrase-42")
+        csrf_h = _csrf_headers(r)
+        r2 = client.post(
+            "/relay/v2/dashboard/api/transfer-config",
+            data={
+                "max_inline_bytes": str(3 * 1024 * 1024),
+                "max_artifact_bytes": str(40 * 1024 * 1024),
+                "artifact_ttl_days": "14",
+            },
+            cookies=r.cookies,
+            headers=csrf_h,
+        )
+        assert r2.status_code == 403
+
+    def test_edit_requires_csrf(self):
+        cookies, _, _ = _seed_admin_and_login()
+        r = client.post(
+            "/relay/v2/dashboard/api/transfer-config",
+            data={
+                "max_inline_bytes": str(3 * 1024 * 1024),
+                "max_artifact_bytes": str(40 * 1024 * 1024),
+                "artifact_ttl_days": "14",
+            },
+            cookies=cookies,
+            # No CSRF header.
+        )
+        assert r.status_code == 403

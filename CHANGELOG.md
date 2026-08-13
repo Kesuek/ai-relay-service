@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Generic file-transfer ladder (T-164)** — the three transfer modes
+  (inline base64 / artifact / bridge) form a deterministic, size-based
+  ladder configured on the server (`max_inline_bytes` / `max_artifact_bytes`)
+  and chosen by the node-cli. New `node-cli file send` / `file get`
+  subcommands are capability-agnostic wrappers that read the server's
+  `GET /relay/v2/discovery/transfer-config` + the capability's declared
+  `upload_modes` and pick the smallest supported rung. Capabilities
+  declare `upload_modes: [inline, artifact, bridge]` in `node.yaml`;
+  `storage.store`/`backup.create` get the full ladder, `storage.fetch`/
+  `backup.restore` get `[inline, bridge]`. Bridge mode carries a
+  `storage_ref` `{type, id, filename}` in the task payload so the
+  receiving node fetches the file from the storage node directly.
+- **Transient artifact store with TTL watchdog (T-165)** — the artifact
+  store is a transfer buffer, not an archive. `cleanup_expired_artifacts`
+  deletes every artifact older than `artifact_ttl_days` (default 7) on
+  the hourly maintenance sweep, regardless of whether the task still
+  exists. The durable copy lives on the storage node.
+
 ## [2.0.0] - 2026-08-12
 
 ### Added

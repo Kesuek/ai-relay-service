@@ -433,9 +433,10 @@ capability, when they are present in the YAML profile:
 | `type` | Capability type (`ai`, `tool`, `script`, `workflow`, `resource`) |
 | `description` | Human-readable description |
 | `input_schema` | Expected payload fields (documented below) |
+| `upload_modes` | T-164: supported file-transfer modes — list of `inline` / `artifact` / `bridge` (documented below) |
 
-The server stores `description`, `type` and `input_schema` in the
-normalized `node_capabilities` index. When a node claims a stage or
+The server stores `description`, `type`, `input_schema` and `upload_modes`
+in the normalized `node_capabilities` index. When a node claims a stage or
 queries a task, the scheduler resolves `capability_details` inline so
 the claiming handler sees the expected payload shape without an extra
 discovery round-trip:
@@ -445,7 +446,8 @@ discovery round-trip:
   "name": "chat.ai",
   "type": "ai",
   "description": "General conversational AI — accepts a prompt, ...",
-  "input_schema": { "fields": { "prompt": { "type": "string", "required": false } } }
+  "input_schema": { "fields": { "prompt": { "type": "string", "required": false } } },
+  "upload_modes": ["inline", "artifact", "bridge"]
 }
 ```
 
@@ -478,3 +480,62 @@ are visible to other nodes.
 
 Both fields are optional; omitting them leaves the existing values
 untouched.
+
+## `upload_modes` — Datei-Übertragungs-Treppe (T-164)
+
+A capability that accepts or serves files can declare which transfer modes
+it supports via the `upload_modes` field. The node-cli's `file send` /
+`file get` subcommands read this list (plus the server's ladder config
+`max_inline_bytes` / `max_artifact_bytes`) and pick the smallest mode that
+fits the file size and is supported by the capability.
+
+| Mode | Meaning | When to use |
+|---|---|---|
+| `inline` | File is base64-encoded and carried in the task payload (`data_base64`) | Small files (≤ `max_inline_bytes`, default 5 MB). No storage node needed, but RAM-heavy on the handler. |
+| `artifact` | File is uploaded to the transient relay artifact store; the task payload carries an `artifact_id` reference | Medium files (≤ `max_artifact_bytes`, default 50 MB). Store is transient (TTL, T-165), not an archive. |
+| `bridge` | File is streamed directly to/from a storage node through a temp bridge route; the task payload carries a `storage_ref` (`{type, id, filename}`) | Large files (> `max_artifact_bytes`). RAM-bounded, needs a storage node with a bridge server. |
+
+**Default:** when a capability does not declare `upload_modes`, the full
+ladder `[inline, artifact, bridge]` is assumed (backcompat — a capability
+that never heard of the ladder behaves as before).
+
+**YAML example:**
+
+```yaml
+- name: storage.store
+  upload_modes: [inline, artifact, bridge]
+  input_schema:
+    fields:
+      path: { type: string, required: true }
+      data_base64: { type: string, required: false }
+      artifact_id: { type: string, required: false }
+```
+
+**Narrow capability (no bridge, e.g. a small embedded node):**
+
+```yaml
+- name: storage.fetch
+  upload_modes: [inline, bridge]
+```
+
+A capability that only ever handles small payloads can restrict to
+`[inline]`; `file send` will then refuse files larger than
+`max_inline_bytes` with a "file too big" error instead of silently
+falling back to a mode the handler cannot process.
+
+### `storage_ref` contract (T-164)
+
+When `file send` picks the `bridge` mode, the task payload carries a
+`storage_ref` field instead of `data_base64` / `artifact_id`:
+
+```json
+{
+  "path": "projects/2026/file.png",
+  "storage_ref": { "type": "channel", "id": "ch_abc", "filename": "file.png" }
+}
+```
+
+`type` is `"channel"` (storage.upload_channel) or `"backup"`
+(backup.create mode=bridge). The receiving node resolves the ref and
+streams the file from the storage node via `file get` / bridge download.
+See also [storage.md](storage.md).

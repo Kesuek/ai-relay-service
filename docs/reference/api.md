@@ -35,7 +35,8 @@ For node-side usage see [../node/setup.md](../node/setup.md).
 | GET | `/relay/v2/discovery/nodes` | `rt_...` | List nodes known to the relay |
 | GET | `/relay/v2/discovery/query` | `rt_...` | Query the capability registry |
 | GET | `/relay/v2/discovery/capabilities` | `rt_...` | List all advertised capabilities |
-| GET | `/relay/v2/discovery/capabilities/{name}` | `rt_...` | Detail for a single capability |
+| GET | `/relay/v2/discovery/capabilities/{name}` | `rt_...` | Detail for a single capability (includes `upload_modes` since T-164) |
+| GET | `/relay/v2/discovery/transfer-config` | `rt_...` | T-164: Datei-Übertragungs-Treppe — returns `{max_inline_bytes, max_artifact_bytes, max_payload_bytes}` so the node-cli can pick the transfer mode (inline / artifact / bridge) |
 
 ## Scheduler — `/relay/v2/scheduler`
 

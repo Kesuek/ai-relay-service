@@ -9,8 +9,8 @@ concrete service image built on top of the node base image
 
 | Capability | Claimable | Description |
 |------------|-----------|-------------|
-| `storage.store` | ✅ | Write a file to the NAS (inline `data_base64` or stream an artifact by `artifact_id`). |
-| `storage.fetch` | ✅ | Read a file back as `data_base64` (small files). |
+| `storage.store` | ✅ | Write a file to the NAS (inline `data_base64`, stream an artifact by `artifact_id`, or bridge via `storage_ref`). `upload_modes: [inline, artifact, bridge]` |
+| `storage.fetch` | ✅ | Read a file back as `data_base64` (small files) or via a bridge download channel (large files). `upload_modes: [inline, bridge]` |
 | `storage.delete` | ✅ | Remove a file or directory (recursive). |
 | `storage.list` | ✅ | List files under a prefix. |
 | `storage.quota` | ✅ | Report disk usage + threshold (`RELAY_STORAGE_QUOTA_THRESHOLD`, default 0.9). |
@@ -20,10 +20,10 @@ concrete service image built on top of the node base image
 | `storage.archive` | ✅ | Pack a directory into a `.tar.gz` (T-135). |
 | `storage.upload_channel` | ✅ | Open a temp bridge route so a caller can stream a large file **to** the NAS through the relay. |
 | `storage.download_channel` | ✅ | Open a temp bridge route so a caller can stream a large file **from** the NAS through the relay. |
-| `backup.create` | ✅ | Declare an upload as a versioned backup (full or incremental). |
+| `backup.create` | ✅ | Declare an upload as a versioned backup (full or incremental). `upload_modes: [inline, artifact, bridge]` |
 | `backup.list` | ✅ | List backups, optionally filtered by `source`/`type`. |
 | `backup.info` | ✅ | Return the manifest of a single backup. |
-| `backup.restore` | ✅ | Return a backup's data (inline `data_base64` for small backups). |
+| `backup.restore` | ✅ | Return a backup's data (inline `data_base64` for small backups, bridge for large ones). `upload_modes: [inline, bridge]` |
 | `backup.delete` | ✅ | Mark a backup `deleted` (manifest kept for audit, data removed). |
 | `backup.retention` | ✅ | Apply a retention policy to a source (keep_last / max_age_days / GFS). |
 
@@ -229,3 +229,25 @@ upload:
 Typical flow: upload a folder as `store_as_is` first, then `extract` it
 later when the real directory structure is needed — or `archive` an
 existing directory on demand.
+
+## Datei-Übertragungs-Treppe (T-164)
+
+The three transfer modes (inline / artifact / bridge) form a deterministic
+size-based ladder, configured on the server and chosen by `node-cli file
+send`/`file get`:
+
+| File size | Mode | Mechanism | Payload field |
+|---|---|---|---|
+| ≤ `max_inline_bytes` (default 5 MB) | `inline` | base64 in task payload | `data_base64` |
+| ≤ `max_artifact_bytes` (default 50 MB) | `artifact` | transient relay store | `artifact_id` |
+| > `max_artifact_bytes` | `bridge` | direct stream to/from storage node | `storage_ref` `{type, id, filename}` |
+
+Each storage capability declares which rungs it supports via
+`upload_modes` (see [capabilities.md](capabilities.md#upload_modes--datei-übertragungs-treppe-t-164)).
+`file send`/`file get` pick the smallest supported rung that fits the
+file; use `bridge upload`/`bridge download` for explicit channel control.
+
+The artifact store is **transient** (T-165): a watchdog deletes every
+artifact older than `artifact_ttl_days` (default 7) on its hourly sweep,
+regardless of whether the task still exists. The durable copy lives on
+the storage node; the store is a transfer buffer, not an archive.

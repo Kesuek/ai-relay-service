@@ -160,6 +160,10 @@
 - [x] T-134: Doku — `docs/node/storage.md` um Ordner-Übertragung erweitert (action-Flag, extract/archive-Referenz, typischer Flow); CHANGELOG + STATUS aktualisiert
 - [x] `storage.extract`/`storage.archive`-Capabilities in `node.yaml` deklariert; 9 neue Tests in `tests/nodes/test_storage_handlers.py`
 
+### Phase 35 — Datei-Übertragungs-Treppe + Artifact-TTL (T-164/T-165) ✅
+- [x] T-164: Generische Datei-Übertragungs-Treppe — Server-Konfig (`max_inline_bytes` / `max_artifact_bytes` / `artifact_ttl_days` in `config.py` mit Validatoren), `GET /relay/v2/discovery/transfer-config`-Endpoint, `upload_modes`-Spalte in `node_capabilities` (Migration + sync + get_capabilities + get_capability_details + Model), `node.yaml` deklariert `upload_modes` pro Storage-Capability, `node-cli file send`/`file get` wählen den Modus aus Server-Treppe + Capability-`upload_modes`, `storage_ref`-Contract für Bridge-Modus, 13 Tests in `tests/nodes/test_cli_file.py`
+- [x] T-165: Artifact-Store transient — `cleanup_expired_artifacts` löscht alle Artifakte älter als `artifact_ttl_days` (Default 7), `maintenance.artifact_cleanup`-Watchdog umgestellt, gemeinsamer Lösch-Helper für orphaned + TTL, 3 neue Tests in `tests/test_maintenance.py`
+
 ---
 
 ## Code Review Summary (historical — all findings resolved)
