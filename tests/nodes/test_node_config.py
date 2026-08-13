@@ -180,6 +180,14 @@ def test_schema_rejects_unknown_keys():
         validate_profile({"capabilities": [{"name": "x", "unknown_field": "bad"}]})
 
 
+def test_schema_accepts_upload_modes():
+    """T-164: upload_modes is a valid capability key and is forwarded."""
+    caps = validate_profile(
+        {"capabilities": [{"name": "x", "upload_modes": ["inline", "artifact", "bridge"]}]}
+    )
+    assert caps[0]["upload_modes"] == ["inline", "artifact", "bridge"]
+
+
 def test_schema_rejects_wrong_type_for_version():
     """Schema catches type errors in optional fields."""
     with pytest.raises(CapabilityValidationError, match="version.*str"):
