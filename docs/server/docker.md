@@ -55,7 +55,7 @@ bundled `postgres` container — they are irrelevant for an external database.
 
 ```dotenv
 RELAY_DB_TYPE=postgres
-RELAY_PG_DSN=postgresql+psycopg://relay:MEIN_PASSWORT@192.168.1.50:5432/relay
+RELAY_PG_DSN=postgresql+psycopg://relay:<POSTGRES_PASSWORD>@192.168.1.50:5432/relay
 ```
 
 Start the relay alone (no `--profile postgres`):
@@ -71,9 +71,9 @@ name. The relay container must be able to reach it (network/firewall).
 
 ```dotenv
 RELAY_DB_TYPE=postgres
-RELAY_PG_DSN=postgresql+psycopg://relay:MEIN_PASSWORT@postgres:5432/relay
+RELAY_PG_DSN=postgresql+psycopg://relay:<POSTGRES_PASSWORD>@postgres:5432/relay
 POSTGRES_USER=relay
-POSTGRES_PASSWORD=MEIN_PASSWORT
+POSTGRES_PASSWORD=<POSTGRES_PASSWORD>
 POSTGRES_DB=relay
 ```
 
