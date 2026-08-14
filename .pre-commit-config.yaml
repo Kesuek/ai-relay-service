@@ -1,0 +1,8 @@
+# Pre-commit hooks for ai-relay-service.
+# Install with:  pip install pre-commit && pre-commit install
+# The gitleaks hook scans the staged diff for secrets before every commit.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
