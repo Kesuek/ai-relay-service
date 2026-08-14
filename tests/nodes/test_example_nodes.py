@@ -22,6 +22,15 @@ NODES_DIR = REPO / "examples" / "nodes"
 VAULT_NAME = "Vault Example"
 BOARD_NAME = "Board Example"
 
+# The examples/ directory was removed in T-147 (2026-08-14) and will be
+# rebuilt on the current stack (node-cli/node-daemon) later. This integration
+# test depends on the old vault_node.py / board_node.py example nodes, so it
+# is skipped until the examples/ rebuild lands.
+pytestmark = pytest.mark.skipif(
+    not NODES_DIR.exists(),
+    reason="examples/ removed in T-147; rebuild pending",
+)
+
 
 def _free_port() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

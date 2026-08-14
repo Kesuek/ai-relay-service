@@ -209,9 +209,12 @@ rel = os.path.expanduser("~/.relay")
 import pathlib
 pathlib.Path(rel).mkdir(parents=True, exist_ok=True)
 pathlib.Path(rel, "ai-relay-agent.json").write_text(json.dumps(meta, indent=2))
+os.chmod(os.path.join(rel, "ai-relay-agent.json"), 0o600)
 token = data.get("token")
 if token:
-    pathlib.Path(rel, "ai-relay-agent.token").write_text(json.dumps({"token": token, "expires_at": None}) + "\n")
+    token_path = pathlib.Path(rel, "ai-relay-agent.token")
+    token_path.write_text(json.dumps({"token": token, "expires_at": None}) + "\n")
+    os.chmod(token_path, 0o600)
 status = data.get("status", "pending")
 print(f"[entrypoint] registered node_id={data['node_id']} status={status}")
 if status == "pending":

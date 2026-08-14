@@ -36,6 +36,14 @@ def test_save_load_token_json_format(isolated_token_path: Path):
     assert loaded == {"token": "rt_abc123", "expires_at": expires}
 
 
+def test_save_token_sets_0600_perms(isolated_token_path: Path):
+    """save_token writes the token file with restrictive 0600 perms so
+    other local users cannot read the runtime token (T-171)."""
+    node_utils.save_token("rt_permtest", expires_at=None)
+    mode = isolated_token_path.stat().st_mode & 0o777
+    assert mode == 0o600, f"expected 0600, got {oct(mode)}"
+
+
 def test_save_token_without_expires_at(isolated_token_path: Path):
     """expires_at defaults to None when omitted."""
     node_utils.save_token("rt_only")
