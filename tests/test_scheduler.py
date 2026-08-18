@@ -1583,3 +1583,57 @@ def test_orphaned_stage_fails_after_24h():
     finally:
         conn.close()
     assert row["status"] == "failed"
+
+
+def test_node_dead_failsafe_keeps_busy_node_stage():
+    """A busy (but online) owner node must NOT have its accepted stage failed.
+
+    Regression for the node_dead failsafe: it used node_claim_statuses()
+    (AVAILABLE only: approved/online/idle), so a node auto-transitioned to
+    "busy" by T-081/T-113 (high load / queue_depth >= 1 while running a heavy
+    job) fell out of the live set and its accepted stage was wrongly failed.
+    A busy node is actively working, not offline.
+    """
+    from relay_server.core.scheduler import Scheduler
+    from relay_server.core.db import get_conn, q
+    import datetime
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+    worker_id, worker_token = _register(
+        secret, "Worker", [{"name": "storage.archive", "version": "1.0"}]
+    )
+
+    task_id, stage_id = _create_and_claim_task(admin_token, worker_token, "storage.archive")
+
+    # Signal long-run → accepted with 2h TTL.
+    client.post(
+        f"/relay/v2/scheduler/tasks/{task_id}/notes",
+        headers={"Authorization": f"Bearer {worker_token}"},
+        json={"message": "long", "kind": "longrun"},
+    )
+
+    # Set the owner node to "busy" with a FRESH last_seen (online, working).
+    conn = get_conn()
+    try:
+        conn.execute(
+            q("UPDATE nodes SET status = 'busy', last_seen = ? WHERE node_id = ?",
+              (datetime.datetime.now(datetime.timezone.utc).isoformat(), worker_id))
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    result = Scheduler.enforce_longrun_leases()
+    assert stage_id not in result["node_failed"], (
+        "busy owner node must not be treated as dead"
+    )
+
+    conn = get_conn()
+    try:
+        row = conn.execute(q("SELECT status FROM task_stages WHERE stage_id = ?", (stage_id,))).fetchone()
+    finally:
+        conn.close()
+    assert row["status"] == "accepted"
