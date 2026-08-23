@@ -1637,3 +1637,88 @@ def test_node_dead_failsafe_keeps_busy_node_stage():
     finally:
         conn.close()
     assert row["status"] == "accepted"
+
+
+# ---------------------------------------------------------------------------
+# T-045: Idempotency-Key — same key returns existing task, no key always new
+# ---------------------------------------------------------------------------
+
+
+def _submit_simple(admin_token: str, idempotency_key=None) -> dict:
+    _register(
+        None, f"IdemWorker-{next(_submit_simple._counter)}",
+        [{"name": "web_fetch", "version": "1.0"}], admin_token=admin_token,
+    )
+    body = {"capability": "web_fetch", "payload": {"x": 1}}
+    if idempotency_key is not None:
+        body["idempotency_key"] = idempotency_key
+    r = client.post(
+        "/relay/v2/scheduler/task-simple",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json=body,
+    )
+    assert r.status_code == 200, r.json()
+    return r.json()
+
+
+_submit_simple._counter = __import__("itertools").count()
+
+
+def test_idempotency_same_key_returns_existing_task():
+    """Retry with the same idempotency_key returns the existing task_id."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    first = _submit_simple(admin_token, idempotency_key="retry-abc")
+    second = _submit_simple(admin_token, idempotency_key="retry-abc")
+
+    assert first["task_id"] == second["task_id"]
+
+
+def test_idempotency_different_key_creates_new_task():
+    """A different idempotency_key creates a different task."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    first = _submit_simple(admin_token, idempotency_key="key-1")
+    second = _submit_simple(admin_token, idempotency_key="key-2")
+
+    assert first["task_id"] != second["task_id"]
+
+
+def test_idempotency_no_key_always_creates_new_task():
+    """Without an idempotency_key every submit creates a fresh task."""
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    first = _submit_simple(admin_token)
+    second = _submit_simple(admin_token)
+
+    assert first["task_id"] != second["task_id"]
+
+
+def test_idempotency_key_column_persists_on_task():
+    """The submitted idempotency_key is stored on the task row."""
+    from relay_server.core.db import get_conn, q
+
+    secret = _seed_admin()
+    admin_id, admin_token = _register(
+        secret, "Admin", [{"name": "admin", "version": "1.0"}], "admin"
+    )
+
+    result = _submit_simple(admin_token, idempotency_key="persist-me")
+
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            q("SELECT idempotency_key FROM tasks WHERE task_id = ?", (result["task_id"],))
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row["idempotency_key"] == "persist-me"
