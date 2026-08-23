@@ -60,6 +60,32 @@ Three threads run inside the daemon:
 | Complexity | Simple | Moderate (reconnect, async) |
 | When to use | Stable environments | Real-time needed |
 
+### Which daemon should I run? (Decision guide)
+
+**Rule of thumb: SSE (`node-daemon`) first — polling as the fallback.**
+
+Choose **`node-daemon` (SSE)** when:
+- the node has a direct, stable connection to the relay (LAN, VPN, plain
+  internet), and
+- nothing between node and relay strips long-lived HTTP streams.
+
+Choose **`node-cli daemon` (polling)** when:
+- a proxy, load balancer, or corporate firewall buffers/cuts SSE
+  connections (symptom: daemon logs constant reconnects but heartbeats
+  succeed), or
+- you are on an unreliable mobile/intermittent link where reconnect
+  churn outweighs the latency benefit, or
+- you want the simplest possible setup (no SSE endpoint dependency).
+
+**Never run both at the same time as the same node.** This caused real
+incidents before the guard existed (T-137b): both processes fight over
+the runtime token (each refresh invalidates the other's token → 401
+loops) and race on claims (duplicate execution, RAM overflow under
+retry storms). Since T-137b-Guard both daemons check for each other's
+PID file at startup and refuse to start with a clear error message.
+The guard reads the *other* daemon's PID file — stale PID files from
+crashed processes do not block startup.
+
 ## Subscribed Events
 
 The daemon subscribes to `stage_claimed` and `task_created` events. When either arrives, it triggers a claim sweep: for each claimable capability in the active profile, it calls `claim()`. If a stage is returned, it runs the handler and completes the stage.

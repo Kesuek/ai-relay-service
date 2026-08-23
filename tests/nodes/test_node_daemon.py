@@ -593,3 +593,65 @@ def test_handler_timeout_non_long_run_keeps_configured():
 def test_handler_timeout_default_when_missing():
     cap = {"name": "storage.list"}
     assert nd._handler_timeout(cap) == 300
+
+# ---------------------------------------------------------------------------
+# T-137b-Guard: Doppelbetrieb — node-daemon refuses to start while
+# node-cli daemon (polling) is running as the same node, and vice versa.
+# ---------------------------------------------------------------------------
+
+
+def test_daemon_refuses_start_when_polling_daemon_runs(tmp_path, monkeypatch):
+    """node-daemon must not start if node-cli daemon holds the PID file."""
+    import os
+
+    from nodes.common import node_cli
+
+    cli_pid = tmp_path / "node-cli.pid"
+    cli_pid.write_text(str(os.getpid()) + "\n")  # this process is alive
+    monkeypatch.setattr(node_cli, "PID_PATH", cli_pid)
+
+    err = nd._check_other_daemon(base_dir=tmp_path)
+    assert err is not None
+    assert "node-cli" in err.lower()
+
+
+def test_daemon_allows_start_when_other_pid_file_stale(tmp_path, monkeypatch):
+    """A stale PID file (process dead) does not block the start."""
+    import os
+
+    from nodes.common import node_cli
+
+    cli_pid = tmp_path / "node-cli.pid"
+    dead_pid = 999999  # almost certainly not running
+    if node_utils.pid_running(dead_pid):
+        pytest.skip("dead-pid candidate happens to be alive")
+    cli_pid.write_text(str(dead_pid) + "\n")
+    monkeypatch.setattr(node_cli, "PID_PATH", cli_pid)
+
+    err = nd._check_other_daemon(base_dir=tmp_path)
+    assert err is None
+
+
+def test_daemon_allows_start_when_no_other_daemon(tmp_path, monkeypatch):
+    from nodes.common import node_cli
+
+    monkeypatch.setattr(node_cli, "PID_PATH", tmp_path / "node-cli.pid")
+
+    err = nd._check_other_daemon(base_dir=tmp_path)
+    assert err is None
+
+
+def test_polling_daemon_refuses_when_sse_daemon_runs(tmp_path, monkeypatch):
+    """node-cli daemon must not start if node-daemon (SSE) holds the PID file."""
+    import os
+
+    from nodes.common import node_cli
+
+    sse_pid = tmp_path / "node-daemon.pid"
+    sse_pid.write_text(str(os.getpid()) + "\n")
+
+    err = node_cli._check_other_daemon(
+        other_pid_path=sse_pid, own_name="node-cli daemon", other_name="node-daemon"
+    )
+    assert err is not None
+    assert "node-daemon" in err.lower()
