@@ -1,4 +1,4 @@
-# IOWAP — ai-relay-service (deprecated)
+# IOWAP — ai-relay-service 
 
 **This repository has been split into 4 repositories under `iowap-org`.**
 
