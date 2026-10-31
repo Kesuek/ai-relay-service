@@ -6,7 +6,7 @@
 
 ## → **[github.com/iowap-org/iowap](https://github.com/iowap-org/iowap)** (meta + architecture)
 
-The project formerly known as `ai-relay-service` now lives as **IOWAP** (Infrastructure · Offloading · Workload Assignment Platform):
+The project formerly known as `ai-relay-service` now lives as **IOWAP** (Inter-Node Offload · Workload Advertisement · Protocol):
 
 | Old | New |
 |-----|-----|
